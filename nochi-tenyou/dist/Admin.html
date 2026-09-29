@@ -424,7 +424,11 @@
          [l.kairyoName, l.kairyoTel, l.kairyoBenefit && '受益地:' + l.kairyoBenefit,
           l.kairyoSettlement && '決済金:' + l.kairyoSettlement + (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''),
           l.iinStamp === '必要' && '委員押印:必要' + (l.iinContacts ? '\n' + l.iinContacts : ''),
-          l.localConsent && '地元同意:' + l.localConsent + (l.localContacts ? '\n' + l.localContacts : '')]
+          l.localConsent && '地元同意:' + l.localConsent + (l.localContacts ? '\n' + l.localContacts : ''),
+          l.tenyoKanou && '転用の見込み:' + l.tenyoKanou,
+          (l.drainConsent || l.drainAdjacent) && '排水:隣接水路 ' + (l.drainAdjacent || '-') + '／承諾 ' + (l.drainConsent || '-') +
+            [l.drainName, l.drainTel, l.drainFee && '手数料 ' + l.drainFee, l.drainLocalConsent && '地元承諾 ' + l.drainLocalConsent]
+              .filter(function (x) { return x; }).map(function (x) { return '／' + x; }).join('') + (l.drainContacts ? '\n' + l.drainContacts : '')]
            .filter(function (x) { return x; }).join('\n')].forEach(function (v, i) {
           tr.appendChild(el('td', i === 1 || i === 9 ? { 'class': 'loc', style: 'white-space:pre-line' } : {}, v === '' || v === undefined ? '―' : v));
         });
@@ -440,7 +444,7 @@
     [
       ['受付日時', c.receivedAt], ['入力者', c.submittedBy], ['依頼種別', c.requestFlag === true ? '見積調査依頼' : '保存のみ'],
       ['都道府県', c.prefecture], ['面積合計', c.area === '' ? '―' : c.area + ' ㎡'],
-      ['今後の転用計画', c.plan], ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(String).join('\n')],
+      ['転用目的', c.purpose], ['今後の転用計画', c.plan], ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(String).join('\n')],
       ['資料', c.documents], ['概算見積', yen(c.estimate)], ['見積内訳', c.estimateDetail],
       ['Chat通知', c.notifyResult], ['最終更新', c.updatedAt]
     ].forEach(function (kv) {

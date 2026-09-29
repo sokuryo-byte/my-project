@@ -47,7 +47,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
     '*【農地転用】見積調査依頼が届きました*',
     '案件ID：' + caseId,
     '依頼者名：' + (input.requesterName || '（未入力）'),
-    '物件：' + input.lots.length + '件（' + input.prefecture + '）',
+    '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
   ];
   input.lots.forEach(function (l, i) {
     lines.push('　' + (i + 1) + '. ' + (l.address || '（所在未入力）') + ' ' + l.lotNumber +
@@ -62,6 +62,13 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
     if (l.iinStamp === '必要') {
       lines.push('　　農業委員等の押印：必要');
       (l.iinContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
+    }
+    if (l.tenyoKanou) lines.push('　　転用の見込み（農業委員会）：' + l.tenyoKanou);
+    if (l.drainConsent || l.drainAdjacent) {
+      lines.push('　　排水：隣接水路 ' + (l.drainAdjacent || '-') + '／排水承諾 ' + (l.drainConsent || '-') +
+        (l.drainName ? '／' + l.drainName + (l.drainTel ? '（' + l.drainTel + '）' : '') : '') +
+        (l.drainFee ? '／手数料 ' + l.drainFee : '') + (l.drainLocalConsent ? '／地元承諾 ' + l.drainLocalConsent : ''));
+      (l.drainContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
     }
     if (l.localConsent) {
       lines.push('　　地元関係者の同意（押印）：' + l.localConsent);

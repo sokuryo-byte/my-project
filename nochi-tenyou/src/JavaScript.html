@@ -66,6 +66,7 @@
     document.body.appendChild(el('datalist', { id: 'cityList' }));
     fillCityList();
 
+    renderChoices($('purposeChoices'), 'purpose', state.options.purposes);
     renderDocs(state.options.documents);
     $('uploadHelp').textContent += '（PDF・画像、1ファイル' + data.upload.maxMb + 'MBまで）';
     $('tohonStatus').setAttribute('data-type', TOHON);
@@ -105,13 +106,12 @@
       var zones = e.target.closest && e.target.closest('.zones');
       if (zones) zones.classList.remove('invalid');
       var lot = e.target.closest && e.target.closest('.lot');
-      if (lot && (e.target.name === radioName(lot, 'landImprovement') || e.target.name === radioName(lot, 'iinStamp') ||
-          e.target.name === radioName(lot, 'localConsent') ||
-          e.target.getAttribute('data-f') === 'kairyoTel')) updateCallBox(lot);
       if (lot && e.target.type === 'radio') {
         if (zones) applyNoshinDefault(lot);
         else if (e.target.name === radioName(lot, 'isNoshin')) lot.removeAttribute('data-noshin-auto'); // 人が選んだ値は以後触らない
       }
+      if (lot) updateCallBox(lot);                                        // 選択に合わせて電話確認の表示・トーク例を更新
+      if (e.target.name === 'purpose') qsa('.lot').forEach(updateCallBox); // 転用目的は全物件に影響
     }
     updatePlanRequired();
     schedulePreview();
@@ -256,8 +256,8 @@
     var kairyo = el('div', { 'class': 'choices' });
     renderChoices(kairyo, id('landImprovement'), ['はい', 'いいえ', '分からない']);
     var callField = el('div', { 'class': 'field' });
-    callField.appendChild(el('span', { 'class': 'lbl' }, '農業委員会への電話確認'));
-    callField.appendChild(el('p', { 'class': 'help' }, '土地改良区と、地元委員の押印の要否を農業委員会へお電話でご確認ください。'));
+    callField.appendChild(el('span', { 'class': 'lbl' }, '電話確認（農業委員会・関係先）'));
+    callField.appendChild(el('p', { 'class': 'help' }, 'トーク例に沿ってお電話でご確認のうえ、回答を選択・入力してください。'));
     callField.appendChild(buildCallBox(card, id, o, kairyo));
     card.appendChild(callField);
 
@@ -277,6 +277,13 @@
       setContacts(card, 'iinContacts', inherit.iinContacts);
       setRadio(card, 'localConsent', inherit.localConsent);            // 同じ地区なら地元関係者も同じことが多い
       setContacts(card, 'localContacts', inherit.localContacts);
+      setRadio(card, 'drainAdjacent', inherit.drainAdjacent);          // 隣の土地なら排水先も同じことが多い
+      setRadio(card, 'drainConsent', inherit.drainConsent);
+      lotInput(card, 'drainName').value = inherit.drainName || '';
+      lotInput(card, 'drainTel').value = inherit.drainTel || '';
+      lotInput(card, 'drainFee').value = inherit.drainFee || '';
+      setRadio(card, 'drainLocalConsent', inherit.drainLocalConsent);
+      setContacts(card, 'drainContacts', inherit.drainContacts);
       applyNoshinDefault(card);
     }
     renumberLots();
@@ -351,6 +358,14 @@
       iinContacts: getContacts(card, 'iinContacts'),
       localConsent: getRadio(card, 'localConsent'),
       localContacts: getContacts(card, 'localContacts'),
+      tenyoKanou: getRadio(card, 'tenyoKanou'),
+      drainAdjacent: getRadio(card, 'drainAdjacent'),
+      drainConsent: getRadio(card, 'drainConsent'),
+      drainName: lotInput(card, 'drainName').value,
+      drainTel: lotInput(card, 'drainTel').value,
+      drainFee: lotInput(card, 'drainFee').value,
+      drainLocalConsent: getRadio(card, 'drainLocalConsent'),
+      drainContacts: getContacts(card, 'drainContacts'),
       readFromTohon: card.getAttribute('data-tohon') === '1'
     };
   }
@@ -381,6 +396,11 @@
     r0.appendChild(radioField('地元の農業委員・推進委員の押印', iin));
     s1.appendChild(r0);
     s1.appendChild(contactList('iinContacts', '押印が必要な委員', '例）山田 一郎（農業委員）'));
+    var kanou = el('div', { 'class': 'choices' });
+    renderChoices(kanou, id('tenyoKanou'), o.tenyoKanou);
+    var kanouField = radioField('転用の見込み', kanou, el('p', { 'class': 'help' }, '農地区分など、転用の可能性がある農地か'));
+    kanouField.classList.add('kanou-field', 'hidden');
+    s1.appendChild(kanouField);
     box.appendChild(s1);
     // ② 土地改良区（「はい」のときだけ表示）
     var s2 = el('div', { 'class': 'step2 hidden' });
@@ -408,6 +428,37 @@
       el('p', { 'class': 'help' }, '自治会長・水利組合・農事組合・地元の委員や理事など、説明や同意書への押印が必要な方がいるか')));
     s2.appendChild(contactList('localContacts', '同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'));
     box.appendChild(s2);
+    // ③ 排水先（転用目的が分家住宅のとき）
+    var s3 = el('div', { 'class': 'step3 step2 hidden' });
+    var h3 = el('div', { 'class': 'step-h' });
+    h3.appendChild(el('span', { 'class': 'step3-title' }, '③ 排水先の確認（分家住宅）'));
+    s3.appendChild(h3);
+    s3.appendChild(el('div', { 'class': 'script script3a' }));
+    var adj = el('div', { 'class': 'choices' });
+    renderChoices(adj, id('drainAdjacent'), o.drainAdjacent);
+    var dc = el('div', { 'class': 'choices' });
+    renderChoices(dc, id('drainConsent'), o.drainConsent);
+    var r3 = el('div', { 'class': 'row' });
+    r3.appendChild(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')));
+    r3.appendChild(radioField('流末の農業用水への排水承諾', dc));
+    s3.appendChild(r3);
+    var s3b = el('div', { 'class': 'step3b hidden', style: 'display:grid;gap:8px' });
+    var r4 = el('div', { 'class': 'row' });
+    r4.appendChild(field('用水（管理者）名', el('input', { type: 'text', id: id('drainName'), maxlength: '100', placeholder: '例）○○用水 水利組合', 'data-f': 'drainName' })));
+    r4.appendChild(field('用水の電話番号', el('input', { type: 'tel', id: id('drainTel'), maxlength: '20', placeholder: '例）0565-00-0000', 'data-f': 'drainTel' })));
+    s3b.appendChild(r4);
+    var h3b = el('div', { 'class': 'step-h' });
+    h3b.appendChild(el('span', {}, '用水へ確認'));
+    h3b.appendChild(el('a', { 'class': 'tel drain-tel hidden' }));
+    s3b.appendChild(h3b);
+    s3b.appendChild(el('div', { 'class': 'script script3b' }));
+    s3b.appendChild(field('手数料（負担金）の金額・備考', el('input', { type: 'text', id: id('drainFee'), maxlength: '200', placeholder: '例）○万円／なし など', 'data-f': 'drainFee' })));
+    var dl = el('div', { 'class': 'choices' });
+    renderChoices(dl, id('drainLocalConsent'), o.localConsent);
+    s3b.appendChild(radioField('地元承諾（押印）', dl));
+    s3b.appendChild(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'));
+    s3.appendChild(s3b);
+    box.appendChild(s3);
     return box;
   }
 
@@ -500,7 +551,36 @@
       '「また、申請にあたり地元の農業委員さんや農地利用最適化推進委員さんの押印は必要でしょうか。」',
       '→ 必要な場合：「委員さんのお名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
     ]);
+    var zone = getRadio(card, 'zone');
+    var permit = ['市街化調整区域', '非線引き区域', '都市計画区域外'].indexOf(zone) >= 0;
+    var purpose = radioVal('purpose');
+    var purposeText = purpose && purpose !== 'その他' ? purpose : '住宅等';
+    if (permit) {
+      var sc = card.querySelector('.step1 .script');
+      sc.appendChild(el('p', {}, '「' + zone + 'の農地で、' + purposeText + 'への転用を検討しております。転用の可能性がある農地かどうか（農地区分など）、お伺いできますでしょうか。」'));
+    }
+    card.querySelector('.kanou-field').classList.toggle('hidden', !permit);
     card.querySelector('[data-contacts=iinContacts]').classList.toggle('hidden', getRadio(card, 'iinStamp') !== '必要');
+    // ③ 排水先（分家住宅）
+    var bunke = purpose === '分家住宅';
+    card.querySelector('.step3').classList.toggle('hidden', !bunke);
+    card.querySelector('.step3-title').textContent = (getRadio(card, 'landImprovement') === 'はい' ? '③' : '②') + ' 排水先の確認（分家住宅）';
+    var dOn = getRadio(card, 'drainConsent') === '必要';
+    card.querySelector('.step3b').classList.toggle('hidden', !dOn);
+    card.querySelector('[data-contacts=drainContacts]').classList.toggle('hidden', !(dOn && getRadio(card, 'drainLocalConsent') === '必要'));
+    telLink(card.querySelector('.drain-tel'), lotInput(card, 'drainTel').value.trim());
+    var dname = lotInput(card, 'drainName').value.trim();
+    scriptLines(card.querySelector('.script3a'), [
+      '（農業委員会、または市の道路・下水の担当課へ）',
+      '「' + where + 'で分家住宅を予定しております。排水先についてお伺いします。隣接の水路へ排水してもよろしいでしょうか。」',
+      '→ 水路がない場合：「側溝への排水になるかと思いますが、流末が農業用水にかかる場合、排水承諾の手続きは必要でしょうか。」',
+      '→ 必要な場合：「用水の管理者（水利組合・土地改良区など）の名称とご連絡先をお教えいただけますでしょうか。」'
+    ]);
+    scriptLines(card.querySelector('.script3b'), [
+      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'で分家住宅を予定しており、排水承諾の件でお電話いたしました。」',
+      '「' + (dname || '貴用水') + 'への排水承諾の手続きと、手数料（負担金）はございますでしょうか。ある場合は金額の目安をお教えいただけますでしょうか。」',
+      '「また、地元の承諾（押印）が必要な方はいらっしゃいますでしょうか。いらっしゃる場合は、お名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
+    ]);
     card.querySelector('[data-contacts=localContacts]').classList.toggle('hidden', getRadio(card, 'localConsent') !== '必要');
     var on = getRadio(card, 'landImprovement') === 'はい';
     card.querySelector('.step2').classList.toggle('hidden', !on);
@@ -758,6 +838,7 @@
       prefecture: $('prefecture').value,
       lots: qsa('.lot').map(getLotData),
       plan: $('plan').value,
+      purpose: radioVal('purpose'),
       documentsOther: $('documentsOther') ? $('documentsOther').value : '',
       attachments: state.uploads
         .filter(function (u) { return u.status === 'done' && u.fileId; })

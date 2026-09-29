@@ -112,14 +112,36 @@ function calculateEstimate_(input) {
 
   // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---
   const consentLots = lots.filter(function (l) {
-    return l.landImprovement === '分からない' || (l.landImprovement === 'はい' && l.localConsent !== '不要');
+    return l.landImprovement === '分からない' || (l.landImprovement === 'はい' && l.localConsent !== '不要') ||
+      (l.drainConsent === '必要' && l.drainLocalConsent !== '不要'); // 排水承諾で地元承諾が必要な場合も
   });
   if (consentLots.length) {
     items.push(item('ADD_WATER_ASSOCIATION'));
-    if (!consentLots.some(function (l) { return l.localConsent === '必要'; })) {
+    if (!consentLots.some(function (l) { return l.localConsent === '必要' || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })) {
       notes.push('地元関係者の同意（押印）が未確認のため加算しています。不要な場合は減額となります。');
     }
   }
+
+  // --- 4-3. 分家住宅：分家建築許可（調整区域）・排水承諾手続 ---
+  if (input.purpose === '分家住宅') {
+    if (lots.some(function (l) { return l.zone === '市街化調整区域'; })) {
+      items.push(item('ADD_BUNKE'));
+      notes.push('開発許可（都市計画法29条）となる場合は金額が変わります。');
+    }
+    const drainLots = lots.filter(function (l) { return l.drainConsent !== '不要'; });
+    if (drainLots.length) {
+      items.push(item('ADD_DRAINAGE'));
+      if (!drainLots.some(function (l) { return l.drainConsent === '必要'; })) {
+        notes.push('排水承諾の要否が未確認のため加算しています。不要な場合は減額となります。');
+      }
+    }
+    lots.forEach(function (l, i) {
+      if (l.drainConsent === '必要' && l.drainFee) notes.push(lotName(l, i) + '：用水への手数料等は実費のため見積に含みません（' + l.drainFee + '）。');
+    });
+  }
+  lots.forEach(function (l, i) {
+    if (l.tenyoKanou === '難しい') notes.push(lotName(l, i) + '：農業委員会より転用は難しいとの回答があります。');
+  });
 
   // --- 5. 現況是正・事後手続き 加算（許可の区域のみ。届出では始末書等は不要） ---
   const isConvertedLot = function (l) {

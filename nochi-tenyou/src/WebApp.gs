@@ -160,6 +160,7 @@ function submitCase(form, requestInvestigation) {
     requestFlag: isRequest,
     prefecture: input.prefecture,
     waterAssociation: summary.localConsent,
+    purpose: input.purpose,
     localConsentNote: summary.localContacts,
     estimateDetail: estimateToText_(estimate),
     submittedBy: input.submittedBy,
@@ -177,6 +178,9 @@ function submitCase(form, requestInvestigation) {
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
+      tenyoKanou: l.tenyoKanou, drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
+      drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
+      drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
     };
   }));
@@ -293,13 +297,16 @@ function normalizeInput_(form) {
   const master = getMasterList_();
   const lots = (Array.isArray(f.lots) ? f.lots : [])
     .slice(0, MAX_LOTS)
-    .map(function (l) { return normalizeLot_(l || {}, prefecture, master); });
+    .map(function (l) {
+      return normalizeLot_(Object.assign({}, l || {}, { bunke: pick_(f.purpose, FORM_OPTIONS.purposes) === '分家住宅' }), prefecture, master);
+    });
 
   return {
     requesterName: str_(f.requesterName, 50),
     prefecture: prefecture,
     lots: lots,
     plan: str_(f.plan, 1000),
+    purpose: pick_(f.purpose, FORM_OPTIONS.purposes),
     documents: documents,
     attachments: attachments,
     submittedBy: getUserEmail_(),
@@ -317,6 +324,9 @@ function normalizeLot_(l, prefecture, master) {
   if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
   const split = splitLotNumber_(place);
   const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
+  const drainOn = l.bunke === true;                                             // 転用目的が分家住宅
+  const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
+  const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
   const landUse = pick_(l.landUse, FORM_OPTIONS.landUses);
@@ -348,6 +358,16 @@ function normalizeLot_(l, prefecture, master) {
     // 地元関係者の同意（土地改良区へ確認。「必要」のときだけ氏名・住所・電話を保存）
     localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
     localContacts: kairyoOn && pick_(l.localConsent, FORM_OPTIONS.localConsent) === '必要' ? normalizeContacts_(l.localContacts) : [],
+    // 転用の見込み（許可が必要な区域で農業委員会に確認）
+    tenyoKanou: PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0 ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
+    // 排水先（分家住宅のとき）
+    drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
+    drainConsent: drainOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
+    drainName: drainConsentOn ? str_(l.drainName, 100) : '',
+    drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',
+    drainFee: drainConsentOn ? str_(l.drainFee, 200) : '',
+    drainLocalConsent: drainConsentOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
+    drainContacts: drainLocalOn ? normalizeContacts_(l.drainContacts) : [],
   };
 }
 

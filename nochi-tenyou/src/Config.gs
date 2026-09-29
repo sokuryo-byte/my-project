@@ -101,6 +101,10 @@ const DEFAULT_FEES = [
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算（料金表 4201）' },
   { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）', amount: 18000,
     note: '土地改良区に確認した地元関係者の同意（押印）が「必要」「未確認」、または土地改良区が「分からない」物件がある場合に加算' },
+  { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 290000,
+    note: '転用目的が「分家住宅」で、市街化調整区域の物件がある場合に加算（料金表 4001。開発許可（29条）となる場合は 4002）' },
+  { key: 'ADD_DRAINAGE', label: '排水承諾手続', amount: 35000,
+    note: '転用目的が「分家住宅」で、排水承諾が「必要」「未確認」（未回答を含む）の物件がある場合に加算（料金表 4203）' },
   { key: 'ADD_ALREADY_CONVERTED', label: '現況是正・事後手続き（始末書等）加算', amount: 50000,
     note: '許可の区域（市街化調整・非線引き・都市計画区域外）で、既に転用済み「はい」または現況が駐車場・宅地・資材置場の物件がある場合に加算（届出では不要）' },
   { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
@@ -324,7 +328,11 @@ const FORM_OPTIONS = {
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
-  localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
+  localConsent: ['必要', '不要', '未確認'],
+  purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（分家住宅は排水先の確認を行う）
+  tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
+  drainAdjacent: ['ある', 'ない', '未確認'],               // 隣接に水路があるか（ない場合は側溝へ）
+  drainConsent: ['必要', '不要', '未確認'],                // 流末の農業用水への排水承諾               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
   chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
   landUses: ['耕作中', '休耕・荒地', '駐車場', '宅地', '資材置場', 'その他'],
   documents: ['謄本', '公図', '住宅地図', '課税明細', 'その他'],
@@ -374,6 +382,7 @@ const CASE_COLUMNS = [
   { key: 'updatedAt', header: '最終更新' },
   { key: 'lotCount', header: '物件数（筆）' },
   { key: 'localConsentNote', header: '同意が必要な方（氏名／住所／電話）' },
+  { key: 'purpose', header: '転用目的' },
 ];
 
 /**
@@ -403,6 +412,14 @@ const LOT_COLUMNS = [
   { key: 'iinContacts', header: '委員（氏名／住所／電話）' },
   { key: 'localConsent', header: '地元関係者の同意（押印）' },
   { key: 'localContacts', header: '同意が必要な方（氏名／住所／電話）' },
+  { key: 'tenyoKanou', header: '転用の見込み（農業委員会）' },
+  { key: 'drainAdjacent', header: '隣接の水路' },
+  { key: 'drainConsent', header: '排水承諾' },
+  { key: 'drainName', header: '用水（管理者）名' },
+  { key: 'drainTel', header: '用水 電話' },
+  { key: 'drainFee', header: '用水 手数料（金額・備考）' },
+  { key: 'drainLocalConsent', header: '排水の地元承諾' },
+  { key: 'drainContacts', header: '排水の地元承諾が必要な方（氏名／住所／電話）' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
