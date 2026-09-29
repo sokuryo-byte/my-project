@@ -96,8 +96,8 @@ const DEFAULT_FEES = [
     note: '農振農用地「はい」の場合に加算' },
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区 地区除外手続き 加算', amount: 50000,
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算' },
-  { key: 'ADD_WATER_ASSOCIATION', label: '水利組合・農事組合 同意手続き 加算', amount: 30000,
-    note: '水利組合・農事組合「はい」または「分からない」の場合に加算' },
+  { key: 'ADD_WATER_ASSOCIATION', label: '地元同意書（自治会・水利組合等）取得 加算', amount: 30000,
+    note: '地元関係者の同意（押印）「はい」または「分からない」の場合に加算' },
   { key: 'ADD_ALREADY_CONVERTED', label: '現況是正・事後手続き（始末書等）加算', amount: 50000,
     note: '許可の区域（市街化調整・非線引き）で、既に転用済み「はい」または現況が駐車場・宅地・資材置場の物件がある場合に加算（届出では不要）' },
   { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
@@ -311,6 +311,7 @@ const FORM_OPTIONS = {
   yesNo: ['はい', 'いいえ'],
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
+  iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
   landUses: ['耕作中', '休耕・荒地', '駐車場', '宅地', '資材置場', 'その他'],
   documents: ['謄本', '公図', '住宅地図', '課税明細', 'その他'],
@@ -346,7 +347,7 @@ const CASE_COLUMNS = [
   // ---- 補助列 ----
   { key: 'prefecture', header: '都道府県' },
   { key: 'municipality', header: '市区町村' },
-  { key: 'waterAssociation', header: '水利組合・農事組合の有無' },
+  { key: 'waterAssociation', header: '地元関係者の同意（押印）' },
   { key: 'estimateDetail', header: '見積内訳' },
   { key: 'submittedBy', header: '入力者（Googleアカウント）' },
   { key: 'notifyResult', header: 'Chat通知結果' },
@@ -359,6 +360,7 @@ const CASE_COLUMNS = [
   { key: 'adminMemo', header: '対応メモ' },
   { key: 'updatedAt', header: '最終更新' },
   { key: 'lotCount', header: '物件数（筆）' },
+  { key: 'localConsentNote', header: '同意が必要な相手' },
 ];
 
 /**
@@ -384,6 +386,9 @@ const LOT_COLUMNS = [
   { key: 'kairyoBenefit', header: '受益地該当' },
   { key: 'kairyoSettlement', header: '地区除外決済金' },
   { key: 'kairyoSettlementNote', header: '決済金（金額・備考）' },
+  { key: 'iinStamp', header: '農業委員・推進委員の押印' },
+  { key: 'iinName', header: '委員 氏名' },
+  { key: 'iinContact', header: '委員 連絡先' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */

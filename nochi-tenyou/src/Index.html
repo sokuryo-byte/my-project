@@ -71,17 +71,18 @@
         <p class="help">現況が農地の場合は必須</p>
       </div>
       <div class="field">
-        <span class="lbl">水利組合・農事組合の有無</span>
-        <p class="help">同意書等が必要となる場合があります。</p>
+        <span class="lbl">地元関係者の同意（押印）が必要か</span>
+        <p class="help">自治会長・水利組合・農事組合・地元の委員や理事など、事前の説明や同意書への押印が必要な方がいるか。</p>
         <div class="choices" id="waterAssociationChoices"></div>
+        <input type="text" id="localConsentNote" class="hidden" maxlength="300" placeholder="分かれば相手をご記入ください（例：○○自治会長、○○水利組合）" aria-label="同意が必要な相手">
       </div>
     </section>
 
     <!-- ===================== STEP 4 資料 ===================== -->
     <section>
-      <h2><span class="step">STEP 4</span>手元にある資料</h2>
+      <h2><span class="step">STEP 4</span>資料</h2>
       <div class="field">
-        <p class="help" id="uploadHelp">各枠へドラッグまたはクリックで添付してください。紙のみの資料は「手元にある」にチェックしてください。</p>
+        <p class="help" id="uploadHelp">各枠へドラッグまたはクリックで添付してください。データがなく紙でお持ちの資料は「紙のみ（後日提出）」にチェックしてください。</p>
         <div class="docs" id="docs"></div>
       </div>
     </section>

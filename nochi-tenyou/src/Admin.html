@@ -279,7 +279,7 @@
       var wrap = el('div', { 'class': 'list' });
       var t = el('table', { 'class': 'cases' });
       var head = el('tr');
-      ['No', '所在・地番', '地目', '面積㎡', '区域', '農振', '現況', '転用済', '改良区', '改良区の確認結果'].forEach(function (h) { head.appendChild(el('th', {}, h)); });
+      ['No', '所在・地番', '地目', '面積㎡', '区域', '農振', '現況', '転用済', '改良区', '電話確認の結果'].forEach(function (h) { head.appendChild(el('th', {}, h)); });
       var thead = el('thead'); thead.appendChild(head); t.appendChild(thead);
       var tb = el('tbody');
       lots.forEach(function (l) {
@@ -287,7 +287,8 @@
         [l.no, (l.address + ' ' + l.lotNumber) + (l.readFromTohon ? '（謄本読取）' : ''), l.chimoku, l.area, l.zone,
          boolText(l.isNoshin), l.landUse, boolText(l.isConverted), l.landImprovement,
          [l.kairyoName, l.kairyoTel, l.kairyoBenefit && '受益地:' + l.kairyoBenefit,
-          l.kairyoSettlement && '決済金:' + l.kairyoSettlement + (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '')]
+          l.kairyoSettlement && '決済金:' + l.kairyoSettlement + (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''),
+          l.iinStamp === '必要' && '委員押印:必要（' + [l.iinName, l.iinContact].filter(String).join('・') + '）']
            .filter(function (x) { return x; }).join('\n')].forEach(function (v, i) {
           tr.appendChild(el('td', i === 1 || i === 9 ? { 'class': 'loc', style: 'white-space:pre-line' } : {}, v === '' || v === undefined ? '―' : v));
         });
@@ -303,8 +304,8 @@
     [
       ['受付日時', c.receivedAt], ['入力者', c.submittedBy], ['依頼種別', c.requestFlag === true ? '見積調査依頼' : '保存のみ'],
       ['都道府県', c.prefecture], ['面積合計', c.area === '' ? '―' : c.area + ' ㎡'],
-      ['今後の転用計画', c.plan], ['水利・農事組合', c.waterAssociation],
-      ['手元の資料', c.documents], ['概算見積', yen(c.estimate)], ['見積内訳', c.estimateDetail],
+      ['今後の転用計画', c.plan], ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(String).join('：')],
+      ['資料', c.documents], ['概算見積', yen(c.estimate)], ['見積内訳', c.estimateDetail],
       ['Chat通知', c.notifyResult], ['最終更新', c.updatedAt]
     ].forEach(function (kv) {
       dl.appendChild(el('dt', {}, kv[0]));

@@ -40,6 +40,7 @@ function appendCase_(record) {
   lock.waitLock(20 * 1000); // 最大20秒待つ（取れなければ例外）
   try {
     const sheet = getSheet_(SHEET_NAMES.CASES);
+    if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; })); // 列を追加した後の初回
     const id = getNextCaseId_(sheet);
     const data = Object.assign({}, record, { id: id });
 

@@ -99,8 +99,8 @@ const DEFAULT_FEES = [
     note: '農振農用地「はい」の場合に加算' },
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区 地区除外手続き 加算', amount: 50000,
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算' },
-  { key: 'ADD_WATER_ASSOCIATION', label: '水利組合・農事組合 同意手続き 加算', amount: 30000,
-    note: '水利組合・農事組合「はい」または「分からない」の場合に加算' },
+  { key: 'ADD_WATER_ASSOCIATION', label: '地元同意書（自治会・水利組合等）取得 加算', amount: 30000,
+    note: '地元関係者の同意（押印）「はい」または「分からない」の場合に加算' },
   { key: 'ADD_ALREADY_CONVERTED', label: '現況是正・事後手続き（始末書等）加算', amount: 50000,
     note: '許可の区域（市街化調整・非線引き）で、既に転用済み「はい」または現況が駐車場・宅地・資材置場の物件がある場合に加算（届出では不要）' },
   { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
@@ -314,6 +314,7 @@ const FORM_OPTIONS = {
   yesNo: ['はい', 'いいえ'],
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
+  iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
   landUses: ['耕作中', '休耕・荒地', '駐車場', '宅地', '資材置場', 'その他'],
   documents: ['謄本', '公図', '住宅地図', '課税明細', 'その他'],
@@ -349,7 +350,7 @@ const CASE_COLUMNS = [
   // ---- 補助列 ----
   { key: 'prefecture', header: '都道府県' },
   { key: 'municipality', header: '市区町村' },
-  { key: 'waterAssociation', header: '水利組合・農事組合の有無' },
+  { key: 'waterAssociation', header: '地元関係者の同意（押印）' },
   { key: 'estimateDetail', header: '見積内訳' },
   { key: 'submittedBy', header: '入力者（Googleアカウント）' },
   { key: 'notifyResult', header: 'Chat通知結果' },
@@ -362,6 +363,7 @@ const CASE_COLUMNS = [
   { key: 'adminMemo', header: '対応メモ' },
   { key: 'updatedAt', header: '最終更新' },
   { key: 'lotCount', header: '物件数（筆）' },
+  { key: 'localConsentNote', header: '同意が必要な相手' },
 ];
 
 /**
@@ -387,6 +389,9 @@ const LOT_COLUMNS = [
   { key: 'kairyoBenefit', header: '受益地該当' },
   { key: 'kairyoSettlement', header: '地区除外決済金' },
   { key: 'kairyoSettlementNote', header: '決済金（金額・備考）' },
+  { key: 'iinStamp', header: '農業委員・推進委員の押印' },
+  { key: 'iinName', header: '委員 氏名' },
+  { key: 'iinContact', header: '委員 連絡先' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
@@ -691,6 +696,7 @@ function submitCase(form, requestInvestigation) {
     requestFlag: isRequest,
     prefecture: input.prefecture,
     waterAssociation: input.waterAssociation,
+    localConsentNote: input.localConsentNote,
     estimateDetail: estimateToText_(estimate),
     submittedBy: input.submittedBy,
     notifyResult: isRequest ? '送信中' : '通知なし（保存のみ）',
@@ -705,6 +711,7 @@ function submitCase(form, requestInvestigation) {
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
       kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit,
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
+      iinStamp: l.iinStamp, iinName: l.iinName, iinContact: l.iinContact,
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
     };
   }));
@@ -794,14 +801,17 @@ function normalizeInput_(form) {
     .filter(function (a) { return a.fileId && a.docType; })
     .slice(0, 50);
 
-  // 手元にある資料 ＝ チェックされた種別 ＋ ファイルがアップロードされた種別
-  const types = (Array.isArray(f.documents) ? f.documents : [])
-    .map(function (d) { return pick_(d, FORM_OPTIONS.documents); })
-    .concat(attachments.map(function (a) { return a.docType; }));
+  // 資料 ＝ ファイルをアップロードした種別 ＋「紙のみ（後日提出）」にチェックした種別（後者は「（紙）」を付けて記録）
+  const uploaded = attachments.map(function (a) { return a.docType; });
+  const paper = (Array.isArray(f.documents) ? f.documents : [])
+    .map(function (d) { return pick_(d, FORM_OPTIONS.documents); });
   const docsOther = str_(f.documentsOther, 100);
   const documents = FORM_OPTIONS.documents
-    .filter(function (d) { return types.indexOf(d) >= 0; })
-    .map(function (d) { return d === 'その他' && docsOther ? 'その他（' + docsOther + '）' : d; });
+    .filter(function (d) { return uploaded.indexOf(d) >= 0 || paper.indexOf(d) >= 0; })
+    .map(function (d) {
+      const name = d === 'その他' && docsOther ? 'その他（' + docsOther + '）' : d;
+      return uploaded.indexOf(d) >= 0 ? name : name + '（紙）';
+    });
 
   const master = getMasterList_();
   const lots = (Array.isArray(f.lots) ? f.lots : [])
@@ -814,6 +824,7 @@ function normalizeInput_(form) {
     lots: lots,
     plan: str_(f.plan, 1000),
     waterAssociation: pick_(f.waterAssociation, FORM_OPTIONS.yesNoUnknown),
+    localConsentNote: pick_(f.waterAssociation, FORM_OPTIONS.yesNoUnknown) === 'はい' ? str_(f.localConsentNote, 300) : '',
     documents: documents,
     attachments: attachments,
     submittedBy: getUserEmail_(),
@@ -856,6 +867,10 @@ function normalizeLot_(l, prefecture, master) {
     kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
     kairyoSettlement: kairyoOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
     kairyoSettlementNote: kairyoOn ? str_(l.kairyoSettlementNote, 200) : '',
+    // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
+    iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
+    iinName: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? str_(l.iinName, 100) : '',
+    iinContact: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? str_(l.iinContact, 100) : '',
   };
 }
 
@@ -967,6 +982,7 @@ function appendCase_(record) {
   lock.waitLock(20 * 1000); // 最大20秒待つ（取れなければ例外）
   try {
     const sheet = getSheet_(SHEET_NAMES.CASES);
+    if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; })); // 列を追加した後の初回
     const id = getNextCaseId_(sheet);
     const data = Object.assign({}, record, { id: id });
 
@@ -1166,7 +1182,7 @@ function getFeeSettings_() {
  *  ・基本報酬：区域区分ごとに1回（同じ区域の物件は1つの申請にまとめる想定）
  *  ・物件追加：申請数を超える物件1筆ごとに加算
  *  ・農振除外／地区除外：該当する物件が1つでもあれば1回加算（地区除外は「分からない」も加算）
- *  ・水利組合・農事組合：「はい」または「分からない」で1回加算
+ *  ・地元同意書（自治会・水利組合等）：「はい」または「分からない」で1回加算
  *  ・事後手続き：許可の区域（調整・非線引き）に該当物件があれば1回加算（届出では不要）
  * @param {Object} input normalizeInput_() で整えた入力（input.lots に物件の配列）
  * @return {{ok:boolean, total:number, items:Array<{label:string, amount:number}>, notes:string[]}}
@@ -1239,11 +1255,11 @@ function calculateEstimate_(input) {
     }
   });
 
-  // --- 4-2. 水利組合・農事組合 加算（案件単位。「分からない」も加算） ---
+  // --- 4-2. 地元同意書（自治会・水利組合等）加算（案件単位。「分からない」も加算） ---
   if (input.waterAssociation === 'はい' || input.waterAssociation === '分からない') {
     items.push(item('ADD_WATER_ASSOCIATION'));
     if (input.waterAssociation === '分からない') {
-      notes.push('水利組合・農事組合が不明のため加算しています。該当しない場合は減額となります。');
+      notes.push('地元関係者の同意（押印）が不明のため加算しています。不要な場合は減額となります。');
     }
   }
 
@@ -1589,10 +1605,15 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
         '／受益地:' + (l.kairyoBenefit || '-') + '／決済金:' + (l.kairyoSettlement || '-') +
         (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''));
     }
+    if (l.iinStamp === '必要') {
+      lines.push('　　農業委員等の押印：必要（' + [l.iinName, l.iinContact].filter(String).join('・') + '）');
+    }
   });
+  lines.push('地元関係者の同意（押印）：' + (input.waterAssociation || '-') +
+    (input.localConsentNote ? '（' + input.localConsentNote + '）' : ''));
   lines.push(
     '概算見積金額：' + (estimate.ok ? formatYen_(estimate.total) : '算出不可'),
-    '手元資料：' + (input.documents.join('、') || 'なし'),
+    '資料：' + (input.documents.join('、') || 'なし'),
     '入力者：' + (input.submittedBy || '不明')
   );
   if (attach && attach.folderUrl) {

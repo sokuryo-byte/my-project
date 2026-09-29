@@ -133,6 +133,7 @@ function submitCase(form, requestInvestigation) {
     requestFlag: isRequest,
     prefecture: input.prefecture,
     waterAssociation: input.waterAssociation,
+    localConsentNote: input.localConsentNote,
     estimateDetail: estimateToText_(estimate),
     submittedBy: input.submittedBy,
     notifyResult: isRequest ? '送信中' : '通知なし（保存のみ）',
@@ -147,6 +148,7 @@ function submitCase(form, requestInvestigation) {
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
       kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit,
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
+      iinStamp: l.iinStamp, iinName: l.iinName, iinContact: l.iinContact,
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
     };
   }));
@@ -236,14 +238,17 @@ function normalizeInput_(form) {
     .filter(function (a) { return a.fileId && a.docType; })
     .slice(0, 50);
 
-  // 手元にある資料 ＝ チェックされた種別 ＋ ファイルがアップロードされた種別
-  const types = (Array.isArray(f.documents) ? f.documents : [])
-    .map(function (d) { return pick_(d, FORM_OPTIONS.documents); })
-    .concat(attachments.map(function (a) { return a.docType; }));
+  // 資料 ＝ ファイルをアップロードした種別 ＋「紙のみ（後日提出）」にチェックした種別（後者は「（紙）」を付けて記録）
+  const uploaded = attachments.map(function (a) { return a.docType; });
+  const paper = (Array.isArray(f.documents) ? f.documents : [])
+    .map(function (d) { return pick_(d, FORM_OPTIONS.documents); });
   const docsOther = str_(f.documentsOther, 100);
   const documents = FORM_OPTIONS.documents
-    .filter(function (d) { return types.indexOf(d) >= 0; })
-    .map(function (d) { return d === 'その他' && docsOther ? 'その他（' + docsOther + '）' : d; });
+    .filter(function (d) { return uploaded.indexOf(d) >= 0 || paper.indexOf(d) >= 0; })
+    .map(function (d) {
+      const name = d === 'その他' && docsOther ? 'その他（' + docsOther + '）' : d;
+      return uploaded.indexOf(d) >= 0 ? name : name + '（紙）';
+    });
 
   const master = getMasterList_();
   const lots = (Array.isArray(f.lots) ? f.lots : [])
@@ -256,6 +261,7 @@ function normalizeInput_(form) {
     lots: lots,
     plan: str_(f.plan, 1000),
     waterAssociation: pick_(f.waterAssociation, FORM_OPTIONS.yesNoUnknown),
+    localConsentNote: pick_(f.waterAssociation, FORM_OPTIONS.yesNoUnknown) === 'はい' ? str_(f.localConsentNote, 300) : '',
     documents: documents,
     attachments: attachments,
     submittedBy: getUserEmail_(),
@@ -298,6 +304,10 @@ function normalizeLot_(l, prefecture, master) {
     kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
     kairyoSettlement: kairyoOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
     kairyoSettlementNote: kairyoOn ? str_(l.kairyoSettlementNote, 200) : '',
+    // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
+    iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
+    iinName: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? str_(l.iinName, 100) : '',
+    iinContact: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? str_(l.iinContact, 100) : '',
   };
 }
 

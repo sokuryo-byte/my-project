@@ -37,7 +37,7 @@ function getFeeSettings_() {
  *  ・基本報酬：区域区分ごとに1回（同じ区域の物件は1つの申請にまとめる想定）
  *  ・物件追加：申請数を超える物件1筆ごとに加算
  *  ・農振除外／地区除外：該当する物件が1つでもあれば1回加算（地区除外は「分からない」も加算）
- *  ・水利組合・農事組合：「はい」または「分からない」で1回加算
+ *  ・地元同意書（自治会・水利組合等）：「はい」または「分からない」で1回加算
  *  ・事後手続き：許可の区域（調整・非線引き）に該当物件があれば1回加算（届出では不要）
  * @param {Object} input normalizeInput_() で整えた入力（input.lots に物件の配列）
  * @return {{ok:boolean, total:number, items:Array<{label:string, amount:number}>, notes:string[]}}
@@ -110,11 +110,11 @@ function calculateEstimate_(input) {
     }
   });
 
-  // --- 4-2. 水利組合・農事組合 加算（案件単位。「分からない」も加算） ---
+  // --- 4-2. 地元同意書（自治会・水利組合等）加算（案件単位。「分からない」も加算） ---
   if (input.waterAssociation === 'はい' || input.waterAssociation === '分からない') {
     items.push(item('ADD_WATER_ASSOCIATION'));
     if (input.waterAssociation === '分からない') {
-      notes.push('水利組合・農事組合が不明のため加算しています。該当しない場合は減額となります。');
+      notes.push('地元関係者の同意（押印）が不明のため加算しています。不要な場合は減額となります。');
     }
   }
 

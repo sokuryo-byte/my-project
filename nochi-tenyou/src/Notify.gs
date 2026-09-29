@@ -59,10 +59,15 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
         '／受益地:' + (l.kairyoBenefit || '-') + '／決済金:' + (l.kairyoSettlement || '-') +
         (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''));
     }
+    if (l.iinStamp === '必要') {
+      lines.push('　　農業委員等の押印：必要（' + [l.iinName, l.iinContact].filter(String).join('・') + '）');
+    }
   });
+  lines.push('地元関係者の同意（押印）：' + (input.waterAssociation || '-') +
+    (input.localConsentNote ? '（' + input.localConsentNote + '）' : ''));
   lines.push(
     '概算見積金額：' + (estimate.ok ? formatYen_(estimate.total) : '算出不可'),
-    '手元資料：' + (input.documents.join('、') || 'なし'),
+    '資料：' + (input.documents.join('、') || 'なし'),
     '入力者：' + (input.submittedBy || '不明')
   );
   if (attach && attach.folderUrl) {

@@ -104,7 +104,9 @@
       var zones = e.target.closest && e.target.closest('.zones');
       if (zones) zones.classList.remove('invalid');
       var lot = e.target.closest && e.target.closest('.lot');
-      if (lot && (e.target.name === radioName(lot, 'landImprovement') || e.target.getAttribute('data-f') === 'kairyoTel')) updateCallBox(lot);
+      if (lot && (e.target.name === radioName(lot, 'landImprovement') || e.target.name === radioName(lot, 'iinStamp') ||
+          e.target.getAttribute('data-f') === 'kairyoTel')) updateCallBox(lot);
+      if (e.target.name === 'waterAssociation') $('localConsentNote').classList.toggle('hidden', e.target.value !== 'はい');
       if (lot && e.target.type === 'radio') {
         if (zones) applyNoshinDefault(lot);
         else if (e.target.name === radioName(lot, 'isNoshin')) lot.removeAttribute('data-noshin-auto'); // 人が選んだ値は以後触らない
@@ -224,7 +226,7 @@
       label.appendChild(span);
       zones.appendChild(label);
     });
-    var zoneHelp = el('p', { 'class': 'help' }, '都市計画図でご確認ください。不明な場合は「分からない」を選択してください。');
+    var zoneHelp = el('p', { 'class': 'help' }, 'できる限りご確認ください。課税明細書で都市計画税が課税されていれば市街化区域、課税されていなければ市街化調整区域の可能性が高いです（目安。都市計画税のない市町村もあります）。');
     zoneHelp.appendChild(el('a', { 'class': 'hidden city-link', target: '_blank', rel: 'noopener' }, ' この市区町村の都市計画情報を開く'));
     card.appendChild(radioField('区域区分', zones, zoneHelp, true));
 
@@ -252,10 +254,11 @@
     // 土地改良区（農業委員会 → 土地改良区 の順に電話確認）
     var kairyo = el('div', { 'class': 'choices' });
     renderChoices(kairyo, id('landImprovement'), ['はい', 'いいえ', '分からない']);
-    var kairyoField = radioField('土地改良区にかかっているか', kairyo,
-      el('p', { 'class': 'help' }, '農業委員会へお電話でご確認ください。「はい」の場合は土地改良区への確認に進みます。'));
-    kairyoField.appendChild(buildCallBox(card, id, o));
-    card.appendChild(kairyoField);
+    var callField = el('div', { 'class': 'field' });
+    callField.appendChild(el('span', { 'class': 'lbl' }, '農業委員会への電話確認'));
+    callField.appendChild(el('p', { 'class': 'help' }, '土地改良区と、地元委員の押印の要否を農業委員会へお電話でご確認ください。'));
+    callField.appendChild(buildCallBox(card, id, o, kairyo));
+    card.appendChild(callField);
 
     $('lots').appendChild(card);
 
@@ -269,6 +272,9 @@
       setRadio(card, 'landImprovement', inherit.landImprovement);
       lotInput(card, 'kairyoName').value = inherit.kairyoName || '';   // 近くの土地は同じ土地改良区のことが多い
       lotInput(card, 'kairyoTel').value = inherit.kairyoTel || '';
+      setRadio(card, 'iinStamp', inherit.iinStamp);                    // 地元委員も同じ地区なら同じ
+      lotInput(card, 'iinName').value = inherit.iinName || '';
+      lotInput(card, 'iinContact').value = inherit.iinContact || '';
       applyNoshinDefault(card);
     }
     renumberLots();
@@ -339,6 +345,9 @@
       kairyoBenefit: getRadio(card, 'kairyoBenefit'),
       kairyoSettlement: getRadio(card, 'kairyoSettlement'),
       kairyoSettlementNote: lotInput(card, 'kairyoSettlementNote').value,
+      iinStamp: getRadio(card, 'iinStamp'),
+      iinName: lotInput(card, 'iinName').value,
+      iinContact: lotInput(card, 'iinContact').value,
       readFromTohon: card.getAttribute('data-tohon') === '1'
     };
   }
@@ -356,12 +365,22 @@
   // ---------------------------------------------------------
   // 土地改良区の電話確認（農業委員会の番号とトーク例）
   // ---------------------------------------------------------
-  function buildCallBox(card, id, o) {
+  function buildCallBox(card, id, o, kairyo) {
     var box = el('div', { 'class': 'callbox' });
-    // ① 農業委員会
+    // ① 農業委員会（土地改良区・地元委員の押印）
     var s1 = el('div', { 'class': 'step1' });
     s1.appendChild(el('div', { 'class': 'step-h nogyo-h' }));
     s1.appendChild(el('div', { 'class': 'script' }));
+    var iin = el('div', { 'class': 'choices' });
+    renderChoices(iin, id('iinStamp'), o.iinStamp);
+    var r0 = el('div', { 'class': 'row' });
+    r0.appendChild(radioField('土地改良区にかかっているか', kairyo));
+    r0.appendChild(radioField('地元の農業委員・推進委員の押印', iin));
+    s1.appendChild(r0);
+    var iinRow = el('div', { 'class': 'row iin-row hidden' });
+    iinRow.appendChild(field('委員の氏名', el('input', { type: 'text', id: id('iinName'), maxlength: '100', placeholder: '例）山田 一郎（農業委員）', 'data-f': 'iinName' })));
+    iinRow.appendChild(field('委員の連絡先', el('input', { type: 'tel', id: id('iinContact'), maxlength: '100', placeholder: '例）090-0000-0000', 'data-f': 'iinContact' })));
+    s1.appendChild(iinRow);
     box.appendChild(s1);
     // ② 土地改良区（「はい」のときだけ表示）
     var s2 = el('div', { 'class': 'step2 hidden' });
@@ -425,8 +444,11 @@
     scriptLines(card.querySelector('.step1 .script'), [
       '「お世話になっております。（会社名）の（お名前）と申します。農地転用の件でお伺いします。」',
       '「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」',
-      '→ かかっている場合：「土地改良区の名称と、お電話番号をお教えいただけますでしょうか。」'
+      '→ かかっている場合：「土地改良区の名称と、お電話番号をお教えいただけますでしょうか。」',
+      '「また、申請にあたり地元の農業委員さんや農地利用最適化推進委員さんの押印は必要でしょうか。」',
+      '→ 必要な場合：「委員さんのお名前とご連絡先をお教えいただけますでしょうか。」'
     ]);
+    card.querySelector('.iin-row').classList.toggle('hidden', getRadio(card, 'iinStamp') !== '必要');
     var on = getRadio(card, 'landImprovement') === 'はい';
     card.querySelector('.step2').classList.toggle('hidden', !on);
     var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
@@ -548,7 +570,7 @@
       head.appendChild(el('b', {}, type));
       var chkLabel = el('label');
       chkLabel.appendChild(el('input', { type: 'checkbox', name: 'documents', value: type, id: 'doc' + i }));
-      chkLabel.appendChild(document.createTextNode('手元にある'));
+      chkLabel.appendChild(document.createTextNode('紙のみ（後日提出）'));
       head.appendChild(chkLabel);
       if (type === 'その他') {
         head.appendChild(el('input', { type: 'text', id: 'documentsOther', maxlength: '100', placeholder: '資料名（例：測量図）', 'aria-label': 'その他の資料名' }));
@@ -585,8 +607,6 @@
         uploadQueue.push(function (done) { uploadOne(item, file, done); });
       }
     });
-    var chk = qsa('input[name=documents]').filter(function (c) { return c.value === docType; })[0];
-    if (chk) chk.checked = true;
     pumpUploads();
     renderFiles();
     schedulePreview();
@@ -688,6 +708,7 @@
       lots: qsa('.lot').map(getLotData),
       plan: $('plan').value,
       waterAssociation: radioVal('waterAssociation'),
+      localConsentNote: $('localConsentNote').value,
       documents: qsa('input[name="documents"]:checked').map(function (e) { return e.value; }),
       documentsOther: $('documentsOther') ? $('documentsOther').value : '',
       attachments: state.uploads
@@ -813,6 +834,7 @@
 
   function resetForm() {
     $('caseForm').reset();
+    $('localConsentNote').classList.add('hidden');
     $('lots').innerHTML = '';
     state.uploads = [];
     addLot();
