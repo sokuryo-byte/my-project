@@ -64,6 +64,7 @@ function appendCase_(record) {
 function appendLots_(caseId, lots) {
   if (!lots.length) return;
   const sheet = getSheet_(SHEET_NAMES.LOTS);
+  if (sheet.getLastColumn() < LOT_COLUMNS.length) ensureHeaders_(sheet, LOT_COLUMNS.map(function (c) { return c.header; })); // 列を追加した後の初回
   const rows = lots.map(function (lot, i) {
     const data = Object.assign({}, lot, { caseId: caseId, no: i + 1 });
     return LOT_COLUMNS.map(function (c) { return toCellValue_(data[c.key]); });
@@ -177,7 +178,8 @@ function getMasterList_() {
   const sheet = getSheet_(SHEET_NAMES.MASTER);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  return sheet.getRange(2, 1, lastRow - 1, 4).getDisplayValues()
+  const cols = Math.min(Math.max(sheet.getLastColumn(), 4), MASTER_HEADERS.length);
+  return sheet.getRange(2, 1, lastRow - 1, cols).getDisplayValues()
     .filter(function (r) { return r[0] && r[1]; }) // 都道府県・市区町村が空の行は無視
     .map(function (r) {
       return {
@@ -185,6 +187,7 @@ function getMasterList_() {
         municipality: String(r[1]).trim(),
         cityPlanUrl: safeUrl_(r[2]),
         noshinUrl: safeUrl_(r[3]),
+        nogyoTel: String(r[5] || '').replace(/[^0-9０-９\-－()（）]/g, '').slice(0, 20),
       };
     });
 }

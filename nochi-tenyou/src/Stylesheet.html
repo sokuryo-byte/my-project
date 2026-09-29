@@ -30,16 +30,24 @@
   .step { font-size: .75rem; color: var(--accent); letter-spacing: .08em; }
 
   .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .callbox { border: 1px solid var(--line); border-left: 4px solid var(--accent); background: var(--bg); border-radius: 6px; padding: 10px 12px; display: grid; gap: 8px; font-size: .86rem; }
+  .callbox .step-h { font-weight: 700; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  .callbox .tel { font-size: 1.05rem; font-weight: 700; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .callbox .muted { color: var(--muted); font-weight: 400; font-size: .8rem; }
+  .callbox .script { margin: 0; padding: 6px 10px; background: var(--surface); border-radius: 4px; border: 1px dashed var(--line); line-height: 1.7; }
+  .callbox .script p { margin: 0; }
+  .callbox .step2 { display: grid; gap: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
   .row.row-addr { grid-template-columns: minmax(140px, 1fr) minmax(0, 2.4fr); }
   @media (max-width: 560px) { .row.row-addr { grid-template-columns: minmax(0, 1fr); } }
-  .field { display: grid; gap: 4px; min-width: 0; }
-  .field > label, .lbl { font-weight: 700; font-size: .92rem; }
-  .req { font-size: .68rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 3px; padding: 1px 6px; margin-left: 6px; vertical-align: 2px; }
+  .field { display: grid; gap: 4px; min-width: 0; align-content: start; } /* 横の欄に説明文があっても入力欄を引き伸ばさない */
+  .field > label, .lbl { font-weight: 700; font-size: .92rem; line-height: 1.6; min-height: 1.6em; display: flex; align-items: center; flex-wrap: wrap; }
+  .req { font-size: .68rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 3px; padding: 1px 6px; margin-left: 6px; line-height: 1.5; }
   .help { margin: 0; font-size: .8rem; color: var(--muted); }
-  input[type=text], select, textarea {
+  input[type=text], input[type=tel], select, textarea {
     width: 100%; font: inherit; color: var(--fg); background: var(--surface);
-    border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; box-sizing: border-box; margin: 0;
   }
+  input[type=text], input[type=tel], select { height: 40px; line-height: 1.4; } /* テキスト欄とプルダウンの高さをそろえる */
   input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .invalid { border-color: var(--danger) !important; background: var(--danger-bg) !important; }
   .unit { display: flex; gap: 6px; align-items: center; }

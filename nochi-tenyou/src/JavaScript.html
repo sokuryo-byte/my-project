@@ -49,6 +49,7 @@
   function init(data) {
     state.master = data.master || [];
     state.municipalities = data.municipalities || {};
+    state.nogyoIinkai = data.nogyoIinkai || {};
     state.options = data.options;
     state.farmlandUses = data.farmlandUses || [];
     state.upload = data.upload;
@@ -103,6 +104,7 @@
       var zones = e.target.closest && e.target.closest('.zones');
       if (zones) zones.classList.remove('invalid');
       var lot = e.target.closest && e.target.closest('.lot');
+      if (lot && (e.target.name === radioName(lot, 'landImprovement') || e.target.getAttribute('data-f') === 'kairyoTel')) updateCallBox(lot);
       if (lot && e.target.type === 'radio') {
         if (zones) applyNoshinDefault(lot);
         else if (e.target.name === radioName(lot, 'isNoshin')) lot.removeAttribute('data-noshin-auto'); // 人が選んだ値は以後触らない
@@ -189,8 +191,9 @@
 
     // 市区町村・所在地番
     var city = el('input', { type: 'text', id: id('municipality'), maxlength: '50', placeholder: '例）豊田市', list: 'cityList', 'data-f': 'municipality' });
-    city.addEventListener('input', function () { updateLotLinks(card); });
+    city.addEventListener('input', function () { updateLotLinks(card); updateCallBox(card); });
     var address = el('input', { type: 'text', id: id('address'), maxlength: '200', placeholder: '例）○○町字△△ 123番1', 'data-f': 'address' });
+    address.addEventListener('input', function () { updateCallBox(card); });
     var row1 = el('div', { 'class': 'row row-addr' });
     row1.appendChild(field('市区町村', city, null, true));
     row1.appendChild(field('所在・地番', address, '町名・字から地番まで（登記地番。住居表示ではありません）', true));
@@ -241,15 +244,18 @@
     row3.appendChild(field('現況利用（補足）', landUseOther));
     card.appendChild(row3);
 
-    // 転用済み・土地改良区
+    // 転用済み
     var converted = el('div', { 'class': 'choices' });
     renderChoices(converted, id('isConverted'), o.yesNo);
+    card.appendChild(radioField('既に転用済みかどうか', converted, el('p', { 'class': 'help' }, '無許可で駐車場等に利用している場合は「はい」')));
+
+    // 土地改良区（農業委員会 → 土地改良区 の順に電話確認）
     var kairyo = el('div', { 'class': 'choices' });
-    renderChoices(kairyo, id('landImprovement'), o.yesNoUnknown);
-    var row4 = el('div', { 'class': 'row' });
-    row4.appendChild(radioField('既に転用済みかどうか', converted, el('p', { 'class': 'help' }, '無許可で駐車場等に利用している場合は「はい」')));
-    row4.appendChild(radioField('土地改良区の有無', kairyo, el('p', { 'class': 'help' }, '賦課金が発生している場合は「はい」')));
-    card.appendChild(row4);
+    renderChoices(kairyo, id('landImprovement'), ['はい', 'いいえ', '分からない']);
+    var kairyoField = radioField('土地改良区にかかっているか', kairyo,
+      el('p', { 'class': 'help' }, '農業委員会へお電話でご確認ください。「はい」の場合は土地改良区への確認に進みます。'));
+    kairyoField.appendChild(buildCallBox(card, id, o));
+    card.appendChild(kairyoField);
 
     $('lots').appendChild(card);
 
@@ -261,10 +267,13 @@
       setRadio(card, 'isNoshin', inherit.isNoshin);
       setRadio(card, 'isConverted', inherit.isConverted);
       setRadio(card, 'landImprovement', inherit.landImprovement);
+      lotInput(card, 'kairyoName').value = inherit.kairyoName || '';   // 近くの土地は同じ土地改良区のことが多い
+      lotInput(card, 'kairyoTel').value = inherit.kairyoTel || '';
       applyNoshinDefault(card);
     }
     renumberLots();
     updateLotLinks(card);
+    updateCallBox(card);
     updatePlanRequired();
     schedulePreview();
     return card;
@@ -325,6 +334,11 @@
       landUseOther: lotInput(card, 'landUseOther').value,
       isConverted: getRadio(card, 'isConverted'),
       landImprovement: getRadio(card, 'landImprovement'),
+      kairyoName: lotInput(card, 'kairyoName').value,
+      kairyoTel: lotInput(card, 'kairyoTel').value,
+      kairyoBenefit: getRadio(card, 'kairyoBenefit'),
+      kairyoSettlement: getRadio(card, 'kairyoSettlement'),
+      kairyoSettlementNote: lotInput(card, 'kairyoSettlementNote').value,
       readFromTohon: card.getAttribute('data-tohon') === '1'
     };
   }
@@ -337,6 +351,91 @@
     var row = state.master.filter(function (m) { return m.prefecture === pref && a === m.municipality; })[0];
     setLink(card.querySelector('.city-link'), row && row.cityPlanUrl);
     setLink(card.querySelector('.noshin-link'), row && row.noshinUrl);
+  }
+
+  // ---------------------------------------------------------
+  // 土地改良区の電話確認（農業委員会の番号とトーク例）
+  // ---------------------------------------------------------
+  function buildCallBox(card, id, o) {
+    var box = el('div', { 'class': 'callbox' });
+    // ① 農業委員会
+    var s1 = el('div', { 'class': 'step1' });
+    s1.appendChild(el('div', { 'class': 'step-h nogyo-h' }));
+    s1.appendChild(el('div', { 'class': 'script' }));
+    box.appendChild(s1);
+    // ② 土地改良区（「はい」のときだけ表示）
+    var s2 = el('div', { 'class': 'step2 hidden' });
+    var h2 = el('div', { 'class': 'step-h' });
+    h2.appendChild(el('span', {}, '② 土地改良区へ確認'));
+    h2.appendChild(el('a', { 'class': 'tel kairyo-tel hidden' }));
+    s2.appendChild(h2);
+    var r1 = el('div', { 'class': 'row' });
+    r1.appendChild(field('土地改良区名', el('input', { type: 'text', id: id('kairyoName'), maxlength: '100', placeholder: '例）○○土地改良区', 'data-f': 'kairyoName' })));
+    r1.appendChild(field('土地改良区の電話番号', el('input', { type: 'tel', id: id('kairyoTel'), maxlength: '20', placeholder: '例）0565-00-0000', 'data-f': 'kairyoTel' })));
+    s2.appendChild(r1);
+    s2.appendChild(el('div', { 'class': 'script script2' }));
+    var benefit = el('div', { 'class': 'choices' });
+    renderChoices(benefit, id('kairyoBenefit'), o.kairyoBenefit);
+    var settle = el('div', { 'class': 'choices' });
+    renderChoices(settle, id('kairyoSettlement'), o.kairyoSettlement);
+    var r2 = el('div', { 'class': 'row' });
+    r2.appendChild(radioField('受益地に該当するか', benefit));
+    r2.appendChild(radioField('地区除外の決済金', settle));
+    s2.appendChild(r2);
+    s2.appendChild(field('決済金の金額・備考', el('input', { type: 'text', id: id('kairyoSettlementNote'), maxlength: '200', placeholder: '例）約○○円／㎡あたり○円 など', 'data-f': 'kairyoSettlementNote' })));
+    box.appendChild(s2);
+    return box;
+  }
+
+  function telLink(a, tel) {
+    var digits = String(tel || '').replace(/[０-９]/g, function (d) { return String.fromCharCode(d.charCodeAt(0) - 0xFEE0); }).replace(/[^0-9]/g, '');
+    if (digits.length >= 9) { a.href = 'tel:' + digits; a.textContent = '☎ ' + tel; a.classList.remove('hidden'); }
+    else { a.removeAttribute('href'); a.textContent = ''; a.classList.add('hidden'); }
+  }
+
+  /** 農業委員会の問い合わせ先（マスタの電話番号 → 組み込みの一覧 の順） */
+  function nogyoOf(city) {
+    var pref = $('prefecture').value;
+    var m = state.master.filter(function (x) { return x.prefecture === pref && x.municipality === city && x.nogyoTel; })[0];
+    var d = (state.nogyoIinkai[pref] || {})[city];
+    if (m) return { office: (d && d.office) || city + '農業委員会', tel: m.nogyoTel };
+    return d && d.tel ? d : null;
+  }
+
+  function scriptLines(box, lines) {
+    box.innerHTML = '';
+    lines.forEach(function (t) { box.appendChild(el('p', {}, t)); });
+  }
+
+  /** 市区町村・所在・選択に合わせて、電話番号とトーク例を更新する */
+  function updateCallBox(card) {
+    var city = lotInput(card, 'municipality').value.trim();
+    var place = city + lotInput(card, 'address').value.trim();
+    var where = place || '（所在・地番）';
+    var h = card.querySelector('.nogyo-h');
+    h.innerHTML = '';
+    h.appendChild(el('span', {}, '① 農業委員会へ確認'));
+    var n = city ? nogyoOf(city) : null;
+    if (n) {
+      h.appendChild(el('span', {}, n.office));
+      var a = el('a', { 'class': 'tel' }); telLink(a, n.tel); h.appendChild(a);
+    } else {
+      h.appendChild(el('span', { 'class': 'muted' }, city ? city + 'の農業委員会の電話番号は未登録です（市町村の代表番号からお問い合わせください）' : '市区町村を入力すると電話番号を表示します'));
+    }
+    scriptLines(card.querySelector('.step1 .script'), [
+      '「お世話になっております。（会社名）の（お名前）と申します。農地転用の件でお伺いします。」',
+      '「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」',
+      '→ かかっている場合：「土地改良区の名称と、お電話番号をお教えいただけますでしょうか。」'
+    ]);
+    var on = getRadio(card, 'landImprovement') === 'はい';
+    card.querySelector('.step2').classList.toggle('hidden', !on);
+    var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
+    telLink(card.querySelector('.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
+    scriptLines(card.querySelector('.script2'), [
+      '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。」',
+      '「' + where + 'の土地で農地転用を予定しております。' + (kname === '土地改良区' ? '貴改良区の' : kname + 'の') + '受益地に該当しますでしょうか。」',
+      '→ 該当する場合：「地区除外の手続きに決済金は必要でしょうか。必要な場合は、金額の目安をお教えいただけますでしょうか。」'
+    ]);
   }
 
   /** 「○○町字△△ 123番1」→ { place: '○○町字△△', lotNumber: '123番1' } */

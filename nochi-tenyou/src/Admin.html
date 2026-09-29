@@ -279,14 +279,17 @@
       var wrap = el('div', { 'class': 'list' });
       var t = el('table', { 'class': 'cases' });
       var head = el('tr');
-      ['No', '所在・地番', '地目', '面積㎡', '区域', '農振', '現況', '転用済', '改良区'].forEach(function (h) { head.appendChild(el('th', {}, h)); });
+      ['No', '所在・地番', '地目', '面積㎡', '区域', '農振', '現況', '転用済', '改良区', '改良区の確認結果'].forEach(function (h) { head.appendChild(el('th', {}, h)); });
       var thead = el('thead'); thead.appendChild(head); t.appendChild(thead);
       var tb = el('tbody');
       lots.forEach(function (l) {
         var tr = el('tr');
         [l.no, (l.address + ' ' + l.lotNumber) + (l.readFromTohon ? '（謄本読取）' : ''), l.chimoku, l.area, l.zone,
-         boolText(l.isNoshin), l.landUse, boolText(l.isConverted), l.landImprovement].forEach(function (v, i) {
-          tr.appendChild(el('td', i === 1 ? { 'class': 'loc' } : {}, v === '' ? '―' : v));
+         boolText(l.isNoshin), l.landUse, boolText(l.isConverted), l.landImprovement,
+         [l.kairyoName, l.kairyoTel, l.kairyoBenefit && '受益地:' + l.kairyoBenefit,
+          l.kairyoSettlement && '決済金:' + l.kairyoSettlement + (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '')]
+           .filter(function (x) { return x; }).join('\n')].forEach(function (v, i) {
+          tr.appendChild(el('td', i === 1 || i === 9 ? { 'class': 'loc', style: 'white-space:pre-line' } : {}, v === '' || v === undefined ? '―' : v));
         });
         tb.appendChild(tr);
       });

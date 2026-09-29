@@ -68,6 +68,7 @@ function getInitialData() {
     maxLots: MAX_LOTS,
     master: getMasterList_(),
     municipalities: MUNICIPALITIES,
+    nogyoIinkai: NOGYO_IINKAI,
     userEmail: getUserEmail_(),
     upload: { maxMb: MAX_UPLOAD_MB, mimeTypes: ALLOWED_MIME_TYPES },
   };
@@ -144,6 +145,8 @@ function submitCase(form, requestInvestigation) {
       address: l.address, lotNumber: l.lotNumber, chimoku: l.chimoku, area: l.area === null ? '' : l.area,
       zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
+      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit,
+      kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
     };
   }));
@@ -269,6 +272,7 @@ function normalizeLot_(l, prefecture, master) {
   if (place.indexOf(prefecture) === 0) place = place.slice(prefecture.length).trim();
   if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
   const split = splitLotNumber_(place);
+  const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
   const landUse = pick_(l.landUse, FORM_OPTIONS.landUses);
@@ -288,6 +292,12 @@ function normalizeLot_(l, prefecture, master) {
     isConverted: pick_(l.isConverted, FORM_OPTIONS.yesNo),
     landImprovement: pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown),
     readFromTohon: l.readFromTohon === true,
+    // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
+    kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
+    kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
+    kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
+    kairyoSettlement: kairyoOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
+    kairyoSettlementNote: kairyoOn ? str_(l.kairyoSettlementNote, 200) : '',
   };
 }
 

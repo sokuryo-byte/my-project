@@ -54,6 +54,11 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       '／' + (l.chimoku || '地目-') + (l.area !== null ? ' ' + l.area + '㎡' : '') +
       '／' + (l.zone || '区域-') + '／農振:' + (l.isNoshin || '-') + '／現況:' + (l.landUse || '-') +
       (l.readFromTohon ? '（謄本読取）' : ''));
+    if (l.landImprovement === 'はい' && (l.kairyoName || l.kairyoBenefit || l.kairyoSettlement)) {
+      lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') +
+        '／受益地:' + (l.kairyoBenefit || '-') + '／決済金:' + (l.kairyoSettlement || '-') +
+        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''));
+    }
   });
   lines.push(
     '概算見積金額：' + (estimate.ok ? formatYen_(estimate.total) : '算出不可'),

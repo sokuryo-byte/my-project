@@ -93,13 +93,22 @@ function calculateEstimate_(input) {
     notes.push('農振農用地の場合は +' + formatYen_(fees.ADD_NOSHIN.amount) + '（農振除外）が見込まれます。');
   }
 
-  // --- 4. 土地改良区 地区除外 加算（「分からない」も加算） ---
-  if (lots.some(function (l) { return l.landImprovement === 'はい' || l.landImprovement === '分からない'; })) {
+  // --- 4. 土地改良区 地区除外 加算（「分からない」も加算。土地改良区に「受益地に該当しない」と確認できた物件は除く） ---
+  const kairyoLots = lots.filter(function (l) {
+    return l.landImprovement === '分からない' || (l.landImprovement === 'はい' && l.kairyoBenefit !== '該当しない');
+  });
+  if (kairyoLots.length) {
     items.push(item('ADD_LAND_IMPROVEMENT'));
-    if (!lots.some(function (l) { return l.landImprovement === 'はい'; })) {
-      notes.push('土地改良区が不明のため加算しています。区域外の場合は減額となります。');
+    if (!kairyoLots.some(function (l) { return l.landImprovement === 'はい' && l.kairyoBenefit === '該当する'; })) {
+      notes.push('土地改良区の受益地か未確認のため加算しています。該当しない場合は減額となります。');
     }
   }
+  lots.forEach(function (l, i) {
+    if (l.landImprovement === 'はい' && l.kairyoSettlement === '必要') {
+      notes.push(lotName(l, i) + '：地区除外決済金は実費のため見積に含みません' +
+        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + '。');
+    }
+  });
 
   // --- 4-2. 水利組合・農事組合 加算（案件単位。「分からない」も加算） ---
   if (input.waterAssociation === 'はい' || input.waterAssociation === '分からない') {
