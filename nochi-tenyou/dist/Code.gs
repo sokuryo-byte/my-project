@@ -378,6 +378,7 @@ function notifyUser_(message) {
 
 /** Webアプリの入口 */
 function doGet(e) {
+  ensureSetup_();
   const params = (e && e.parameter) || {};
   if (params.page === 'admin') {
     if (!isAdmin_()) {
@@ -398,6 +399,21 @@ function doGet(e) {
     // 社内ポータル（Google サイト等）のページに埋め込めるようにする。
     // アクセスできる人は Webアプリのデプロイ設定（組織内のみ）で制限されている。管理画面は埋め込み不可のまま。
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * 初回アクセス時に、シートやフォルダが無ければ自動で初期セットアップする。
+ * （エディタで setupSpreadsheet を実行する手順を省くため。2回目以降はシートの有無を見るだけ）
+ */
+function ensureSetup_() {
+  if (getSpreadsheet_().getSheetByName(SHEET_NAMES.CASES)) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30 * 1000);
+  try {
+    if (!getSpreadsheet_().getSheetByName(SHEET_NAMES.CASES)) setupSpreadsheet();
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** HTMLテンプレートから別ファイル（CSS/JS）を読み込む */
