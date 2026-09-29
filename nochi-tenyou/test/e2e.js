@@ -76,6 +76,22 @@ const OUT = path.join(__dirname, 'out');
   assert.ok(saved.chat.includes('物件：2件') && saved.chat.includes('管理画面で案件を開く'));
   await p.screenshot({ path: path.join(OUT, 'index.png'), fullPage: true });
 
+  // ---------------- 謄本をまとめて入れる（同時処理の上限より多い4通） ----------------
+  const bulk = await browser.newPage({ viewport: { width: 900, height: 1200 } });
+  watch(bulk);
+  await bulk.goto('file://' + path.join(OUT, 'index.html'));
+  await bulk.waitForSelector('.lot');
+  await bulk.evaluate(() => {
+    window.OCR_BY_NAME = {};
+    [10, 11, 12, 13].forEach((n) => { window.OCR_BY_NAME['t' + n + '.pdf'] = '表題部\n所在 岡崎市××町\n' + n + '番 畑 ' + (n * 10) + ' 余白'; });
+  });
+  await bulk.setInputFiles('#tohonFile', [10, 11, 12, 13].map((n) => ({ name: 't' + n + '.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') })));
+  assert.ok((await bulk.textContent('#tohonStatus')).includes('待機中'), '4通目は待機中になるはず');
+  await bulk.waitForFunction(() => document.querySelectorAll('.lot').length === 4 &&
+    !document.querySelector('#tohonStatus').textContent.match(/待機中|アップロード中|読み取り中/), null, { timeout: 8000 });
+  const bulkLots = await bulk.$$eval('.lot [data-f=lotNumber]', (e) => e.map((x) => x.value).sort());
+  assert.deepStrictEqual(bulkLots, ['10番', '11番', '12番', '13番']);
+
   // ---------------- 管理画面 ----------------
   const a = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   watch(a);

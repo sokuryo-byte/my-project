@@ -67,7 +67,7 @@ const FOLDERS = {};
 let seq = 1;
 function mkFile(name, parentId) {
   const f = {
-    id: 'file' + (seq++), name: name, parents: [parentId], text: window.OCR_TEXT,
+    id: 'file' + (seq++), name: name, parents: [parentId], text: (window.OCR_BY_NAME || {})[name] || window.OCR_TEXT,
     getId() { return this.id; }, getName() { return this.name; }, setName(n) { this.name = n; },
     setDescription() {}, setTrashed() { this.trashed = true; }, moveTo(folder) { this.parents = [folder.id]; },
     getParents() { let i = 0; const p = this.parents; return { hasNext: () => i < p.length, next: () => ({ getId: () => p[i++] }) }; },

@@ -387,44 +387,63 @@
     });
   }
 
+  /**
+   * ファイルを受け付ける。まとめて入れても、同時に処理するのは UPLOAD_CONCURRENCY 件まで
+   * （残りは「待機中」として順番に処理。サーバーの同時実行数の上限に当たらないようにするため）。
+   */
+  var UPLOAD_CONCURRENCY = 3;
+  var uploadQueue = [], uploadActive = 0;
+
   function addFiles(docType, fileList) {
     Array.prototype.forEach.call(fileList, function (file) {
-      var item = { localId: state.nextLocalId++, docType: docType, name: file.name, status: 'uploading' };
+      var item = { localId: state.nextLocalId++, docType: docType, name: file.name, status: 'waiting' };
       state.uploads.push(item);
       if (state.upload.mimeTypes.indexOf(file.type) < 0) {
         item.status = 'error'; item.error = 'PDF・画像のみ';
       } else if (file.size > state.upload.maxMb * 1024 * 1024) {
         item.status = 'error'; item.error = state.upload.maxMb + 'MB超';
       } else {
-        uploadOne(item, file);
+        uploadQueue.push(function (done) { uploadOne(item, file, done); });
       }
     });
     var chk = qsa('input[name=documents]').filter(function (c) { return c.value === docType; })[0];
     if (chk) chk.checked = true;
+    pumpUploads();
     renderFiles();
     schedulePreview();
   }
 
-  function uploadOne(item, file) {
+  function pumpUploads() {
+    while (uploadActive < UPLOAD_CONCURRENCY && uploadQueue.length) {
+      uploadActive++;
+      uploadQueue.shift()(function () { uploadActive--; pumpUploads(); });
+    }
+  }
+
+  /** 1ファイルをアップロードし、謄本なら続けて読み取る。終わったら（成功・失敗とも）done を呼ぶ */
+  function uploadOne(item, file, done) {
+    item.status = 'uploading';
+    renderFiles();
+    var fail = function (msg) { item.status = 'error'; item.error = msg; renderFiles(); done(); };
     var reader = new FileReader();
     reader.onload = function () {
       var base64 = String(reader.result).split(',')[1] || '';
       google.script.run
         .withSuccessHandler(function (res) {
           item.fileId = res.fileId;
-          if (item.docType === TOHON) { readTohonFile(item); } else { item.status = 'done'; }
-          renderFiles();
+          if (item.docType === TOHON) { readTohonFile(item, done); } else { item.status = 'done'; renderFiles(); done(); }
         })
-        .withFailureHandler(function (err) { item.status = 'error'; item.error = err.message; renderFiles(); })
+        .withFailureHandler(function (err) { fail(err.message); })
         .uploadAttachment({ name: file.name, mimeType: file.type, data: base64 });
     };
-    reader.onerror = function () { item.status = 'error'; item.error = '読み込み失敗'; renderFiles(); };
+    reader.onerror = function () { fail('読み込み失敗'); };
     reader.readAsDataURL(file);
   }
 
   /** 謄本はアップロード後に読み取りを行う（読み取りに失敗してもアップロード自体は有効） */
-  function readTohonFile(item) {
+  function readTohonFile(item, done) {
     item.status = 'reading';
+    renderFiles();
     google.script.run
       .withSuccessHandler(function (res) {
         item.status = 'done';
@@ -432,14 +451,15 @@
         var filled = applyTohon(res.lots || []);
         item.note = found && !filled ? '読み取り済み（入力済みの欄は変更していません）' : res.message;
         renderFiles();
+        done();
       })
-      .withFailureHandler(function (err) { item.status = 'done'; item.note = '読み取りに失敗：' + err.message; renderFiles(); })
+      .withFailureHandler(function (err) { item.status = 'done'; item.note = '読み取りに失敗：' + err.message; renderFiles(); done(); })
       .readTohon(item.fileId);
   }
 
   function removeUpload(localId) {
     var item = state.uploads.filter(function (u) { return u.localId === localId; })[0];
-    if (!item || item.status === 'uploading' || item.status === 'reading') return;
+    if (!item || item.status !== 'done' && item.status !== 'error') return;
     if (item.fileId) google.script.run.removeAttachment(item.fileId); // 失敗しても一時フォルダに残るだけ
     state.uploads = state.uploads.filter(function (u) { return u.localId !== localId; });
     renderFiles();
@@ -452,7 +472,7 @@
         var li = el('li');
         li.appendChild(el('span', { 'class': 'name' }, u.name));
         var st = {
-          uploading: 'アップロード中…', reading: '謄本を読み取り中…',
+          waiting: '待機中…', uploading: 'アップロード中…', reading: '謄本を読み取り中…',
           done: u.note || 'アップロード済み', error: '失敗：' + u.error
         }[u.status];
         li.appendChild(el('span', { 'class': 'st' + (u.status === 'error' ? ' ng' : '') }, st));
@@ -513,7 +533,7 @@
       check(area === '' || (!isNaN(Number(area)) && Number(area) >= 0), lotInput(card, 'area'), name + '面積は0以上の数値で入力してください（単位：㎡）。');
     });
     check(!hasFarmland() || !!f.plan.trim(), $('plan'), '現況が農地の物件があるため、今後の転用計画を入力してください。');
-    if (state.uploads.some(function (u) { return u.status === 'uploading' || u.status === 'reading'; })) {
+    if (state.uploads.some(function (u) { return u.status !== 'done' && u.status !== 'error'; })) {
       errors.push('アップロード中・読み取り中のファイルがあります。完了してから送信してください。');
     }
     return { errors: errors, first: first };

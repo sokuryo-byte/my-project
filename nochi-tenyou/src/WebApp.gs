@@ -32,7 +32,10 @@ function doGet(e) {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
     .setTitle('農地転用 見積・調査依頼フォーム')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    // 社内ポータル（Google サイト等）のページに埋め込めるようにする。
+    // アクセスできる人は Webアプリのデプロイ設定（組織内のみ）で制限されている。管理画面は埋め込み不可のまま。
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /** HTMLテンプレートから別ファイル（CSS/JS）を読み込む */
