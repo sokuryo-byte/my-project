@@ -1,0 +1,4 @@
+node_modules/
+# Googleログイン済みのブラウザプロファイル（認証情報を含むため絶対にコミットしない）
+.auth/
+reports/
