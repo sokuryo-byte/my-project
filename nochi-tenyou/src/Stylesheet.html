@@ -51,11 +51,14 @@
   .field > label, .lbl { font-weight: 700; font-size: .92rem; line-height: 1.6; min-height: 1.6em; display: flex; align-items: center; flex-wrap: wrap; }
   .req { font-size: .68rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 3px; padding: 1px 6px; margin-left: 6px; line-height: 1.5; }
   .help { margin: 0; font-size: .8rem; color: var(--muted); }
-  input[type=text], input[type=tel], select, textarea {
+  input[type=text], input[type=tel], input[type=number], input[type=date], select, textarea {
     width: 100%; font: inherit; color: var(--fg); background: var(--surface);
     border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; box-sizing: border-box; margin: 0;
   }
-  input[type=text], input[type=tel], select { height: 40px; line-height: 1.4; } /* テキスト欄とプルダウンの高さをそろえる */
+  input[type=text], input[type=tel], input[type=number], input[type=date], select { height: 40px; line-height: 1.4; }
+  .inline-inputs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .inline-inputs input[type=number] { width: 5.5em; text-align: right; }
+  .inline-inputs input[type=date] { width: 11em; } /* テキスト欄とプルダウンの高さをそろえる */
   input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .invalid { border-color: var(--danger) !important; background: var(--danger-bg) !important; }
   .unit { display: flex; gap: 6px; align-items: center; }

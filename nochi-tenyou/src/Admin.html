@@ -294,6 +294,7 @@
           (l.jogaiKanou || l.hojoKuiki || l.jogaiJisseki || l.jogaiUketsuke) && '除外の見込み:' + (l.jogaiKanou || '-') +
             '／ほ場整備等 ' + (l.hojoKuiki || '-') + (l.hojo8nen ? '（8年' + l.hojo8nen + '）' : '') + '／近隣実績 ' + (l.jogaiJisseki || '-') +
             (l.jogaiUketsuke ? '／受付 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''),
+          l.tenyoUketsuke && '農転の受付:' + l.tenyoUketsuke,
           (l.drainConsent || l.drainAdjacent) && '排水:隣接水路 ' + (l.drainAdjacent || '-') + '／承諾 ' + (l.drainConsent || '-') +
             [l.drainName, l.drainTel, l.drainFee && '手数料 ' + l.drainFee, l.drainLocalConsent && '地元承諾 ' + l.drainLocalConsent]
               .filter(function (x) { return x; }).map(function (x) { return '／' + x; }).join('') + (l.drainContacts ? '\n' + l.drainContacts : '')]

@@ -180,7 +180,7 @@ function submitCase(form, requestInvestigation) {
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
-      jogaiUketsuke: l.jogaiUketsuke, jogaiNote: l.jogaiNote,
+      jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
       drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
       drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
@@ -246,6 +246,24 @@ function summarizeLots_(lots) {
     localContacts: lots.map(function (l) { return contactsToText_(l.localContacts); })
       .filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('\n'),
   };
+}
+
+/** 'YYYY-MM-DD' → 'YYYY/MM/DD'（それ以外は空文字） */
+function dateText_(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[1] + '/' + m[2] + '/' + m[3] : '';
+}
+
+/** 期間の表示「A～B」（片方だけなら「A～」「～B」） */
+function rangeText_(a, b) {
+  return a || b ? (a || '') + '～' + (b || '') : '';
+}
+
+/** 毎月の受付期間「毎月1日～10日」（1〜31以外は無視） */
+function monthlyText_(from, to) {
+  const d = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n + '日' : ''; };
+  const t = rangeText_(d(from), d(to));
+  return t ? '毎月' + t : '';
 }
 
 /** 連絡先の配列 → 「氏名／住所／電話」を1行ずつ並べた文字列 */
@@ -376,7 +394,8 @@ function normalizeLot_(l, prefecture, master) {
     hojoKuiki: jogaiOn ? pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) : '',
     hojo8nen: jogaiOn && pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) === '区域内' ? pick_(l.hojo8nen, FORM_OPTIONS.hojo8nen) : '',
     jogaiJisseki: jogaiOn ? pick_(l.jogaiJisseki, FORM_OPTIONS.jogaiJisseki) : '',
-    jogaiUketsuke: jogaiOn ? str_(l.jogaiUketsuke, 100) : '',
+    jogaiUketsuke: jogaiOn ? rangeText_(dateText_(l.jogaiUkeFrom), dateText_(l.jogaiUkeTo)) : '',
+    tenyoUketsuke: permitZone || jogaiOn ? monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo) : '',
     jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',

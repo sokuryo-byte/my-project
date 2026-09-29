@@ -437,7 +437,8 @@ const LOT_COLUMNS = [
   { key: 'hojoKuiki', header: 'ほ場整備等の事業区域' },
   { key: 'hojo8nen', header: '事業完了から8年' },
   { key: 'jogaiJisseki', header: '近隣の除外実績' },
-  { key: 'jogaiUketsuke', header: '除外の受付時期' },
+  { key: 'jogaiUketsuke', header: '除外の受付期間（次回）' },
+  { key: 'tenyoUketsuke', header: '農地転用の受付期間' },
   { key: 'jogaiNote', header: '除外の指摘事項' },
   { key: 'drainAdjacent', header: '隣接の水路' },
   { key: 'drainConsent', header: '排水承諾' },
@@ -797,7 +798,7 @@ function submitCase(form, requestInvestigation) {
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
-      jogaiUketsuke: l.jogaiUketsuke, jogaiNote: l.jogaiNote,
+      jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
       drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
       drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
@@ -863,6 +864,24 @@ function summarizeLots_(lots) {
     localContacts: lots.map(function (l) { return contactsToText_(l.localContacts); })
       .filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('\n'),
   };
+}
+
+/** 'YYYY-MM-DD' → 'YYYY/MM/DD'（それ以外は空文字） */
+function dateText_(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[1] + '/' + m[2] + '/' + m[3] : '';
+}
+
+/** 期間の表示「A～B」（片方だけなら「A～」「～B」） */
+function rangeText_(a, b) {
+  return a || b ? (a || '') + '～' + (b || '') : '';
+}
+
+/** 毎月の受付期間「毎月1日～10日」（1〜31以外は無視） */
+function monthlyText_(from, to) {
+  const d = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n + '日' : ''; };
+  const t = rangeText_(d(from), d(to));
+  return t ? '毎月' + t : '';
 }
 
 /** 連絡先の配列 → 「氏名／住所／電話」を1行ずつ並べた文字列 */
@@ -993,7 +1012,8 @@ function normalizeLot_(l, prefecture, master) {
     hojoKuiki: jogaiOn ? pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) : '',
     hojo8nen: jogaiOn && pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) === '区域内' ? pick_(l.hojo8nen, FORM_OPTIONS.hojo8nen) : '',
     jogaiJisseki: jogaiOn ? pick_(l.jogaiJisseki, FORM_OPTIONS.jogaiJisseki) : '',
-    jogaiUketsuke: jogaiOn ? str_(l.jogaiUketsuke, 100) : '',
+    jogaiUketsuke: jogaiOn ? rangeText_(dateText_(l.jogaiUkeFrom), dateText_(l.jogaiUkeTo)) : '',
+    tenyoUketsuke: permitZone || jogaiOn ? monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo) : '',
     jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
@@ -1435,7 +1455,8 @@ function calculateEstimate_(input) {
     if (l.hojo8nen === '未経過') {
       notes.push(lotName(l, i) + '：土地改良事業の完了から8年を経過していないため、農振除外の要件を満たしません。');
     }
-    if (l.jogaiUketsuke) notes.push(lotName(l, i) + '：農振除外の受付時期 ' + l.jogaiUketsuke + '。');
+    if (l.jogaiUketsuke) notes.push(lotName(l, i) + '：農振除外の受付期間（次回）' + l.jogaiUketsuke + '。');
+    if (l.tenyoUketsuke) notes.push(lotName(l, i) + '：農地転用の受付 ' + l.tenyoUketsuke + '。');
     if (l.jogaiKanou === '難しい') {
       notes.push(lotName(l, i) + '：農業委員会より農振除外は難しいとの回答があります' + (l.jogaiNote ? '（' + l.jogaiNote + '）' : '') + '。');
     }
@@ -1797,8 +1818,9 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
     }
     if (l.jogaiKanou || l.hojoKuiki || l.jogaiJisseki || l.jogaiUketsuke) {
       lines.push('　　農振除外の見込み：' + (l.jogaiKanou || '-') + '／ほ場整備等 ' + (l.hojoKuiki || '-') + (l.hojo8nen ? '（8年' + l.hojo8nen + '）' : '') +
-        '／近隣の除外実績 ' + (l.jogaiJisseki || '-') + (l.jogaiUketsuke ? '／受付時期 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''));
+        '／近隣の除外実績 ' + (l.jogaiJisseki || '-') + (l.jogaiUketsuke ? '／受付期間 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''));
     }
+    if (l.tenyoUketsuke) lines.push('　　農地転用の受付：' + l.tenyoUketsuke);
     if (l.drainConsent || l.drainAdjacent) {
       lines.push('　　排水：隣接水路 ' + (l.drainAdjacent || '-') + '／排水承諾 ' + (l.drainConsent || '-') +
         (l.drainName ? '／' + l.drainName + (l.drainTel ? '（' + l.drainTel + '）' : '') : '') +
