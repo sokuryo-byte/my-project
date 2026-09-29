@@ -129,19 +129,19 @@ function calculateEstimate_(input) {
   }
 
   // --- 4-3. 分家住宅：分家建築許可（調整区域）・排水承諾手続 ---
-  if (input.purpose === '分家住宅') {
-    if (lots.some(function (l) { return l.zone === '市街化調整区域'; })) {
-      items.push(item('ADD_BUNKE'));
-      notes.push('開発許可（都市計画法29条）となる場合は金額が変わります。');
-    }
-    const drainLots = lots.filter(function (l) { return l.drainConsent !== '不要'; });
+  const bunkeLots = lots.filter(function (l) { return l.purpose === '分家住宅'; }); // 目的は調整区域の物件のみ
+  if (bunkeLots.length) {
+    items.push(item('ADD_BUNKE'));
+    notes.push('開発許可（都市計画法29条）となる場合は金額が変わります。');
+    const drainLots = bunkeLots.filter(function (l) { return l.drainConsent !== '不要'; });
     if (drainLots.length) {
       items.push(item('ADD_DRAINAGE'));
       if (!drainLots.some(function (l) { return l.drainConsent === '必要'; })) {
         notes.push('排水承諾の要否が未確認のため加算しています。不要な場合は減額となります。');
       }
     }
-    lots.forEach(function (l, i) {
+    bunkeLots.forEach(function (l) {
+      const i = lots.indexOf(l);
       if (l.drainConsent === '必要' && l.drainFee) notes.push(lotName(l, i) + '：用水への手数料等は実費のため見積に含みません（' + l.drainFee + '）。');
     });
   }

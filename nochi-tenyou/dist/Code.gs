@@ -160,6 +160,12 @@ const MAX_LOTS = 30;
 /** 物件所在地の都道府県の初期値（プルダウンの先頭に表示） */
 const DEFAULT_PREFECTURE = '愛知県';
 
+/**
+ * 都市計画税を課していない市町村（区域区分の目安「課税明細書の都市計画税」が使えない）。公的資料で確認したもののみ。
+ * { 都道府県: [市区町村, ...] }
+ */
+const NO_CITY_PLANNING_TAX = {};
+
 /** 委員・地元関係者の連絡先を1物件あたり何人まで入力できるか */
 const MAX_CONTACTS = 5;
 
@@ -342,7 +348,8 @@ const FORM_OPTIONS = {
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],
-  purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（分家住宅は排水先の確認を行う）
+  purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（市街化調整区域の物件のみ。分家住宅は排水先の確認を行う）
+  tenyoUkeModes: ['毎月', '締切日'],                      // 農地転用の受付：毎月○日～○日／特定の締切日
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
   noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
   hojoKuiki: ['区域内', '区域外', '未確認'],               // ほ場整備などの土地改良事業の区域か
@@ -430,6 +437,7 @@ const LOT_COLUMNS = [
   { key: 'iinContacts', header: '委員（氏名／住所／電話）' },
   { key: 'localConsent', header: '地元関係者の同意（押印）' },
   { key: 'localContacts', header: '同意が必要な方（氏名／住所／電話）' },
+  { key: 'purpose', header: '転用目的（調整区域）' },
   { key: 'tenyoKanou', header: '転用の見込み（農業委員会）' },
   { key: 'noutiKubun', header: '農地区分（農業委員会）' },
   { key: 'kanouNote', header: '転用が難しい理由・指摘事項' },
@@ -714,6 +722,7 @@ function getInitialData() {
     master: getMasterList_(),
     municipalities: MUNICIPALITIES,
     nogyoIinkai: NOGYO_IINKAI,
+    noCityPlanningTax: NO_CITY_PLANNING_TAX,
     userEmail: getUserEmail_(),
     upload: { maxMb: MAX_UPLOAD_MB, mimeTypes: ALLOWED_MIME_TYPES },
   };
@@ -796,7 +805,7 @@ function submitCase(form, requestInvestigation) {
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
-      tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
+      purpose: l.purpose, tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
@@ -937,7 +946,7 @@ function normalizeInput_(form) {
   const lots = (Array.isArray(f.lots) ? f.lots : [])
     .slice(0, MAX_LOTS)
     .map(function (l) {
-      return normalizeLot_(Object.assign({}, l || {}, { bunke: pick_(f.purpose, FORM_OPTIONS.purposes) === '分家住宅' }), prefecture, master);
+      return normalizeLot_(l || {}, prefecture, master);
     });
 
   return {
@@ -945,7 +954,8 @@ function normalizeInput_(form) {
     prefecture: prefecture,
     lots: lots,
     plan: str_(f.plan, 1000),
-    purpose: pick_(f.purpose, FORM_OPTIONS.purposes),
+    // 転用目的は物件ごと（調整区域のみ）。案件には各物件の目的をまとめて記録
+    purpose: lots.map(function (l) { return l.purpose; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('・'),
     documents: documents,
     attachments: attachments,
     submittedBy: getUserEmail_(),
@@ -967,7 +977,8 @@ function normalizeLot_(l, prefecture, master) {
   const permitZone = PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
   const jogaiOn = pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
     ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
-  const drainOn = l.bunke === true;                                             // 転用目的が分家住宅
+  const purpose = pick_(l.zone, FORM_OPTIONS.zones) === '市街化調整区域' ? pick_(l.purpose, FORM_OPTIONS.purposes) : '';
+  const drainOn = purpose === '分家住宅';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
 
@@ -1004,6 +1015,7 @@ function normalizeLot_(l, prefecture, master) {
     localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
     localContacts: kairyoOn && pick_(l.localConsent, FORM_OPTIONS.localConsent) === '必要' ? normalizeContacts_(l.localContacts) : [],
     // 転用の見込み（許可が必要な区域で農業委員会に確認）
+    purpose: purpose,
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
     noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
@@ -1013,7 +1025,9 @@ function normalizeLot_(l, prefecture, master) {
     hojo8nen: jogaiOn && pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) === '区域内' ? pick_(l.hojo8nen, FORM_OPTIONS.hojo8nen) : '',
     jogaiJisseki: jogaiOn ? pick_(l.jogaiJisseki, FORM_OPTIONS.jogaiJisseki) : '',
     jogaiUketsuke: jogaiOn ? rangeText_(dateText_(l.jogaiUkeFrom), dateText_(l.jogaiUkeTo)) : '',
-    tenyoUketsuke: permitZone || jogaiOn ? monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo) : '',
+    tenyoUketsuke: !(permitZone || jogaiOn) ? ''
+      : pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes) === '締切日' ? (dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '')
+      : monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo),
     jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
@@ -1426,19 +1440,19 @@ function calculateEstimate_(input) {
   }
 
   // --- 4-3. 分家住宅：分家建築許可（調整区域）・排水承諾手続 ---
-  if (input.purpose === '分家住宅') {
-    if (lots.some(function (l) { return l.zone === '市街化調整区域'; })) {
-      items.push(item('ADD_BUNKE'));
-      notes.push('開発許可（都市計画法29条）となる場合は金額が変わります。');
-    }
-    const drainLots = lots.filter(function (l) { return l.drainConsent !== '不要'; });
+  const bunkeLots = lots.filter(function (l) { return l.purpose === '分家住宅'; }); // 目的は調整区域の物件のみ
+  if (bunkeLots.length) {
+    items.push(item('ADD_BUNKE'));
+    notes.push('開発許可（都市計画法29条）となる場合は金額が変わります。');
+    const drainLots = bunkeLots.filter(function (l) { return l.drainConsent !== '不要'; });
     if (drainLots.length) {
       items.push(item('ADD_DRAINAGE'));
       if (!drainLots.some(function (l) { return l.drainConsent === '必要'; })) {
         notes.push('排水承諾の要否が未確認のため加算しています。不要な場合は減額となります。');
       }
     }
-    lots.forEach(function (l, i) {
+    bunkeLots.forEach(function (l) {
+      const i = lots.indexOf(l);
       if (l.drainConsent === '必要' && l.drainFee) notes.push(lotName(l, i) + '：用水への手数料等は実費のため見積に含みません（' + l.drainFee + '）。');
     });
   }

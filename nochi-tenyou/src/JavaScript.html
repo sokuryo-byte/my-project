@@ -53,6 +53,7 @@
     state.master = data.master || [];
     state.municipalities = data.municipalities || {};
     state.nogyoIinkai = data.nogyoIinkai || {};
+    state.noCityPlanningTax = data.noCityPlanningTax || {};
     state.options = data.options;
     state.farmlandUses = data.farmlandUses || [];
     state.upload = data.upload;
@@ -67,7 +68,6 @@
     document.body.appendChild(el('datalist', { id: 'cityList' }));
     fillCityList();
 
-    renderChoices($('purposeChoices'), 'purpose', state.options.purposes);
     renderDocs(state.options.documents);
     $('uploadHelp').textContent += '（PDF・画像、1ファイル' + data.upload.maxMb + 'MBまで）';
     $('tohonStatus').setAttribute('data-type', TOHON);
@@ -84,7 +84,7 @@
     form.addEventListener('change', onFormChange);
     form.addEventListener('input', onFormChange);
     form.addEventListener('submit', function (e) { e.preventDefault(); });
-    $('prefecture').addEventListener('change', function () { fillCityList(); qsa('.lot').forEach(updateLotLinks); });
+    $('prefecture').addEventListener('change', function () { fillCityList(); qsa('.lot').forEach(function (c) { updateLotLinks(c); updateTaxNote(c); }); });
     $('addLotBtn').addEventListener('click', function () { focusLot(addLot()); });
     $('copyLotBtn').addEventListener('click', function () {
       var lots = qsa('.lot');
@@ -112,7 +112,6 @@
         else if (e.target.name === radioName(lot, 'isNoshin')) lot.removeAttribute('data-noshin-auto'); // 人が選んだ値は以後触らない
       }
       if (lot) { updateCallBox(lot); updateConvertedWarn(lot); }         // 選択に合わせて電話確認・注意表示を更新
-      if (e.target.name === 'purpose') qsa('.lot').forEach(updateCallBox); // 転用目的は全物件に影響
     }
     updatePlanRequired();
     schedulePreview();
@@ -195,7 +194,7 @@
 
     // 市区町村・所在地番
     var city = el('input', { type: 'text', id: id('municipality'), maxlength: '50', placeholder: '例）豊田市', list: 'cityList', 'data-f': 'municipality' });
-    city.addEventListener('input', function () { updateLotLinks(card); updateCallBox(card); });
+    city.addEventListener('input', function () { updateLotLinks(card); updateCallBox(card); updateTaxNote(card); });
     var address = el('input', { type: 'text', id: id('address'), maxlength: '200', placeholder: '例）○○町字△△ 123番1', 'data-f': 'address' });
     address.addEventListener('input', function () { updateCallBox(card); });
     var row1 = el('div', { 'class': 'row row-addr' });
@@ -228,9 +227,18 @@
       label.appendChild(span);
       zones.appendChild(label);
     });
-    var zoneHelp = el('p', { 'class': 'help' }, 'できる限りご確認ください。課税明細書で都市計画税が課税されていれば市街化区域、課税されていなければ市街化調整区域の可能性が高いです（目安。都市計画税のない市町村もあります）。');
+    var zoneHelp = el('p', { 'class': 'help' }, '※ 目安：課税明細書に都市計画税があれば市街化区域、なければ市街化調整区域の可能性が高い。');
     zoneHelp.appendChild(el('a', { 'class': 'hidden city-link', target: '_blank', rel: 'noopener' }, ' この市区町村の都市計画情報を開く'));
-    card.appendChild(radioField('区域区分', zones, zoneHelp, true));
+    var zoneField = radioField('区域区分', zones, zoneHelp, true);
+    zoneField.appendChild(el('p', { 'class': 'caution tax-note hidden' }));
+    card.appendChild(zoneField);
+
+    // 転用目的（市街化調整区域のときだけ。区域区分のすぐ下）
+    var purposeBox = el('div', { 'class': 'choices' });
+    renderChoices(purposeBox, id('purpose'), o.purposes);
+    var purposeField = radioField('転用目的', purposeBox, el('p', { 'class': 'help' }, '分家住宅の場合は、排水先の確認項目が表示されます'));
+    purposeField.classList.add('purpose-field', 'hidden');
+    card.appendChild(purposeField);
 
     // 農振
     var noshin = el('div', { 'class': 'choices' });
@@ -280,6 +288,7 @@
       setContacts(card, 'iinContacts', inherit.iinContacts);
       setRadio(card, 'localConsent', inherit.localConsent);            // 同じ地区なら地元関係者も同じことが多い
       setContacts(card, 'localContacts', inherit.localContacts);
+      setRadio(card, 'purpose', inherit.purpose);
       setRadio(card, 'drainAdjacent', inherit.drainAdjacent);          // 隣の土地なら排水先も同じことが多い
       setRadio(card, 'drainConsent', inherit.drainConsent);
       lotInput(card, 'drainName').value = inherit.drainName || '';
@@ -293,6 +302,7 @@
     updateLotLinks(card);
     updateCallBox(card);
     updateConvertedWarn(card);
+    updateTaxNote(card);
     updatePlanRequired();
     schedulePreview();
     return card;
@@ -363,6 +373,7 @@
       iinContacts: getContacts(card, 'iinContacts'),
       localConsent: getRadio(card, 'localConsent'),
       localContacts: getContacts(card, 'localContacts'),
+      purpose: getRadio(card, 'purpose'),
       tenyoKanou: getRadio(card, 'tenyoKanou'),
       noutiKubun: getRadio(card, 'noutiKubun'),
       kanouNote: lotInput(card, 'kanouNote').value,
@@ -372,6 +383,8 @@
       jogaiJisseki: getRadio(card, 'jogaiJisseki'),
       jogaiUkeFrom: lotInput(card, 'jogaiUkeFrom').value,
       jogaiUkeTo: lotInput(card, 'jogaiUkeTo').value,
+      tenyoUkeMode: getRadio(card, 'tenyoUkeMode'),
+      tenyoUkeDate: lotInput(card, 'tenyoUkeDate').value,
       tenyoUkeFrom: lotInput(card, 'tenyoUkeFrom').value,
       tenyoUkeTo: lotInput(card, 'tenyoUkeTo').value,
       jogaiNote: lotInput(card, 'jogaiNote').value,
@@ -447,12 +460,20 @@
     // 受付期間（入力しやすいよう数字・日付の欄に分ける）
     var ub = el('div', { 'class': 'uketsuke-block hidden', style: 'display:grid;gap:8px' });
     var tu = el('div', { 'class': 'inline-inputs' });
-    tu.appendChild(el('span', {}, '毎月'));
-    tu.appendChild(el('input', { type: 'number', min: '1', max: '31', inputmode: 'numeric', id: id('tenyoUkeFrom'), 'data-f': 'tenyoUkeFrom', 'aria-label': '受付開始日' }));
-    tu.appendChild(el('span', {}, '日 ～'));
-    tu.appendChild(el('input', { type: 'number', min: '1', max: '31', inputmode: 'numeric', id: id('tenyoUkeTo'), 'data-f': 'tenyoUkeTo', 'aria-label': '受付締切日' }));
-    tu.appendChild(el('span', {}, '日'));
-    var tuf = field('農地転用の受付期間', tu.children[1], null, false, tu);
+    var modeBox = el('div', { 'class': 'choices uke-mode' });
+    renderChoices(modeBox, id('tenyoUkeMode'), o.tenyoUkeModes);
+    tu.appendChild(modeBox);
+    var monthly = el('span', { 'class': 'inline-inputs uke-monthly' });
+    tu.appendChild(monthly);
+    monthly.appendChild(el('span', {}, '毎月'));
+    monthly.appendChild(el('input', { type: 'number', min: '1', max: '31', inputmode: 'numeric', id: id('tenyoUkeFrom'), 'data-f': 'tenyoUkeFrom', 'aria-label': '受付開始日' }));
+    monthly.appendChild(el('span', {}, '日 ～'));
+    monthly.appendChild(el('input', { type: 'number', min: '1', max: '31', inputmode: 'numeric', id: id('tenyoUkeTo'), 'data-f': 'tenyoUkeTo', 'aria-label': '受付締切日' }));
+    monthly.appendChild(el('span', {}, '日'));
+    var deadline = el('span', { 'class': 'inline-inputs uke-date hidden' });
+    deadline.appendChild(el('input', { type: 'date', id: id('tenyoUkeDate'), 'data-f': 'tenyoUkeDate', 'aria-label': '受付締切日' }));
+    tu.appendChild(deadline);
+    var tuf = field('農地転用の受付', monthly.children[1], null, false, tu);
     var ju = el('div', { 'class': 'inline-inputs' });
     ju.appendChild(el('input', { type: 'date', id: id('jogaiUkeFrom'), 'data-f': 'jogaiUkeFrom', 'aria-label': '除外の受付開始日' }));
     ju.appendChild(el('span', {}, '～'));
@@ -628,7 +649,8 @@
     }
     var zone = getRadio(card, 'zone');
     var permit = ['市街化調整区域', '非線引き区域', '都市計画区域外'].indexOf(zone) >= 0;
-    var purpose = radioVal('purpose');
+    card.querySelector('.purpose-field').classList.toggle('hidden', zone !== '市街化調整区域');
+    var purpose = zone === '市街化調整区域' ? getRadio(card, 'purpose') : '';
     var purposeText = purpose && purpose !== 'その他' ? purpose : '住宅等';
     var noshin = getRadio(card, 'isNoshin');
     var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
@@ -659,6 +681,9 @@
     // 受付期間の欄と、指摘事項の見出し（「難しい」を選んだときは理由を書く欄として示す）
     card.querySelector('.uketsuke-block').classList.toggle('hidden', !(permit || jogai));
     card.querySelector('.jogai-uke').classList.toggle('hidden', !jogai);
+    var byDate = getRadio(card, 'tenyoUkeMode') === '締切日';
+    card.querySelector('.uke-monthly').classList.toggle('hidden', byDate);
+    card.querySelector('.uke-date').classList.toggle('hidden', !byDate);
     card.querySelector('.kanou-note label').textContent = getRadio(card, 'tenyoKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
     card.querySelector('.jogai-note label').textContent = getRadio(card, 'jogaiKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
     var hojoIn = jogai && getRadio(card, 'hojoKuiki') === '区域内';
@@ -788,6 +813,15 @@
     names.forEach(function (n) { list.appendChild(el('option', { value: n })); });
   }
 
+  /** 都市計画税を課していない市町村では、課税明細書による区域の目安が使えない旨を出す */
+  function updateTaxNote(card) {
+    var city = lotInput(card, 'municipality').value.trim();
+    var list = state.noCityPlanningTax[$('prefecture').value] || [];
+    var note = card.querySelector('.tax-note');
+    note.textContent = list.indexOf(city) >= 0 ? '※ ' + city + 'は都市計画税を課していないため、課税明細書では区域を判断できません。都市計画図でご確認ください。' : '';
+    note.classList.toggle('hidden', !note.textContent);
+  }
+
   function setLink(a, url) {
     if (url) { a.href = url; a.classList.remove('hidden'); }
     else { a.removeAttribute('href'); a.classList.add('hidden'); }
@@ -833,6 +867,8 @@
         badge.textContent = '謄本から読取・要確認' + (c.chimokuRaw && c.chimokuRaw !== c.chimoku ? '（謄本の地目：' + c.chimokuRaw + '）' : '');
         badge.classList.remove('hidden');
         updateLotLinks(card);
+        updateCallBox(card);
+        updateTaxNote(card);
       }
     });
     schedulePreview();
@@ -984,7 +1020,6 @@
       prefecture: $('prefecture').value,
       lots: qsa('.lot').map(getLotData),
       plan: $('plan').value,
-      purpose: radioVal('purpose'),
       documentsOther: $('documentsOther') ? $('documentsOther').value : '',
       attachments: state.uploads
         .filter(function (u) { return u.status === 'done' && u.fileId; })
