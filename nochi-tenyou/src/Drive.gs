@@ -79,7 +79,7 @@ function trashPendingFile_(fileId) {
  * @return {{folderUrl:string, count:number, errors:string[]}}
  */
 function attachFilesToCase_(caseId, input) {
-  const folderName = [('0000' + caseId).slice(-4), input.municipality, input.lotNumber]
+  const folderName = [('0000' + caseId).slice(-4), input.municipality || input.address.slice(0, 20), input.lotNumber]
     .filter(String).join('_');
   const folder = getRootFolder_().createFolder(sanitizeFileName_(folderName));
   const errors = [];

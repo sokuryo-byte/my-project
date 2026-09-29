@@ -42,7 +42,7 @@ function postToChat_(text) {
  * Chat の書式： *太字*、<URL|リンク文字>
  */
 function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
-  const location = [input.prefecture, input.municipality, input.address].filter(String).join(' ');
+  const location = [input.prefecture, input.address].filter(String).join(' ');
   const adminUrl = getAdminUrl_(caseId);
   const lines = [
     '*【農地転用】見積調査依頼が届きました*',

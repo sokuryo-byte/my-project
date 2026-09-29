@@ -45,6 +45,7 @@ function getInitialData() {
   return {
     options: FORM_OPTIONS,
     farmlandUses: FARMLAND_LAND_USES,
+    defaultPrefecture: DEFAULT_PREFECTURE,
     master: getMasterList_(),
     userEmail: getUserEmail_(),
     upload: { maxMb: MAX_UPLOAD_MB, mimeTypes: ALLOWED_MIME_TYPES },
@@ -170,12 +171,17 @@ function normalizeInput_(form) {
     .filter(function (d) { return types.indexOf(d) >= 0; })
     .map(function (d) { return d === 'その他' && docsOther ? 'その他（' + docsOther + '）' : d; });
 
+  // 所在は「市区町村〜」を1欄で受け取り、市区町村はマスタとの前方一致で取り出す（一致しなければ空欄）
+  const prefecture = str(f.prefecture, 10) || DEFAULT_PREFECTURE;
+  let address = str(f.address);
+  if (address.indexOf(prefecture) === 0) address = address.slice(prefecture.length).trim();
+
   return {
     requesterName: str(f.requesterName, 50),
-    address: str(f.address),
+    address: address,
     lotNumber: str(f.lotNumber, 100),
-    prefecture: str(f.prefecture, 10),
-    municipality: str(f.municipality, 50),
+    prefecture: prefecture,
+    municipality: detectMunicipality_(prefecture, address),
     chimoku: pick(f.chimoku, FORM_OPTIONS.chimoku),
     area: areaNum,
     zone: pick(f.zone, FORM_OPTIONS.zones),
@@ -190,6 +196,17 @@ function normalizeInput_(form) {
     attachments: attachments,
     submittedBy: getUserEmail_(),
   };
+}
+
+/**
+ * 所在の先頭がマスタの市区町村名と一致すれば、その市区町村名を返す（長い名前を優先）。
+ * 文字列の前方一致だけで、推測はしない。
+ */
+function detectMunicipality_(prefecture, address) {
+  return getMasterList_()
+    .filter(function (m) { return m.prefecture === prefecture && address.indexOf(m.municipality) === 0; })
+    .map(function (m) { return m.municipality; })
+    .sort(function (a, b) { return b.length - a.length; })[0] || '';
 }
 
 /** 保存前の必須チェック。エラーメッセージの配列を返す（空ならOK） */

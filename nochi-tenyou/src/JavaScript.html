@@ -7,8 +7,6 @@
    *  ・送信（確認画面なし・ボタンを押したらすぐ送信）
    */
 
-  var OTHER_CITY = '__other__';   // 市区町村「その他（手入力）」の値
-
   /** 区域カードの説明文（画面表示用） */
   var ZONE_HINTS = {
     '市街化区域':     { desc: '都市計画図で用途地域の色が塗られている区域', proc: '農地転用は「届出」' },
@@ -54,9 +52,10 @@
     renderDocs(o.documents);
     $('uploadHelp').textContent += '（PDF・画像、1ファイル' + data.upload.maxMb + 'MBまで）';
 
-    var prefs = [];
+    // 都道府県：既定値（愛知県）を先頭に、マスタにある都道府県を並べる
+    var prefs = [data.defaultPrefecture];
     state.master.forEach(function (m) { if (prefs.indexOf(m.prefecture) < 0) prefs.push(m.prefecture); });
-    fillSelect('prefecture', prefs, '選択してください');
+    prefs.forEach(function (p, i) { $('prefecture').appendChild(new Option(p, p, i === 0, i === 0)); });
 
     bindEvents();
     updatePlanRequired();
@@ -68,8 +67,8 @@
     form.addEventListener('change', schedulePreview);
     form.addEventListener('input', schedulePreview);
     form.addEventListener('submit', function (e) { e.preventDefault(); });
-    $('prefecture').addEventListener('change', onPrefectureChange);
-    $('municipality').addEventListener('change', onMunicipalityChange);
+    $('prefecture').addEventListener('change', onAddressChange);
+    $('address').addEventListener('input', onAddressChange);
     $('landUse').addEventListener('change', updatePlanRequired);
     $('requestBtn').addEventListener('click', function () { submit(true); });
     $('saveOnlyBtn').addEventListener('click', function () { submit(false); });
@@ -222,21 +221,22 @@
   // ---------------------------------------------------------
   // 市区町村・現況に応じた表示切り替え
   // ---------------------------------------------------------
-  function onPrefectureChange() {
-    var pref = $('prefecture').value;
-    var cities = state.master.filter(function (m) { return m.prefecture === pref; }).map(function (m) { return m.municipality; });
-    fillSelect('municipality', cities, pref ? '選択してください' : '先に都道府県を選択');
-    if (pref) $('municipality').appendChild(new Option('その他（手入力）', OTHER_CITY));
-    onMunicipalityChange();
-  }
-
-  /** マスタにURLがあれば参照用リンクを出す（自動判定はしない） */
-  function onMunicipalityChange() {
-    var pref = $('prefecture').value, city = $('municipality').value;
-    $('municipalityOther').classList.toggle('hidden', city !== OTHER_CITY);
-    var row = state.master.filter(function (m) { return m.prefecture === pref && m.municipality === city; })[0];
+  /**
+   * 所在の先頭がマスタの市区町村名と一致したら、その市区町村の参照用リンクを出す。
+   * （文字列の前方一致だけ。区域などの判定はしない）
+   */
+  function onAddressChange() {
+    var row = findMasterRow($('prefecture').value, $('address').value);
     setLink('cityPlanLink', row && row.cityPlanUrl);
     setLink('noshinLink', row && row.noshinUrl);
+  }
+
+  function findMasterRow(pref, address) {
+    var a = address.trim();
+    if (a.indexOf(pref) === 0) a = a.slice(pref.length); // 「愛知県豊田市…」と書かれた場合
+    return state.master
+      .filter(function (m) { return m.prefecture === pref && a.indexOf(m.municipality) === 0; })
+      .sort(function (x, y) { return y.municipality.length - x.municipality.length; })[0]; // 長い名前を優先
   }
 
   function setLink(id, url) {
@@ -260,11 +260,9 @@
   }
 
   function collectForm() {
-    var city = $('municipality').value;
     return {
       requesterName: $('requesterName').value,
       prefecture: $('prefecture').value,
-      municipality: city === OTHER_CITY ? $('municipalityOther').value : city,
       address: $('address').value,
       lotNumber: $('lotNumber').value,
       chimoku: $('chimoku').value,
@@ -400,7 +398,7 @@
     $('caseForm').reset();
     state.uploads = [];
     renderFiles();
-    onPrefectureChange();
+    onAddressChange();
     updatePlanRequired();
     showErrors([]);
     Array.prototype.forEach.call(document.querySelectorAll('.invalid'), function (e) { e.classList.remove('invalid'); });

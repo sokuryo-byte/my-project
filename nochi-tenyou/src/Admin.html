@@ -141,7 +141,7 @@
       tr.appendChild(el('td', {}, c.receivedAt));
       var st = el('td'); st.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―')); tr.appendChild(st);
       tr.appendChild(el('td', {}, c.requesterName));
-      tr.appendChild(el('td', { 'class': 'loc' }, [c.municipality, c.address, c.lotNumber].filter(String).join(' ')));
+      tr.appendChild(el('td', { 'class': 'loc' }, [c.address, c.lotNumber].filter(String).join(' ')));
       tr.appendChild(el('td', {}, c.zone));
       tr.appendChild(el('td', { 'class': 'num' }, yen(c.estimate)));
       tr.appendChild(el('td', {}, c.assignee || '―'));
@@ -216,7 +216,7 @@
     var dl = el('dl', { 'class': 'kv' });
     [
       ['受付日時', c.receivedAt], ['入力者', c.submittedBy], ['依頼種別', c.requestFlag === true ? '見積調査依頼' : '保存のみ'],
-      ['所在地', [c.prefecture, c.municipality, c.address].filter(String).join(' ')], ['地番', c.lotNumber],
+      ['所在地', [c.prefecture, c.address].filter(String).join(' ')], ['地番', c.lotNumber],
       ['地目', c.chimoku], ['面積', c.area === '' ? '―' : c.area + ' ㎡'], ['区域区分', c.zone],
       ['農振農用地', boolText(c.isNoshin)], ['現況利用', c.landUse], ['転用済み', boolText(c.isConverted)],
       ['今後の転用計画', c.plan], ['土地改良区', c.landImprovement], ['水利・農事組合', c.waterAssociation],

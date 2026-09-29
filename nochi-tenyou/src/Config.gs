@@ -114,6 +114,9 @@ const FARMLAND_LAND_USES = ['耕作中', '休耕・荒地'];
 // フォームの選択肢（ここを編集すると画面の選択肢が変わります）
 // ------------------------------------------------------------
 
+/** 物件所在地の都道府県の初期値（プルダウンの先頭に表示） */
+const DEFAULT_PREFECTURE = '愛知県';
+
 const FORM_OPTIONS = {
   zones: ['市街化区域', '市街化調整区域', '非線引き区域', '分からない'],
   yesNoUnknown: ['はい', 'いいえ', '分からない'],
@@ -151,7 +154,7 @@ const CASE_COLUMNS = [
   { key: 'requestFlag', header: '見積調査依頼フラグ' },
   // ---- 補助列 ----
   { key: 'prefecture', header: '都道府県' },
-  { key: 'municipality', header: '市区町村' },
+  { key: 'municipality', header: '市区町村（所在から自動）' },
   { key: 'waterAssociation', header: '水利組合・農事組合の有無' },
   { key: 'estimateDetail', header: '見積内訳' },
   { key: 'submittedBy', header: '入力者（Googleアカウント）' },
