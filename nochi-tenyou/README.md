@@ -57,6 +57,43 @@
 > コード修正後は `python3 tools/build_dist.py` で `dist/` を作り直して貼り直し、**デプロイを管理 > 編集 > バージョン：新バージョン** で更新（URLは変わりません）。
 > 「見積設定」「マスタ」シートの変更は再デプロイ不要で即反映されます。
 
+## clasp でのデプロイ（本番・現在の運用）
+
+本番は上の貼り付け手順ではなく **clasp** でデプロイ済みです（2026-09-29）。
+
+| 項目 | 値 |
+|---|---|
+| 本番スプレッドシート | `110B7qlOrCtfVlYjlqG4jpeNFcRwBXYBaEn9B_Qf_iac`（このシートにバインド） |
+| スクリプトID | `1aVqabeawHULvaQZZLyVmwnOe8ZOL4i_1s_LIm-ATivgWAzAPmW5EM11v`（`nochi-tenyou/.clasp.json`） |
+| デプロイID（本番） | `AKfycbyTh6hicSYP4YV8plVjQotMQvkxiSpLBs4aW4LbIIL7lOHVr96deHnme9GQVzNdaPAg` |
+| 依頼画面 | https://script.google.com/a/macros/touki.bz/s/AKfycbyTh6hicSYP4YV8plVjQotMQvkxiSpLBs4aW4LbIIL7lOHVr96deHnme9GQVzNdaPAg/exec |
+| 管理画面 | 上のURL + `?page=admin` |
+
+`.clasp.json` は `rootDir: "dist"` なので、push されるのは `dist/` の4ファイルだけです。
+
+### コードを直したときの再デプロイ（URLは変わらない）
+
+```
+cd nochi-tenyou
+python3 tools/build_dist.py
+clasp push
+clasp deploy -i AKfycbyTh6hicSYP4YV8plVjQotMQvkxiSpLBs4aW4LbIIL7lOHVr96deHnme9GQVzNdaPAg -d "変更内容のメモ"
+```
+
+- `-i <デプロイID>` を**必ず付ける**。付けずに `clasp deploy` すると別URLの新しいデプロイができてしまいます。
+- `clasp push` だけでは本番に反映されません（エディタの「テストデプロイ」＝`@HEAD` にだけ反映）。
+- 実行ユーザー（自分）・アクセス範囲（組織内）は `appsscript.json` の `webapp` 設定がそのまま使われます。
+- 新しい権限（スコープ）が必要になる変更をしたときは、デプロイ後に実行ユーザー本人がURLを一度開いて許可してください。
+
+### 初回（別の環境で作り直す場合）
+
+1. `npm install -g @google/clasp` → `clasp login`
+2. https://script.google.com/home/usersettings で **Google Apps Script API** をオン
+3. 空のフォルダで `clasp create --title "農地転用 見積・調査支援システム" --parentId <スプレッドシートID>`
+   （`nochi-tenyou/` で直接実行すると `dist/appsscript.json` が上書きされるため別フォルダで作る）
+4. できた `.clasp.json` を `nochi-tenyou/` に移し、`"rootDir": "dist"` に書き換える → `clasp push` → `clasp deploy`
+5. 実行ユーザー本人がURLを開いて権限を許可（初回アクセスでシート・フォルダが自動作成されます）
+
 ## 誰が使えるか
 
 - 「アクセスできるユーザー：組織内の全員」にすると、**会社の Google Workspace アカウントでログインした人だけ**が使えます。社外の人・個人の Gmail では開けません。
