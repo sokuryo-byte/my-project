@@ -72,7 +72,12 @@ function calculateEstimate_(input) {
     if (!baseKey) {
       return { ok: false, total: 0, items: [], notes: ['区域「' + zones[z] + '」の基本報酬が設定されていません。'] };
     }
-    items.push(item(baseKey));
+    const base = item(baseKey);
+    if (input.trust) { // 信託手続きに付随する場合は農地転用の基本報酬を1.5倍
+      base.label += '（信託手続き付随 ×' + TRUST_MULTIPLIER + '）';
+      base.amount = Math.round(base.amount * TRUST_MULTIPLIER);
+    }
+    items.push(base);
   }
   // 調査実費（区域区分ごとに1回）
   zones.forEach(function (z) {
@@ -171,20 +176,16 @@ function calculateEstimate_(input) {
     }
   });
 
-  // --- 5. 現況是正・事後手続き 加算（許可の区域のみ。届出では始末書等は不要） ---
+  // --- 5. 現況証明（非農地証明）：市街化区域外で、既に宅地など農地以外として利用されている物件 ---
   const isConvertedLot = function (l) {
     return l.isConverted === 'はい' || CONVERTED_LAND_USES.indexOf(l.landUse) >= 0;
   };
-  const converted = lots.filter(function (l) { return isConvertedLot(l) && PERMIT_ZONES.indexOf(l.zone) >= 0; });
-  if (converted.length) {
-    items.push(item('ADD_ALREADY_CONVERTED'));
-    converted.forEach(function (l) {
-      if (l.isConverted !== 'はい') {
-        notes.push(lotName(l, lots.indexOf(l)) + '：現況「' + l.landUse + '」のため事後手続きとして加算しています。');
-      }
-    });
+  const genkyo = lots.filter(function (l) { return isConvertedLot(l) && PERMIT_ZONES.indexOf(l.zone) >= 0; });
+  if (genkyo.length) {
+    items.push(item('ADD_GENKYO'));
+    notes.push('現況が農地以外の物件は、現況証明（非農地証明）で対応できる場合があります（その場合は農地転用の許可申請が不要となり、金額が変わります）。');
   } else if (lots.some(function (l) { return isConvertedLot(l) && l.zone === '分からない'; })) {
-    notes.push('許可が必要な区域の場合は +' + formatYen_(fees.ADD_ALREADY_CONVERTED.amount) + '（事後手続き）が見込まれます。');
+    notes.push('市街化区域外の場合は +' + formatYen_(fees.ADD_GENKYO.amount) + '（現況証明（非農地証明））が見込まれます。');
   }
 
   const total = items.reduce(function (sum, it) { return sum + it.amount; }, 0);

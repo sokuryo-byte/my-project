@@ -377,6 +377,7 @@
       kairyoProcedure: getRadio(card, 'kairyoProcedure'),
       kairyoSettlement: getRadio(card, 'kairyoSettlement'),
       kairyoSettlementNote: lotInput(card, 'kairyoSettlementNote').value,
+      kairyoSettlementUnit: lotInput(card, 'kairyoSettlementUnit').value,
       kairyoFeeAmount: lotInput(card, 'kairyoFeeAmount').value,
       kairyoFeeNote: lotInput(card, 'kairyoFeeNote').value,
       iinStamp: getRadio(card, 'iinStamp'),
@@ -541,7 +542,12 @@
     var snBox = el('div', { 'class': 'inline-inputs' });
     snBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('kairyoSettlementNote'), 'data-f': 'kairyoSettlementNote', style: 'width:11em;text-align:right' }));
     snBox.appendChild(el('span', {}, '円'));
-    var sn = field('決済金の金額', snBox.firstChild, null, false, snBox);
+    var unitSel = el('select', { id: id('kairyoSettlementUnit'), 'data-f': 'kairyoSettlementUnit', 'aria-label': '決済金の単位', style: 'width:auto' });
+    o.settlementUnits.forEach(function (u) { unitSel.appendChild(new Option(u, u)); });
+    unitSel.value = '㎡あたり';
+    snBox.appendChild(unitSel);
+    snBox.appendChild(el('span', { 'class': 'help settle-calc' }));
+    var sn = field('決済金', snBox.firstChild, null, false, snBox);
     sn.classList.add('settle-note', 'hidden');
     kd.appendChild(sn);
     // 決済金とは別にかかる手数料など
@@ -662,8 +668,10 @@
   /** 市区町村・所在・選択に合わせて、電話番号とトーク例を更新する */
   function updateCallBox(card) {
     var city = lotInput(card, 'municipality').value.trim();
-    var place = city + lotInput(card, 'address').value.trim();
-    var where = place || '（所在・地番）';
+    // トーク例は必ず当該地（地番まで）を指す。未入力の部分は（ ）で示す
+    var addr = lotInput(card, 'address').value.trim();
+    var where = !addr ? (city || '') + '（所在・地番）'
+      : (city || '') + addr + (splitLotNumber(addr).lotNumber ? '' : '（地番）');
     var h = card.querySelector('.nogyo-h');
     h.innerHTML = '';
     h.appendChild(el('span', {}, '① 農業委員会へ確認'));
@@ -770,6 +778,14 @@
     var benefitOn = getRadio(card, 'kairyoBenefit') === '該当する';
     card.querySelector('.kairyo-detail').classList.toggle('hidden', !benefitOn);
     card.querySelector('.settle-note').classList.toggle('hidden', !(benefitOn && getRadio(card, 'kairyoSettlement') === '必要'));
+    // 単価のときは面積から概算の総額を表示
+    var sAmt = Number(lotInput(card, 'kairyoSettlementNote').value);
+    var sUnit = lotInput(card, 'kairyoSettlementUnit').value;
+    var sArea = Number(String(lotInput(card, 'area').value).replace(/[,，]/g, ''));
+    var calc = card.querySelector('.settle-calc');
+    calc.textContent = sAmt > 0 && sUnit !== '総額' && sArea > 0
+      ? '→ ' + sArea + '㎡で約' + String(Math.round(sUnit === '㎡あたり' ? sAmt * sArea : sAmt * sArea / 10000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円'
+      : (sUnit !== '総額' && !(sArea > 0) ? '※ 面積を入力すると概算の総額を表示します' : '');
     var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
     telLink(card.querySelector('.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
     scriptLines(card.querySelector('.script2'), [
@@ -1078,6 +1094,7 @@
   function collectForm() {
     return {
       requesterName: $('requesterName').value,
+      trust: $('trust').checked,
       prefecture: qsa('.lot').length ? lotPref(qsa('.lot')[0]) : state.prefs[0],
       lots: qsa('.lot').map(getLotData),
       plan: $('plan').value,

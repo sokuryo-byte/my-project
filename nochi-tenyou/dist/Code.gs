@@ -117,8 +117,8 @@ const DEFAULT_FEES = [
     note: '転用目的が「分家住宅」で、市街化調整区域の物件がある場合に加算（料金表 4001。開発許可（29条）となる場合は 4002）' },
   { key: 'ADD_DRAINAGE', label: '排水承諾手続', amount: 35000,
     note: '転用目的が「分家住宅」で、排水承諾が「必要」「未確認」（未回答を含む）の物件がある場合に加算（料金表 4203）' },
-  { key: 'ADD_ALREADY_CONVERTED', label: '現況是正・事後手続き（始末書等）加算', amount: 50000,
-    note: '許可の区域（市街化調整・非線引き・都市計画区域外）で、既に転用済み「はい」または現況が駐車場・宅地・資材置場の物件がある場合に加算（届出では不要）' },
+  { key: 'ADD_GENKYO', label: '現況証明（非農地証明）願出', amount: 120000,
+    note: '市街化区域外で、既に宅地など農地以外として利用されている（現況が宅地・駐車場・資材置場、または転用済み「はい」）物件がある場合に加算（料金表 4100）' },
   { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
     note: '同じ申請に含まれる2筆目以降の物件1筆ごとに加算' },
 ];
@@ -185,6 +185,9 @@ const NO_CITY_PLANNING_TAX = {
     '度会町': '', '大紀町': '', '南伊勢町': '', '紀北町': '', '御浜町': '', '紀宝町': '',
   },
 };
+
+/** 信託手続きに付随する場合、農地転用の基本報酬（届出・許可）に掛ける倍率 */
+const TRUST_MULTIPLIER = 1.5;
 
 /** 委員・地元関係者の連絡先を1物件あたり何人まで入力できるか */
 const MAX_CONTACTS = 5;
@@ -365,6 +368,7 @@ const FORM_OPTIONS = {
   yesNo: ['はい', 'いいえ'],
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
+  settlementUnits: ['総額', '㎡あたり', 'haあたり'],        // 決済金の単位（多くは㎡単価・ha単価）
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
@@ -427,6 +431,7 @@ const CASE_COLUMNS = [
   { key: 'lotCount', header: '物件数（筆）' },
   { key: 'localConsentNote', header: '同意が必要な方（氏名／住所／電話）' },
   { key: 'purpose', header: '転用目的' },
+  { key: 'trust', header: '信託手続きに付随' },
 ];
 
 /**
@@ -810,6 +815,7 @@ function submitCase(form, requestInvestigation) {
     prefecture: input.prefecture,
     waterAssociation: summary.localConsent,
     purpose: input.purpose,
+    trust: input.trust,
     localConsentNote: summary.localContacts,
     estimateDetail: estimateToText_(estimate),
     submittedBy: input.submittedBy,
@@ -902,6 +908,20 @@ function yenText_(v) {
   const s = String(v === undefined || v === null ? '' : v).replace(/[,，円¥\s]/g, '');
   const n = Number(s);
   return s !== '' && !isNaN(n) && n >= 0 ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円' : '';
+}
+
+/**
+ * 決済金の表示。単価（㎡・ha）の場合は物件の面積から概算の総額も添える。
+ * 例：「1㎡あたり 300円（496㎡ → 約148,800円）」「300,000円」
+ */
+function settlementText_(amount, unit, area) {
+  const yen = yenText_(amount);
+  if (!yen) return '';
+  if (unit !== '㎡あたり' && unit !== 'haあたり') return yen;
+  const n = Number(String(amount).replace(/[,，円¥\s]/g, ''));
+  const total = area > 0 ? (unit === '㎡あたり' ? n * area : n * area / 10000) : null;
+  return (unit === '㎡あたり' ? '1㎡あたり ' : '1haあたり ') + yen +
+    (total !== null ? '（' + area + '㎡ → 約' + yenText_(Math.round(total)) + '）' : '');
 }
 
 /** 'YYYY-MM-DD' → 'YYYY/MM/DD'（それ以外は空文字） */
@@ -999,6 +1019,7 @@ function normalizeInput_(form) {
 
   return {
     requesterName: str_(f.requesterName, 50),
+    trust: f.trust === true,
     prefecture: prefecture,
     lots: lots,
     plan: str_(f.plan, 1000),
@@ -1055,7 +1076,8 @@ function normalizeLot_(l, prefecture, master) {
     // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
     kairyoProcedure: benefitOn ? pick_(l.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
     kairyoSettlement: benefitOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
-    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? yenText_(l.kairyoSettlementNote) : '',
+    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要'
+      ? settlementText_(l.kairyoSettlementNote, pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits), areaText === '' ? null : Number(areaText)) : '',
     // 決済金とは別の手数料など（金額・内容）
     kairyoFee: benefitOn ? [yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／') : '',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
@@ -1431,7 +1453,12 @@ function calculateEstimate_(input) {
     if (!baseKey) {
       return { ok: false, total: 0, items: [], notes: ['区域「' + zones[z] + '」の基本報酬が設定されていません。'] };
     }
-    items.push(item(baseKey));
+    const base = item(baseKey);
+    if (input.trust) { // 信託手続きに付随する場合は農地転用の基本報酬を1.5倍
+      base.label += '（信託手続き付随 ×' + TRUST_MULTIPLIER + '）';
+      base.amount = Math.round(base.amount * TRUST_MULTIPLIER);
+    }
+    items.push(base);
   }
   // 調査実費（区域区分ごとに1回）
   zones.forEach(function (z) {
@@ -1530,20 +1557,16 @@ function calculateEstimate_(input) {
     }
   });
 
-  // --- 5. 現況是正・事後手続き 加算（許可の区域のみ。届出では始末書等は不要） ---
+  // --- 5. 現況証明（非農地証明）：市街化区域外で、既に宅地など農地以外として利用されている物件 ---
   const isConvertedLot = function (l) {
     return l.isConverted === 'はい' || CONVERTED_LAND_USES.indexOf(l.landUse) >= 0;
   };
-  const converted = lots.filter(function (l) { return isConvertedLot(l) && PERMIT_ZONES.indexOf(l.zone) >= 0; });
-  if (converted.length) {
-    items.push(item('ADD_ALREADY_CONVERTED'));
-    converted.forEach(function (l) {
-      if (l.isConverted !== 'はい') {
-        notes.push(lotName(l, lots.indexOf(l)) + '：現況「' + l.landUse + '」のため事後手続きとして加算しています。');
-      }
-    });
+  const genkyo = lots.filter(function (l) { return isConvertedLot(l) && PERMIT_ZONES.indexOf(l.zone) >= 0; });
+  if (genkyo.length) {
+    items.push(item('ADD_GENKYO'));
+    notes.push('現況が農地以外の物件は、現況証明（非農地証明）で対応できる場合があります（その場合は農地転用の許可申請が不要となり、金額が変わります）。');
   } else if (lots.some(function (l) { return isConvertedLot(l) && l.zone === '分からない'; })) {
-    notes.push('許可が必要な区域の場合は +' + formatYen_(fees.ADD_ALREADY_CONVERTED.amount) + '（事後手続き）が見込まれます。');
+    notes.push('市街化区域外の場合は +' + formatYen_(fees.ADD_GENKYO.amount) + '（現況証明（非農地証明））が見込まれます。');
   }
 
   const total = items.reduce(function (sum, it) { return sum + it.amount; }, 0);
@@ -1859,7 +1882,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
   const lines = [
     '*【農地転用】見積調査依頼が届きました*',
     '案件ID：' + caseId,
-    '依頼者名：' + (input.requesterName || '（未入力）'),
+    '依頼者名：' + (input.requesterName || '（未入力）') + (input.trust ? '（信託手続きに付随）' : ''),
     '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
   ];
   input.lots.forEach(function (l, i) {

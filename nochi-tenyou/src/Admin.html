@@ -315,7 +315,7 @@
     [
       ['受付日時', c.receivedAt], ['入力者', c.submittedBy], ['依頼種別', c.requestFlag === true ? '見積調査依頼' : '保存のみ'],
       ['都道府県', c.prefecture], ['面積合計', c.area === '' ? '―' : c.area + ' ㎡'],
-      ['転用目的', c.purpose], ['今後の転用計画', c.plan], ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(String).join('\n')],
+      ['転用目的', c.purpose], ['信託手続きに付随', c.trust === true ? 'はい' : '―'], ['今後の転用計画', c.plan], ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(String).join('\n')],
       ['資料', c.documents], ['概算見積', yen(c.estimate)], ['見積内訳', c.estimateDetail],
       ['Chat通知', c.notifyResult], ['最終更新', c.updatedAt]
     ].forEach(function (kv) {

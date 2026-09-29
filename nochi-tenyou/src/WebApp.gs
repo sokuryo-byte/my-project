@@ -162,6 +162,7 @@ function submitCase(form, requestInvestigation) {
     prefecture: input.prefecture,
     waterAssociation: summary.localConsent,
     purpose: input.purpose,
+    trust: input.trust,
     localConsentNote: summary.localContacts,
     estimateDetail: estimateToText_(estimate),
     submittedBy: input.submittedBy,
@@ -254,6 +255,20 @@ function yenText_(v) {
   const s = String(v === undefined || v === null ? '' : v).replace(/[,，円¥\s]/g, '');
   const n = Number(s);
   return s !== '' && !isNaN(n) && n >= 0 ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円' : '';
+}
+
+/**
+ * 決済金の表示。単価（㎡・ha）の場合は物件の面積から概算の総額も添える。
+ * 例：「1㎡あたり 300円（496㎡ → 約148,800円）」「300,000円」
+ */
+function settlementText_(amount, unit, area) {
+  const yen = yenText_(amount);
+  if (!yen) return '';
+  if (unit !== '㎡あたり' && unit !== 'haあたり') return yen;
+  const n = Number(String(amount).replace(/[,，円¥\s]/g, ''));
+  const total = area > 0 ? (unit === '㎡あたり' ? n * area : n * area / 10000) : null;
+  return (unit === '㎡あたり' ? '1㎡あたり ' : '1haあたり ') + yen +
+    (total !== null ? '（' + area + '㎡ → 約' + yenText_(Math.round(total)) + '）' : '');
 }
 
 /** 'YYYY-MM-DD' → 'YYYY/MM/DD'（それ以外は空文字） */
@@ -351,6 +366,7 @@ function normalizeInput_(form) {
 
   return {
     requesterName: str_(f.requesterName, 50),
+    trust: f.trust === true,
     prefecture: prefecture,
     lots: lots,
     plan: str_(f.plan, 1000),
@@ -407,7 +423,8 @@ function normalizeLot_(l, prefecture, master) {
     // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
     kairyoProcedure: benefitOn ? pick_(l.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
     kairyoSettlement: benefitOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
-    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? yenText_(l.kairyoSettlementNote) : '',
+    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要'
+      ? settlementText_(l.kairyoSettlementNote, pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits), areaText === '' ? null : Number(areaText)) : '',
     // 決済金とは別の手数料など（金額・内容）
     kairyoFee: benefitOn ? [yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／') : '',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）

@@ -46,7 +46,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
   const lines = [
     '*【農地転用】見積調査依頼が届きました*',
     '案件ID：' + caseId,
-    '依頼者名：' + (input.requesterName || '（未入力）'),
+    '依頼者名：' + (input.requesterName || '（未入力）') + (input.trust ? '（信託手続きに付随）' : ''),
     '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
   ];
   input.lots.forEach(function (l, i) {
