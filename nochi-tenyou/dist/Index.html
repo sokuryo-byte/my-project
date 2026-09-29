@@ -128,9 +128,8 @@
   <header>
     <h1>農地転用 見積・調査依頼フォーム</h1>
     <p class="lead">
-      分かる範囲で入力してください。入力に合わせて、画面下部に概算見積が表示されます。
-      「見積調査依頼」を押すと案件一覧に保存され、行政班へ Google Chat で通知されます。
-      正式な調査・見積は行政班から改めてご連絡します。
+      ご入力内容に応じて、画面下部に概算見積を表示します。
+      送信後、行政班より正式なお見積りをご連絡いたします。
     </p>
     <p class="user" id="userInfo"></p>
   </header>
@@ -151,28 +150,26 @@
         <div class="field">
           <label for="requesterName">依頼者名<span class="req">必須</span></label>
           <input type="text" id="requesterName" maxlength="50" placeholder="例）山田 太郎">
-          <p class="help">依頼をするあなた（または顧客）のお名前</p>
+          <p class="help">ご依頼者またはお客様のお名前</p>
         </div>
         <div class="field">
           <label for="prefecture">物件の都道府県</label>
           <select id="prefecture"></select>
-          <p class="help">通常は「愛知県」のままで構いません。</p>
         </div>
       </div>
     </section>
 
     <!-- ===================== STEP 2 物件（複数可） ===================== -->
     <section>
-      <h2><span class="step">STEP 2</span>物件<span class="help">1筆ごとに入力（複数可）</span></h2>
+      <h2><span class="step">STEP 2</span>物件<span class="help">1筆ごとに入力・複数可</span></h2>
 
       <div class="field">
         <span class="lbl">謄本から読み取る</span>
         <div class="drop tohon-drop" id="tohonDrop" tabindex="0" role="button">
-          謄本（登記事項証明書）のPDF・画像をここにドラッグすると、所在・地番・地目・地積を読み取って下の物件欄に入れます（何通でもまとめて入れられます）
+          謄本（PDF・画像）をドラッグすると、所在・地番・地目・地積を読み取ります（複数可）
         </div>
         <input type="file" id="tohonFile" multiple class="hidden">
-        <p class="help">読み取った項目は黄色で表示されます。読み取りは文字認識のため誤りがあり得ます。<strong>必ず謄本と見比べて確認してください。</strong>
-          区域・農振・現況は謄本に載っていないため、手で選んでください。</p>
+        <p class="help">読取結果（黄色）は<strong>必ず謄本と照合してください。</strong>区域区分・農振・現況はご選択ください。</p>
         <ul class="files" id="tohonStatus"></ul>
       </div>
 
@@ -189,11 +186,11 @@
       <div class="field">
         <label for="plan">今後の転用計画<span class="req hidden" id="planReq">必須</span></label>
         <textarea id="plan" rows="3" maxlength="1000" placeholder="例）自己用住宅の建築、月極駐車場として貸したい、売却予定 など"></textarea>
-        <p class="help">現況が農地（耕作中・休耕・荒地）の物件がある場合は必須です。</p>
+        <p class="help">現況が農地の場合は必須</p>
       </div>
       <div class="field">
         <span class="lbl">水利組合・農事組合の有無</span>
-        <p class="help">同意書や意見書が必要になる場合があります。分からなければ「分からない」で構いません。</p>
+        <p class="help">同意書等が必要となる場合があります。</p>
         <div class="choices" id="waterAssociationChoices"></div>
       </div>
     </section>
@@ -202,7 +199,7 @@
     <section>
       <h2><span class="step">STEP 4</span>手元にある資料</h2>
       <div class="field">
-        <p class="help" id="uploadHelp">資料ごとに、ファイルを枠へドラッグ（またはクリックして選択）するとアップロードされます。謄本はここに入れても読み取ります。データが無い資料は「手元にある」にチェックだけ入れてください。</p>
+        <p class="help" id="uploadHelp">各枠へドラッグまたはクリックで添付してください。紙のみの資料は「手元にある」にチェックしてください。</p>
         <div class="docs" id="docs"></div>
       </div>
     </section>
@@ -249,7 +246,7 @@
     '市街化区域':     { desc: '都市計画図で用途地域の色が塗られている区域', proc: '農地転用は「届出」' },
     '市街化調整区域': { desc: '線引きのある都市計画区域で、市街化区域以外の区域', proc: '農地転用は「許可」' },
     '非線引き区域':   { desc: '市街化区域・調整区域の区分がない区域（都市計画区域外を含む）', proc: '農地転用は「許可」' },
-    '分からない':     { desc: '行政班が都市計画図で確認します', proc: '見積は「届出」で仮計算' }
+    '分からない':     { desc: '行政班にて確認します', proc: '見積は「届出」で仮計算' }
   };
   var TOHON = '謄本';
 
@@ -332,6 +329,11 @@
       e.target.classList.remove('invalid'); // 直したらエラー表示も外す
       var zones = e.target.closest && e.target.closest('.zones');
       if (zones) zones.classList.remove('invalid');
+      var lot = e.target.closest && e.target.closest('.lot');
+      if (lot && e.target.type === 'radio') {
+        if (zones) applyNoshinDefault(lot);
+        else if (e.target.name === radioName(lot, 'isNoshin')) lot.removeAttribute('data-noshin-auto'); // 人が選んだ値は以後触らない
+      }
     }
     updatePlanRequired();
     schedulePreview();
@@ -418,7 +420,7 @@
     var lotNumber = el('input', { type: 'text', id: id('lotNumber'), maxlength: '100', placeholder: '例）123番1', 'data-f': 'lotNumber' });
     var row1 = el('div', { 'class': 'row' });
     row1.appendChild(field('所在', address, '市区町村から入力'));
-    row1.appendChild(field('地番', lotNumber, '登記簿上の地番（住居表示ではありません）', true));
+    row1.appendChild(field('地番', lotNumber, '登記地番（住居表示ではありません）', true));
     card.appendChild(row1);
 
     // 地目・面積
@@ -446,14 +448,14 @@
       label.appendChild(span);
       zones.appendChild(label);
     });
-    var zoneHelp = el('p', { 'class': 'help' }, '都市計画図を確認して選んでください。確認できない場合は「分からない」で構いません（システムによる自動判定はしません）。');
+    var zoneHelp = el('p', { 'class': 'help' }, '都市計画図でご確認ください。不明な場合は「分からない」を選択してください。');
     zoneHelp.appendChild(el('a', { 'class': 'hidden city-link', target: '_blank', rel: 'noopener' }, ' この市区町村の都市計画情報を開く'));
     card.appendChild(radioField('区域区分', zones, zoneHelp, true));
 
     // 農振
     var noshin = el('div', { 'class': 'choices' });
     renderChoices(noshin, id('isNoshin'), o.yesNoUnknown);
-    var noshinHelp = el('p', { 'class': 'help' }, '農振図を確認して選んでください。');
+    var noshinHelp = el('p', { 'class': 'help' }, '農振図でご確認ください。市街化区域の場合は「いいえ」が初期選択されます。');
     noshinHelp.appendChild(el('a', { 'class': 'hidden noshin-link', target: '_blank', rel: 'noopener' }, ' この市区町村の農振図を開く'));
     card.appendChild(radioField('農振農用地（青地）かどうか', noshin, noshinHelp));
 
@@ -462,7 +464,7 @@
     fillSelect(landUse, o.landUses, '選択してください');
     var landUseOther = el('input', { type: 'text', id: id('landUseOther'), maxlength: '100', placeholder: '例）一部に物置あり', 'data-f': 'landUseOther' });
     var row3 = el('div', { 'class': 'row' });
-    row3.appendChild(field('現況利用', landUse, '現地や航空写真で見た、今の使われ方'));
+    row3.appendChild(field('現況利用', landUse, '現在の利用状況'));
     row3.appendChild(field('現況利用（補足）', landUseOther));
     card.appendChild(row3);
 
@@ -472,8 +474,8 @@
     var kairyo = el('div', { 'class': 'choices' });
     renderChoices(kairyo, id('landImprovement'), o.yesNoUnknown);
     var row4 = el('div', { 'class': 'row' });
-    row4.appendChild(radioField('既に転用済みかどうか', converted, el('p', { 'class': 'help' }, '許可・届出をせずに既に駐車場などとして使っている場合は「はい」')));
-    row4.appendChild(radioField('土地改良区の有無', kairyo, el('p', { 'class': 'help' }, '賦課金の請求が来ている場合は「はい」')));
+    row4.appendChild(radioField('既に転用済みかどうか', converted, el('p', { 'class': 'help' }, '無許可で駐車場等に利用している場合は「はい」')));
+    row4.appendChild(radioField('土地改良区の有無', kairyo, el('p', { 'class': 'help' }, '賦課金が発生している場合は「はい」')));
     card.appendChild(row4);
 
     $('lots').appendChild(card);
@@ -485,6 +487,7 @@
       setRadio(card, 'isNoshin', inherit.isNoshin);
       setRadio(card, 'isConverted', inherit.isConverted);
       setRadio(card, 'landImprovement', inherit.landImprovement);
+      applyNoshinDefault(card);
     }
     renumberLots();
     updateLotLinks(card);
@@ -505,6 +508,21 @@
       card.querySelector('.lot-title').textContent = '物件' + (i + 1);
       card.querySelector('.lot-del').classList.toggle('hidden', lots.length === 1);
     });
+  }
+
+  /**
+   * 市街化区域を選んだら、農振農用地を「いいえ」にする（市街化区域に農振農用地は原則ない）。
+   * 未選択の場合か、この仕組みで入れた値の場合だけ変更し、人が選んだ値は上書きしない。
+   */
+  function applyNoshinDefault(card) {
+    var current = getRadio(card, 'isNoshin');
+    var auto = card.getAttribute('data-noshin-auto') === '1';
+    if (getRadio(card, 'zone') === '市街化区域') {
+      if (!current) { setRadio(card, 'isNoshin', 'いいえ'); card.setAttribute('data-noshin-auto', '1'); }
+    } else if (auto) {
+      setRadio(card, 'isNoshin', '');
+      card.removeAttribute('data-noshin-auto');
+    }
   }
 
   function lotInput(card, f) { return card.querySelector('[data-f=' + f + ']'); }
@@ -613,7 +631,7 @@
       card.appendChild(head);
 
       var drop = el('div', { 'class': 'drop', tabindex: '0', role: 'button' },
-        type === TOHON ? 'ここにファイルをドラッグ（所在・地番なども読み取ります）' : 'ここにファイルをドラッグ、またはクリックして選択');
+        type === TOHON ? 'ドラッグまたはクリック（所在・地番等も読取）' : 'ドラッグまたはクリックで添付');
       var input = el('input', { type: 'file', multiple: 'multiple', accept: state.upload.mimeTypes.join(','), 'class': 'hidden' });
       setupDropArea(drop, input, function (files) { addFiles(type, files); });
       card.appendChild(drop);

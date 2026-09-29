@@ -55,12 +55,19 @@ function setupSpreadsheet() {
     '\n※行政班のメンバーにこのフォルダを共有してください。');
 }
 
-/** 見積設定シートに、まだ無い項目だけを追記する（既存の金額は上書きしない） */
+/**
+ * 見積設定シートに、まだ無い項目だけを追記する（既存の金額・項目名は上書きしない）。
+ * 「適用条件」列は計算ルール（Estimate.gs）の説明なので、既存の行も最新の文言に更新する。
+ */
 function addMissingFeeRows_(sheet) {
   const lastRow = sheet.getLastRow();
   const existing = lastRow >= 2
     ? sheet.getRange(2, 1, lastRow - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); })
     : [];
+  existing.forEach(function (key, i) {
+    const d = DEFAULT_FEES.filter(function (f) { return f.key === key; })[0];
+    if (d) sheet.getRange(i + 2, 4).setValue(d.note);
+  });
   const rows = DEFAULT_FEES
     .filter(function (d) { return existing.indexOf(d.key) < 0; })
     .map(function (d) { return [d.key, d.label, d.amount, d.note]; });
