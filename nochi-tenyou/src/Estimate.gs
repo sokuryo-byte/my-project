@@ -20,7 +20,7 @@ function calculateEstimate_(input) {
   // --- 1. 基本報酬（区域区分で決まる） ---
   let zone = input.zone;
   if (!zone) {
-    return { ok: false, total: 0, items: [], notes: ['区域（市街化区域／調整区域）を選択すると概算見積が表示されます。'] };
+    return { ok: false, total: 0, items: [], notes: ['区域（市街化区域／市街化調整区域／非線引き区域）を選択すると概算見積が表示されます。'] };
   }
   if (zone === '分からない') {
     zone = FALLBACK_ZONE_FOR_UNKNOWN;
