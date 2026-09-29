@@ -452,7 +452,7 @@
     var address = el('input', { type: 'text', id: id('address'), maxlength: '200', placeholder: '例）○○町字△△ 123番1', 'data-f': 'address' });
     address.addEventListener('input', function () { updateCallBox(card); });
     var row1 = el('div', { 'class': 'row row-addr' });
-    row1.appendChild(field('都道府県', pref));
+    row1.appendChild(field('都道府県', pref, null, true));
     row1.appendChild(field('市区町村', city, null, true));
     row1.appendChild(field('所在・地番', address, '町名・字から地番まで（登記地番。住居表示ではありません）', true));
     card.appendChild(row1);
