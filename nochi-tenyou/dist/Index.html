@@ -62,6 +62,11 @@
   }
   input[type=text], input[type=tel], input[type=number], input[type=date], select { height: 40px; line-height: 1.4; }
   textarea { resize: vertical; } /* 広げるのは縦方向だけ */
+  dialog.modal { border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; max-width: min(460px, calc(100vw - 32px)); background: var(--surface); color: var(--fg); box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+  dialog.modal::backdrop { background: rgba(0,0,0,.35); }
+  dialog.modal h2 { margin: 0 0 8px; font-size: 1.05rem; }
+  dialog.modal p { margin: 0 0 10px; }
+  dialog.modal .btns { justify-content: flex-end; margin-top: 12px; }
   table.breakdown tr.group td { font-weight: 700; color: var(--accent); padding-top: 10px; border-bottom: none; }
   table.breakdown tr.sub td { color: var(--muted); font-size: .85rem; }
   .inline-inputs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -1470,6 +1475,17 @@ function getUserEmail_() { return ''; }
     <p class="user" id="userInfo"></p>
   </header>
 
+  <!-- 登記地目が農地以外のときの確認 -->
+  <dialog id="nonFarmDialog" class="modal" aria-labelledby="nfTitle">
+    <h2 id="nfTitle">農地転用の手続きは原則不要です</h2>
+    <p id="nfText"></p>
+    <p class="help">※ 登記地目が農地以外でも、現況が農地（耕作中など）の場合は手続きが必要になることがあります。</p>
+    <div class="btns">
+      <button type="button" class="ghost" id="nfFix">地目を修正する</button>
+      <button type="button" class="primary" id="nfConfirm">農地以外で間違いない</button>
+    </div>
+  </dialog>
+
   <!-- 送信結果（送信後にフォームの代わりに表示） -->
   <section id="resultBox" class="result hidden" role="status">
     <h2 id="resultTitle"></h2>
@@ -1659,6 +1675,7 @@ function getUserEmail_() { return ''; }
     $('saveOnlyBtn').addEventListener('click', function () { submit(false); });
     $('toDetail').addEventListener('click', function () { $('detail').scrollIntoView({ block: 'start' }); });
     $('againBtn').addEventListener('click', resetForm);
+    bindNonFarmDialog();
     // 枠の外にファイルを落としてもブラウザでファイルが開かないようにする
     window.addEventListener('dragover', function (e) { e.preventDefault(); });
     window.addEventListener('drop', function (e) { e.preventDefault(); });
@@ -1778,6 +1795,7 @@ function getUserEmail_() { return ''; }
     // 地目・面積
     var chimoku = el('select', { id: id('chimoku'), 'data-f': 'chimoku' });
     fillSelect(chimoku, o.chimoku, '選択してください');
+    chimoku.addEventListener('change', function () { checkNonFarm(card); });
     var area = el('input', { type: 'text', id: id('area'), inputmode: 'decimal', placeholder: '例）496', 'data-f': 'area' });
     var unit = el('div', { 'class': 'unit' });
     unit.appendChild(area);
@@ -2434,6 +2452,77 @@ function getUserEmail_() { return ''; }
     }, 0);
   }
 
+  // ---------------------------------------------------------
+  // 登記地目が農地以外 → 「農地転用の手続きは原則不要」を確認
+  // ---------------------------------------------------------
+  var FARM_CHIMOKU = ['田', '畑'];
+
+  function checkNonFarm(card) {
+    var v = lotInput(card, 'chimoku').value;
+    if (!v || FARM_CHIMOKU.indexOf(v) >= 0 || card.getAttribute('data-nf-ack') === v) return;
+    var dlg = $('nonFarmDialog');
+    if (dlg.open) { // 謄本で複数の物件が入った場合は、閉じたあと順に確認する
+      state.nfQueue = state.nfQueue || [];
+      if (state.nfCard !== card && state.nfQueue.indexOf(card) < 0) state.nfQueue.push(card);
+      return;
+    }
+    state.nfCard = card;
+    var name = card.querySelector('.lot-title').textContent;
+    $('nfText').textContent = name + 'の登記地目が「' + v + '」（農地以外）の場合、農地転用の手続きは原則不要です。' +
+      '地目の選択が間違いであれば、閉じて修正してください。';
+    $('nfConfirm').textContent = qsa('.lot').length > 1 ? '農地以外で間違いない（この物件を外す）' : '農地以外で間違いない（依頼を終了）';
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+  }
+
+  function closeNonFarm() {
+    var dlg = $('nonFarmDialog');
+    if (dlg.close) dlg.close(); else dlg.removeAttribute('open');
+    nextNonFarm();
+  }
+
+  /** 待っている物件があれば、次の確認を出す */
+  function nextNonFarm() {
+    setTimeout(function () {
+      var q = state.nfQueue || [];
+      while (q.length) {
+        var c = q.shift();
+        if (document.body.contains(c) && !$('caseForm').classList.contains('hidden')) { checkNonFarm(c); return; }
+      }
+    }, 0);
+  }
+
+  function bindNonFarmDialog() {
+    $('nfFix').addEventListener('click', function () {
+      closeNonFarm();
+      var c = state.nfCard;
+      if (c) { c.scrollIntoView({ block: 'center' }); lotInput(c, 'chimoku').focus(); }
+    });
+    $('nonFarmDialog').addEventListener('cancel', function () { // Esc キーは「修正する」と同じ
+      var c = state.nfCard;
+      if (c) setTimeout(function () { lotInput(c, 'chimoku').focus(); }, 0);
+      nextNonFarm();
+    });
+    $('nfConfirm').addEventListener('click', function () {
+      closeNonFarm();
+      var c = state.nfCard;
+      if (!c) return;
+      var v = lotInput(c, 'chimoku').value;
+      if (qsa('.lot').length > 1) {
+        // 複数の物件がある場合は、この物件だけ外す
+        c.remove(); renumberLots(); updatePlanRequired(); schedulePreview();
+        return;
+      }
+      // 物件が1件だけ：依頼は不要のため、ここで終了を促す
+      $('resultBox').className = 'result';
+      $('resultTitle').textContent = '農地転用の手続きは不要です';
+      $('resultText').textContent = '登記地目が「' + v + '」（農地以外）のため、農地転用の手続きは原則不要です。依頼はせずに、ここで終了してください。' +
+        '\n※ 別の物件を依頼する場合は「新しい案件を入力する」を押してください。';
+      $('caseForm').classList.add('hidden');
+      $('estimateBar').classList.add('hidden');
+      window.scrollTo(0, 0);
+    });
+  }
+
   /** 「○○町字△△ 123番1」→ { place: '○○町字△△', lotNumber: '123番1' } */
   function splitLotNumber(text) {
     var m = String(text || '').trim().match(LOT_TAIL_RE);
@@ -2563,6 +2652,7 @@ function getUserEmail_() { return ''; }
         updateLotLinks(card);
         updateCallBox(card);
         updateTaxNote(card);
+        checkNonFarm(card);
       }
     });
     schedulePreview();

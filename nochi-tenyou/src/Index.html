@@ -17,6 +17,17 @@
     <p class="user" id="userInfo"></p>
   </header>
 
+  <!-- 登記地目が農地以外のときの確認 -->
+  <dialog id="nonFarmDialog" class="modal" aria-labelledby="nfTitle">
+    <h2 id="nfTitle">農地転用の手続きは原則不要です</h2>
+    <p id="nfText"></p>
+    <p class="help">※ 登記地目が農地以外でも、現況が農地（耕作中など）の場合は手続きが必要になることがあります。</p>
+    <div class="btns">
+      <button type="button" class="ghost" id="nfFix">地目を修正する</button>
+      <button type="button" class="primary" id="nfConfirm">農地以外で間違いない</button>
+    </div>
+  </dialog>
+
   <!-- 送信結果（送信後にフォームの代わりに表示） -->
   <section id="resultBox" class="result hidden" role="status">
     <h2 id="resultTitle"></h2>

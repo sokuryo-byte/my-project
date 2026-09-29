@@ -57,6 +57,11 @@
   }
   input[type=text], input[type=tel], input[type=number], input[type=date], select { height: 40px; line-height: 1.4; }
   textarea { resize: vertical; } /* 広げるのは縦方向だけ */
+  dialog.modal { border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; max-width: min(460px, calc(100vw - 32px)); background: var(--surface); color: var(--fg); box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+  dialog.modal::backdrop { background: rgba(0,0,0,.35); }
+  dialog.modal h2 { margin: 0 0 8px; font-size: 1.05rem; }
+  dialog.modal p { margin: 0 0 10px; }
+  dialog.modal .btns { justify-content: flex-end; margin-top: 12px; }
   table.breakdown tr.group td { font-weight: 700; color: var(--accent); padding-top: 10px; border-bottom: none; }
   table.breakdown tr.sub td { color: var(--muted); font-size: .85rem; }
   .inline-inputs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
