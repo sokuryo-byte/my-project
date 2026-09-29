@@ -73,7 +73,7 @@ const ALLOWED_MIME_TYPES = [
  * スクリプト プロパティ「ADMIN_EMAILS」にカンマ区切りで登録した場合はそちらが優先されます。
  */
 const ADMIN_EMAILS = [
-  // 'sho@example.co.jp',
+  'sokuryo@touki.bz',
 ];
 
 /** 案件の対応状況（管理画面のプルダウン）。先頭が新規受付時の初期値 */
