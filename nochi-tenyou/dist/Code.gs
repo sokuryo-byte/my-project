@@ -476,6 +476,7 @@ const LOT_COLUMNS = [
   { key: 'drainFee', header: '用水 手数料（金額・備考）' },
   { key: 'drainLocalConsent', header: '排水の地元承諾' },
   { key: 'drainContacts', header: '排水の地元承諾が必要な方（氏名／住所／電話）' },
+  { key: 'prefecture', header: '都道府県' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
@@ -826,7 +827,7 @@ function submitCase(form, requestInvestigation) {
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote, kairyoFee: l.kairyoFee,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
-      purpose: l.purpose, tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
+      prefecture: l.prefecture, purpose: l.purpose, tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
@@ -991,7 +992,9 @@ function normalizeInput_(form) {
   const lots = (Array.isArray(f.lots) ? f.lots : [])
     .slice(0, MAX_LOTS)
     .map(function (l) {
-      return normalizeLot_(l || {}, prefecture, master);
+      // 都道府県は物件ごと（未指定なら案件の都道府県）
+      const lp = str_(l && l.prefecture, 10) || prefecture;
+      return Object.assign(normalizeLot_(l || {}, lp, master), { prefecture: lp });
     });
 
   return {

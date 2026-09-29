@@ -473,6 +473,7 @@ const LOT_COLUMNS = [
   { key: 'drainFee', header: '用水 手数料（金額・備考）' },
   { key: 'drainLocalConsent', header: '排水の地元承諾' },
   { key: 'drainContacts', header: '排水の地元承諾が必要な方（氏名／住所／電話）' },
+  { key: 'prefecture', header: '都道府県' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */

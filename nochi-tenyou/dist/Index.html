@@ -50,7 +50,7 @@
   .contacts .linkbtn { justify-self: start; }
   @media (max-width: 560px) { .contact-row { grid-template-columns: minmax(0, 1fr) 32px; } .contact-row input { grid-column: 1; } .contact-row .contact-del { grid-column: 2; grid-row: 1; } }
   .callbox .step2 { display: grid; gap: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
-  .row.row-addr { grid-template-columns: minmax(140px, 1fr) minmax(0, 2.4fr); }
+  .row.row-addr { grid-template-columns: minmax(110px, .8fr) minmax(130px, 1fr) minmax(0, 2.4fr); }
   @media (max-width: 560px) { .row.row-addr { grid-template-columns: minmax(0, 1fr); } }
   .field { display: grid; gap: 4px; min-width: 0; align-content: start; } /* 横の欄に説明文があっても入力欄を引き伸ばさない */
   .field > label, .lbl { font-weight: 700; font-size: .92rem; line-height: 1.6; min-height: 1.6em; display: flex; align-items: center; flex-wrap: wrap; }
@@ -183,13 +183,6 @@
     <section>
       <h2><span class="step">STEP 2</span>物件<span class="help">1筆ごとに入力・複数可</span></h2>
 
-      <div class="row">
-        <div class="field">
-          <label for="prefecture">物件の都道府県</label>
-          <select id="prefecture"></select>
-          <p class="help">※ 謄本の市町村名から他県と分かる場合は、自動で切り替わります</p>
-        </div>
-      </div>
 
       <div class="field">
         <span class="lbl">謄本から読み取る</span>
@@ -320,7 +313,7 @@
     var prefs = [data.defaultPrefecture];
     Object.keys(state.municipalities).forEach(function (p) { if (prefs.indexOf(p) < 0) prefs.push(p); });
     state.master.forEach(function (m) { if (prefs.indexOf(m.prefecture) < 0) prefs.push(m.prefecture); });
-    prefs.forEach(function (p, i) { $('prefecture').appendChild(new Option(p, p, i === 0, i === 0)); });
+    state.prefs = prefs;
     document.body.appendChild(el('datalist', { id: 'cityList' }));
     fillCityList();
 
@@ -340,7 +333,6 @@
     form.addEventListener('change', onFormChange);
     form.addEventListener('input', onFormChange);
     form.addEventListener('submit', function (e) { e.preventDefault(); });
-    $('prefecture').addEventListener('change', function () { fillCityList(); qsa('.lot').forEach(function (c) { updateLotLinks(c); updateTaxNote(c); }); });
     $('addLotBtn').addEventListener('click', function () { focusLot(addLot()); });
     $('copyLotBtn').addEventListener('click', function () {
       var lots = qsa('.lot');
@@ -449,11 +441,18 @@
     card.appendChild(head);
 
     // 市区町村・所在地番
+    var pref = el('select', { id: id('prefecture'), 'data-f': 'prefecture' });
+    state.prefs.forEach(function (p) { pref.appendChild(new Option(p, p)); });
+    var lastLot = qsa('.lot').slice(-1)[0];
+    pref.value = (inherit && inherit.prefecture) || (lastLot ? lotPref(lastLot) : state.prefs[0]);
     var city = el('input', { type: 'text', id: id('municipality'), maxlength: '50', placeholder: '例）豊田市', list: 'cityList', 'data-f': 'municipality' });
-    city.addEventListener('input', function () { updateLotLinks(card); updateCallBox(card); updateTaxNote(card); });
+    var onPlaceChange = function () { updateLotLinks(card); updateCallBox(card); updateTaxNote(card); };
+    city.addEventListener('input', function () { autoPrefecture(card); onPlaceChange(); });
+    pref.addEventListener('change', onPlaceChange);
     var address = el('input', { type: 'text', id: id('address'), maxlength: '200', placeholder: '例）○○町字△△ 123番1', 'data-f': 'address' });
     address.addEventListener('input', function () { updateCallBox(card); });
     var row1 = el('div', { 'class': 'row row-addr' });
+    row1.appendChild(field('都道府県', pref));
     row1.appendChild(field('市区町村', city, null, true));
     row1.appendChild(field('所在・地番', address, '町名・字から地番まで（登記地番。住居表示ではありません）', true));
     card.appendChild(row1);
@@ -532,6 +531,7 @@
 
     if (inherit) {
       city.value = inherit.municipality || '';
+      pref.value = inherit.prefecture || pref.value;
       address.value = splitLotNumber(inherit.address || '').place;
       landUse.value = inherit.landUse || '';
       setRadio(card, 'zone', inherit.zone);
@@ -608,6 +608,7 @@
 
   function getLotData(card) {
     return {
+      prefecture: lotPref(card),
       municipality: lotInput(card, 'municipality').value,
       address: lotInput(card, 'address').value,
       lotNumber: splitLotNumber(lotInput(card, 'address').value).lotNumber,
@@ -660,7 +661,7 @@
 
   /** 市区町村欄がマスタの市区町村名と一致したら、参照用リンクを出す（一致のみ・推測なし） */
   function updateLotLinks(card) {
-    var pref = $('prefecture').value;
+    var pref = lotPref(card);
     var a = lotInput(card, 'municipality').value.trim();
     if (a.indexOf(pref) === 0) a = a.slice(pref.length);
     var row = state.master.filter(function (m) { return m.prefecture === pref && a === m.municipality; })[0];
@@ -895,8 +896,7 @@
   }
 
   /** 農業委員会の問い合わせ先（マスタの電話番号 → 組み込みの一覧 の順） */
-  function nogyoOf(city) {
-    var pref = $('prefecture').value;
+  function nogyoOf(city, pref) {
     var m = state.master.filter(function (x) { return x.prefecture === pref && x.municipality === city && x.nogyoTel; })[0];
     var d = (state.nogyoIinkai[pref] || {})[city];
     if (m) return { office: (d && d.office) || city + '農業委員会', tel: m.nogyoTel };
@@ -916,7 +916,7 @@
     var h = card.querySelector('.nogyo-h');
     h.innerHTML = '';
     h.appendChild(el('span', {}, '① 農業委員会へ確認'));
-    var n = city ? nogyoOf(city) : null;
+    var n = city ? nogyoOf(city, lotPref(card)) : null;
     if (n) {
       h.appendChild(el('span', {}, n.office));
       var a = el('a', { 'class': 'tel' }); telLink(a, n.tel); h.appendChild(a);
@@ -1061,7 +1061,7 @@
    * 組み込みの一覧（Config.gs の MUNICIPALITIES）＋「マスタ」シートの市区町村。
    */
   function cityEntries(prefOverride) {
-    var pref = prefOverride || $('prefecture').value;
+    var pref = prefOverride;
     var out = [], seen = {};
     function add(full) {
       full = String(full || '').trim();
@@ -1075,7 +1075,7 @@
 
   /** 文字列の先頭にある市区町村（郡名付き・なしの両方で前方一致、長い方を優先）。{ name, length } か null */
   function cityPrefixOf(text, prefOverride) {
-    var pref = prefOverride || $('prefecture').value;
+    var pref = prefOverride;
     var t = String(text || '');
     var offset = 0;
     if (t.indexOf(pref) === 0) { t = t.slice(pref.length); offset = pref.length; }
@@ -1088,19 +1088,36 @@
     return best;
   }
 
+  function lotPref(card) { return lotInput(card, 'prefecture').value; }
+
+  /**
+   * 市区町村欄の名前が、物件の都道府県になく、ほかの1県だけにある場合は、都道府県を切り替える（例：岐阜市 → 岐阜県）。
+   * 名前の完全一致のみ。同じ名前の市町村が複数の県にある場合は切り替えない。
+   */
+  function autoPrefecture(card) {
+    var name = lotInput(card, 'municipality').value.trim();
+    if (!name) return;
+    var has = function (p) { return cityEntries(p).some(function (c) { return c.name === name || c.full === name; }); };
+    if (has(lotPref(card))) return;
+    var other = state.prefs.filter(has);
+    if (other.length === 1) lotInput(card, 'prefecture').value = other[0];
+  }
+
   /** 市区町村欄の入力候補（候補にない市区町村も入力可） */
   function fillCityList() {
     var list = $('cityList');
     list.innerHTML = '';
     var names = [];
-    cityEntries().forEach(function (c) { if (names.indexOf(c.name) < 0) names.push(c.name); });
+    state.prefs.forEach(function (p) {
+      cityEntries(p).forEach(function (c) { if (names.indexOf(c.name) < 0) names.push(c.name); });
+    });
     names.forEach(function (n) { list.appendChild(el('option', { value: n })); });
   }
 
   /** 都市計画税を課していない市町村では、課税明細書による区域の目安が使えない旨を出す */
   function updateTaxNote(card) {
     var city = lotInput(card, 'municipality').value.trim();
-    var map = state.noCityPlanningTax[$('prefecture').value] || {};
+    var map = state.noCityPlanningTax[lotPref(card)] || {};
     var note = card.querySelector('.tax-note');
     note.textContent = Object.prototype.hasOwnProperty.call(map, city)
       ? '※ ' + city + 'は都市計画税を課していないため' + map[city] + '、課税明細書では区域を判断できません。都市計画図でご確認ください。' : '';
@@ -1133,14 +1150,13 @@
       var any = false;
       // 謄本の所在「豊田市○○町字△△」を、マスタの市区町村名との前方一致で 市区町村／町名・字 に分ける（一致しなければ全体を所在・地番欄へ）
       var place = c.address || '';
-      var hit = cityPrefixOf(place);
+      var hit = cityPrefixOf(place, lotPref(card));
       if (!hit) {
-        // 選択中の都道府県で見つからず、ほかの1県だけに当てはまる市町村名なら、都道府県を切り替える（名前の一致のみ・推測なし）
-        var other = Object.keys(state.municipalities).filter(function (p) { return p !== $('prefecture').value && cityPrefixOf(place, p); });
+        // 物件の都道府県で見つからず、ほかの1県だけに当てはまる市町村名なら、都道府県を切り替える（名前の一致のみ・推測なし）
+        var other = state.prefs.filter(function (p) { return p !== lotPref(card) && cityPrefixOf(place, p); });
         if (other.length === 1) {
-          $('prefecture').value = other[0];
-          fillCityList();
-          hit = cityPrefixOf(place);
+          lotInput(card, 'prefecture').value = other[0];
+          hit = cityPrefixOf(place, other[0]);
         }
       }
       var city = hit ? hit.name : '';
@@ -1311,7 +1327,7 @@
   function collectForm() {
     return {
       requesterName: $('requesterName').value,
-      prefecture: $('prefecture').value,
+      prefecture: qsa('.lot').length ? lotPref(qsa('.lot')[0]) : state.prefs[0],
       lots: qsa('.lot').map(getLotData),
       plan: $('plan').value,
       documentsOther: $('documentsOther') ? $('documentsOther').value : '',

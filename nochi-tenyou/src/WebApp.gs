@@ -179,7 +179,7 @@ function submitCase(form, requestInvestigation) {
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote, kairyoFee: l.kairyoFee,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
-      purpose: l.purpose, tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
+      prefecture: l.prefecture, purpose: l.purpose, tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
@@ -344,7 +344,9 @@ function normalizeInput_(form) {
   const lots = (Array.isArray(f.lots) ? f.lots : [])
     .slice(0, MAX_LOTS)
     .map(function (l) {
-      return normalizeLot_(l || {}, prefecture, master);
+      // 都道府県は物件ごと（未指定なら案件の都道府県）
+      const lp = str_(l && l.prefecture, 10) || prefecture;
+      return Object.assign(normalizeLot_(l || {}, lp, master), { prefecture: lp });
     });
 
   return {
