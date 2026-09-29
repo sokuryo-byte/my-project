@@ -97,6 +97,13 @@ const OUT = path.join(__dirname, 'out');
   const bulkLots = await bulk.$$eval('.lot [data-f=address]', (e) => e.map((x) => x.value).sort());
   assert.deepStrictEqual(bulkLots, ['××町 10番', '××町 11番', '××町 12番', '××町 13番']);
 
+  // ---------------- 謄本：登記情報提供サービス形式（罫線の表・全角数字・所在と地積の更正） ----------------
+  const tableText = '┏━━━┓ ┃ 表 題 部 （土地の表示） │調製│ ┃ ┠──┨ ┃所 在│○○郡○○町大字△△字□□ │ ┃ ┃ ├───┼───┨ ┃ │○○市□□ │平成２４年１月４日市制施行 ┃ ┠──┨ ' +
+    '┃ ① 地 番 │ ②地 目 │ ③ 地 積 ㎡ │ 原因及びその日付 ┃ ┠──┨ ┃１００番 │宅地 │ ４１３：２２│ ┃ ┠──┨ ┃ │ │ ： │昭和６３年法務省令第３７号附則第２条第２項┃ ' +
+    '┠──┨ ┃ │ │ ４８８：７０│③錯誤 ┃ ┗━━┛ ┏━━┓ ┃ 権 利 部 （ 甲 区 ） ┃';
+  const parsed = await bulk.evaluate((t) => parseTohonText_(t), tableText);
+  assert.deepStrictEqual(parsed, [{ address: '○○市□□', lotNumber: '100番', chimoku: '宅地', chimokuRaw: '宅地', area: '488.70' }]);
+
   // ---------------- 管理画面 ----------------
   const a = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   watch(a);

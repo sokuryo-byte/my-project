@@ -1825,6 +1825,11 @@ function readTohonFile_(fileId) {
 
   const text = ocrToText_(file);
   const lots = parseTohonText_(text);
+  if (!lots.length) {
+    // 読み取れなかった場合は、原因調査用に表題部の文字だけを記録する（権利部＝所有者の氏名などは記録しない）
+    const excerpt = String(text || '').split(/権\s*利\s*部/)[0].slice(0, 1500);
+    logError_('readTohon（所在・地番のパターン不一致）', '読み取れませんでした', file.getName() + '\n' + excerpt);
+  }
   return {
     lots: lots,
     message: lots.length
@@ -1864,6 +1869,13 @@ function parseTohonText_(rawText) {
 
   const lots = [];
   sections.forEach(function (sec) {
+    // 登記情報提供サービス等の罫線の表（┃ │）で書かれた謄本は、表の構造から読む
+    const table = parseTohonTable_(sec);
+    if (table) {
+      const dup0 = lots.some(function (l) { return l.address === table.address && l.lotNumber === table.lotNumber; });
+      if (!dup0) lots.push(table);
+      return;
+    }
     // 所在：最後に出てくる「所在」行（行政区画変更などで書き換わっている場合に最新を採る）
     let address = '';
     const addrRe = /所\s*在\s+([^\n]+)/g;
@@ -1892,6 +1904,56 @@ function parseTohonText_(rawText) {
     if (!dup) lots.push(lot);
   });
   return lots;
+}
+
+/**
+ * 罫線の表で書かれた表題部を読む（登記情報提供サービスの全部事項など）。
+ *  ┃所 在│愛知郡長久手町大字熊張字松杁 │ ┃   ← 旧所在
+ *  ┃ │長久手市松杁 │平成２４年１月４日市制施行┃  ← 最新（行頭に「所在」なし）
+ *  ┃１６７５番 │宅地 │ ４１３：２２│ ┃
+ *  ┃ │ │ ４８８：７０│③錯誤 ┃            ← 地積だけの更正（地番・地目は空欄）
+ * 所在は「所在」の行から地番の見出しまでの2列目、地番・地目・地積は見出しより後の各行で、空欄でない最後の値を採用する。
+ * 表の形でなければ null（従来の読み方に回す）。
+ */
+function parseTohonTable_(sec) {
+  if (sec.indexOf('┃') < 0 || sec.indexOf('│') < 0) return null;
+  const lines = [];
+  // 1行＝左端（┃┠┏┗）から右端（┃┨┓┛）まで。罫線だけの区切り行（─ ━ ┼ ├ など）は読み飛ばす
+  const re = /[┃┠┏┗]([^┃┠┨┏┓┗┛]*)[┃┨┓┛]/g;
+  let m;
+  while ((m = re.exec(sec)) !== null) {
+    if (/^[\s─━┼├┤┬┴┯┷┿]*$/.test(m[1])) continue;
+    lines.push(m[1].split('│').map(function (c) { return c.replace(/\s+/g, ''); }));
+  }
+  let mode = '';
+  let address = '', lotNumber = '', chimokuRaw = '', area = '';
+  for (let i = 0; i < lines.length; i++) {
+    const cells = lines[i];
+    const head = cells.join('');
+    if (/権利部/.test(head)) break;
+    if (cells[0] === '所在') { mode = 'shozai'; }
+    else if (/地番/.test(head) && /地目/.test(head)) { mode = 'rows'; continue; }
+    if (mode === 'shozai') {
+      if (cells[0] && cells[0] !== '所在') { mode = ''; continue; } // 所在の欄を過ぎた
+      const v = cleanTohonAddress_(cells[1] || '');
+      if (v) address = v;
+    } else if (mode === 'rows') {
+      const n = (cells[0] || '').match(/^(\d+番(?:地)?\d*)/);
+      if (n) lotNumber = n[1].replace('番地', '番');
+      const c = (cells[1] || '').replace(/[①-⑳]/g, '');
+      if (c && TOHON_CHIMOKU_WORDS.indexOf(c) >= 0) chimokuRaw = c;
+      const a = (cells[2] || '').match(/^(\d[\d,]*)(?::(\d{1,2}))?$/);
+      if (a) area = a[1].replace(/,/g, '') + (a[2] && Number(a[2]) > 0 ? '.' + a[2] : '');
+    }
+  }
+  if (!address && !lotNumber) return null;
+  return {
+    address: address,
+    lotNumber: lotNumber,
+    chimoku: FORM_OPTIONS.chimoku.indexOf(chimokuRaw) >= 0 ? chimokuRaw : (chimokuRaw ? 'その他' : ''),
+    chimokuRaw: chimokuRaw,
+    area: area,
+  };
 }
 
 /** 全角英数字・全角スペースを半角にし、改行以外の空白をそろえる */
