@@ -15,7 +15,7 @@
 function getFeeSettings_() {
   const fees = {};
   DEFAULT_FEES.forEach(function (d) {
-    fees[d.key] = { label: d.label, amount: d.amount, zone: d.zone || '' };
+    fees[d.key] = { label: d.label, amount: d.amount, zone: d.zone || '', surveyZone: d.surveyZone || '' };
   });
 
   const sheet = getSpreadsheet_().getSheetByName(SHEET_NAMES.FEES);
@@ -74,6 +74,11 @@ function calculateEstimate_(input) {
     }
     items.push(item(baseKey));
   }
+  // 調査実費（区域区分ごとに1回）
+  zones.forEach(function (z) {
+    const surveyKey = Object.keys(fees).filter(function (k) { return fees[k].surveyZone === z; })[0];
+    if (surveyKey && fees[surveyKey].amount > 0) items.push(item(surveyKey));
+  });
   if (zones.length > 1) {
     notes.push('区域区分が異なるため、申請' + zones.length + '件として計算しています。');
   }

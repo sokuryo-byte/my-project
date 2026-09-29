@@ -98,6 +98,15 @@ const DEFAULT_FEES = [
     note: '非線引き区域の場合に適用（料金表 4103 非線引き）' },
   { key: 'BASE_KUIKIGAI', zone: '都市計画区域外', label: '農地法第5条許可申請（都市計画区域外）', amount: 150000,
     note: '都市計画区域外の場合に適用（料金表 4103 都市計画区域外）' },
+  // 調査実費（区域区分ごとに1回。surveyZone で区域と対応）
+  { key: 'SURVEY_SHIGAIKA', surveyZone: '市街化区域', label: '調査実費（市街化区域）', amount: 2000,
+    note: '市街化区域、または区域が「分からない」場合に加算' },
+  { key: 'SURVEY_CHOSEI', surveyZone: '市街化調整区域', label: '調査実費（市街化調整区域）', amount: 25000,
+    note: '市街化調整区域の場合に加算' },
+  { key: 'SURVEY_HISENBIKI', surveyZone: '非線引き区域', label: '調査実費（非線引き区域）', amount: 15000,
+    note: '非線引き区域の場合に加算' },
+  { key: 'SURVEY_KUIKIGAI', surveyZone: '都市計画区域外', label: '調査実費（都市計画区域外）', amount: 15000,
+    note: '都市計画区域外の場合に加算（金額は仮に非線引き区域と同額）' },
   { key: 'ADD_NOSHIN', label: '農振除外申出', amount: 290000,
     note: '農振農用地「はい」の場合に加算（料金表 4006）' },
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 35000,
@@ -1277,7 +1286,7 @@ function safeUrl_(value) {
 function getFeeSettings_() {
   const fees = {};
   DEFAULT_FEES.forEach(function (d) {
-    fees[d.key] = { label: d.label, amount: d.amount, zone: d.zone || '' };
+    fees[d.key] = { label: d.label, amount: d.amount, zone: d.zone || '', surveyZone: d.surveyZone || '' };
   });
 
   const sheet = getSpreadsheet_().getSheetByName(SHEET_NAMES.FEES);
@@ -1336,6 +1345,11 @@ function calculateEstimate_(input) {
     }
     items.push(item(baseKey));
   }
+  // 調査実費（区域区分ごとに1回）
+  zones.forEach(function (z) {
+    const surveyKey = Object.keys(fees).filter(function (k) { return fees[k].surveyZone === z; })[0];
+    if (surveyKey && fees[surveyKey].amount > 0) items.push(item(surveyKey));
+  });
   if (zones.length > 1) {
     notes.push('区域区分が異なるため、申請' + zones.length + '件として計算しています。');
   }
