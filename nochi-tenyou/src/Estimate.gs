@@ -36,7 +36,8 @@ function getFeeSettings_() {
  * 入力内容から概算見積を計算する（複数物件対応）。
  *  ・基本報酬：区域区分ごとに1回（同じ区域の物件は1つの申請にまとめる想定）
  *  ・物件追加：申請数を超える物件1筆ごとに加算
- *  ・農振除外／地区除外：該当する物件が1つでもあれば1回加算
+ *  ・農振除外／地区除外：該当する物件が1つでもあれば1回加算（地区除外は「分からない」も加算）
+ *  ・水利組合・農事組合：「はい」または「分からない」で1回加算
  *  ・事後手続き：許可の区域（調整・非線引き）に該当物件があれば1回加算（届出では不要）
  * @param {Object} input normalizeInput_() で整えた入力（input.lots に物件の配列）
  * @return {{ok:boolean, total:number, items:Array<{label:string, amount:number}>, notes:string[]}}
@@ -92,11 +93,20 @@ function calculateEstimate_(input) {
     notes.push('農振農用地の場合は +' + formatYen_(fees.ADD_NOSHIN.amount) + '（農振除外）が見込まれます。');
   }
 
-  // --- 4. 土地改良区 地区除外 加算 ---
-  if (lots.some(function (l) { return l.landImprovement === 'はい'; })) {
+  // --- 4. 土地改良区 地区除外 加算（「分からない」も加算） ---
+  if (lots.some(function (l) { return l.landImprovement === 'はい' || l.landImprovement === '分からない'; })) {
     items.push(item('ADD_LAND_IMPROVEMENT'));
-  } else if (lots.some(function (l) { return l.landImprovement === '分からない'; })) {
-    notes.push('土地改良区内の場合は +' + formatYen_(fees.ADD_LAND_IMPROVEMENT.amount) + '（地区除外）が見込まれます。');
+    if (!lots.some(function (l) { return l.landImprovement === 'はい'; })) {
+      notes.push('土地改良区が不明のため加算しています。区域外の場合は減額となります。');
+    }
+  }
+
+  // --- 4-2. 水利組合・農事組合 加算（案件単位。「分からない」も加算） ---
+  if (input.waterAssociation === 'はい' || input.waterAssociation === '分からない') {
+    items.push(item('ADD_WATER_ASSOCIATION'));
+    if (input.waterAssociation === '分からない') {
+      notes.push('水利組合・農事組合が不明のため加算しています。該当しない場合は減額となります。');
+    }
   }
 
   // --- 5. 現況是正・事後手続き 加算（許可の区域のみ。届出では始末書等は不要） ---
