@@ -155,9 +155,10 @@ function calculateEstimate_(input) {
     if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') {
       notes.push(lotName(l, i) + '：' + l.noutiKubun + '農地は原則として転用が認められません（例外要件に該当する場合を除く）。');
     }
-    if (l.jogaiIchi === '中央部') {
-      notes.push(lotName(l, i) + '：農用地区域の中央部で、除外すると歯抜けになる位置は除外が認められにくい点にご留意ください。');
+    if (l.hojo8nen === '未経過') {
+      notes.push(lotName(l, i) + '：土地改良事業の完了から8年を経過していないため、農振除外の要件を満たしません。');
     }
+    if (l.jogaiUketsuke) notes.push(lotName(l, i) + '：農振除外の受付時期 ' + l.jogaiUketsuke + '。');
     if (l.jogaiKanou === '難しい') {
       notes.push(lotName(l, i) + '：農業委員会より農振除外は難しいとの回答があります' + (l.jogaiNote ? '（' + l.jogaiNote + '）' : '') + '。');
     }

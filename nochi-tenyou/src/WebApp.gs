@@ -179,7 +179,8 @@ function submitCase(form, requestInvestigation) {
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
-      jogaiKanou: l.jogaiKanou, jogaiIchi: l.jogaiIchi, jogaiJisseki: l.jogaiJisseki, jogaiNote: l.jogaiNote,
+      jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
+      jogaiUketsuke: l.jogaiUketsuke, jogaiNote: l.jogaiNote,
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
       drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
       drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
@@ -372,8 +373,10 @@ function normalizeLot_(l, prefecture, master) {
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
     // 農振除外の見込み（青地「はい」「分からない」のとき）
     jogaiKanou: jogaiOn ? pick_(l.jogaiKanou, FORM_OPTIONS.tenyoKanou) : '',
-    jogaiIchi: jogaiOn ? pick_(l.jogaiIchi, FORM_OPTIONS.jogaiIchi) : '',
+    hojoKuiki: jogaiOn ? pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) : '',
+    hojo8nen: jogaiOn && pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) === '区域内' ? pick_(l.hojo8nen, FORM_OPTIONS.hojo8nen) : '',
     jogaiJisseki: jogaiOn ? pick_(l.jogaiJisseki, FORM_OPTIONS.jogaiJisseki) : '',
+    jogaiUketsuke: jogaiOn ? str_(l.jogaiUketsuke, 100) : '',
     jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',

@@ -621,8 +621,10 @@
       noutiKubun: getRadio(card, 'noutiKubun'),
       kanouNote: lotInput(card, 'kanouNote').value,
       jogaiKanou: getRadio(card, 'jogaiKanou'),
-      jogaiIchi: getRadio(card, 'jogaiIchi'),
+      hojoKuiki: getRadio(card, 'hojoKuiki'),
+      hojo8nen: getRadio(card, 'hojo8nen'),
       jogaiJisseki: getRadio(card, 'jogaiJisseki'),
+      jogaiUketsuke: lotInput(card, 'jogaiUketsuke').value,
       jogaiNote: lotInput(card, 'jogaiNote').value,
       drainAdjacent: getRadio(card, 'drainAdjacent'),
       drainConsent: getRadio(card, 'drainConsent'),
@@ -653,6 +655,32 @@
     // ① 農業委員会（土地改良区・地元委員の押印）
     var s1 = el('div', { 'class': 'step1' });
     s1.appendChild(el('div', { 'class': 'step-h nogyo-h' }));
+    // 青地の場合：農振除外の見込み（転用の見込みより先に聞く。位置関係は農振図で分かるので聞かない）
+    var jb = el('div', { 'class': 'jogai-block hidden', style: 'display:grid;gap:8px' });
+    jb.appendChild(el('div', { 'class': 'script script-jogai' }));
+    var hojo = el('div', { 'class': 'choices' });
+    renderChoices(hojo, id('hojoKuiki'), o.hojoKuiki);
+    var h8 = el('div', { 'class': 'choices' });
+    renderChoices(h8, id('hojo8nen'), o.hojo8nen);
+    var h8f = radioField('事業完了から8年', h8);
+    h8f.classList.add('hojo8-field', 'hidden');
+    var rh = el('div', { 'class': 'row' });
+    rh.appendChild(radioField('ほ場整備等の事業区域', hojo));
+    rh.appendChild(h8f);
+    jb.appendChild(rh);
+    var jis = el('div', { 'class': 'choices' });
+    renderChoices(jis, id('jogaiJisseki'), o.jogaiJisseki);
+    var jk = el('div', { 'class': 'choices' });
+    renderChoices(jk, id('jogaiKanou'), o.tenyoKanou);
+    var rj = el('div', { 'class': 'row' });
+    rj.appendChild(radioField('近隣の除外実績', jis));
+    rj.appendChild(radioField('農振除外の見込み', jk));
+    jb.appendChild(rj);
+    var ru = el('div', { 'class': 'row' });
+    ru.appendChild(field('除外の受付時期', el('input', { type: 'text', id: id('jogaiUketsuke'), maxlength: '100', placeholder: '例）年2回（次回締切 ○月○日）', 'data-f': 'jogaiUketsuke' })));
+    ru.appendChild(field('除外の指摘事項', el('input', { type: 'text', id: id('jogaiNote'), maxlength: '300', placeholder: '例）事前相談が必要（担当：○○様） など', 'data-f': 'jogaiNote' })));
+    jb.appendChild(ru);
+    s1.appendChild(jb);
     // 最初に：転用の見込み（許可が必要な区域のとき）
     var kb = el('div', { 'class': 'kanou-block hidden', style: 'display:grid;gap:8px' });
     kb.appendChild(el('div', { 'class': 'script script-kanou' }));
@@ -666,22 +694,6 @@
     kb.appendChild(rk);
     kb.appendChild(field('難しい理由・指摘事項', el('input', { type: 'text', id: id('kanouNote'), maxlength: '300', placeholder: '例）土地改良事業実施済み／事前相談が必要（担当：○○様） など', 'data-f': 'kanouNote' })));
     s1.appendChild(kb);
-    // 青地の場合：農振除外の見込み
-    var jb = el('div', { 'class': 'jogai-block hidden', style: 'display:grid;gap:8px' });
-    jb.appendChild(el('div', { 'class': 'script script-jogai' }));
-    var ichi = el('div', { 'class': 'choices' });
-    renderChoices(ichi, id('jogaiIchi'), o.jogaiIchi);
-    var jis = el('div', { 'class': 'choices' });
-    renderChoices(jis, id('jogaiJisseki'), o.jogaiJisseki);
-    var jk = el('div', { 'class': 'choices' });
-    renderChoices(jk, id('jogaiKanou'), o.tenyoKanou);
-    var rj = el('div', { 'class': 'row' });
-    rj.appendChild(radioField('農用地区域内の位置', ichi));
-    rj.appendChild(radioField('近隣の除外実績', jis));
-    jb.appendChild(rj);
-    jb.appendChild(radioField('農振除外の見込み', jk));
-    jb.appendChild(field('除外の指摘事項・受付時期', el('input', { type: 'text', id: id('jogaiNote'), maxlength: '300', placeholder: '例）市街化区域に隣接・角地／受付は年2回（○月・○月締切） など', 'data-f': 'jogaiNote' })));
-    s1.appendChild(jb);
     s1.appendChild(el('p', { 'class': 'caution stop-msg hidden' },
       '※ 見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。'));
     s1.appendChild(el('div', { 'class': 'script script-main' }));
@@ -848,35 +860,33 @@
     var permit = ['市街化調整区域', '非線引き区域', '都市計画区域外'].indexOf(zone) >= 0;
     var purpose = radioVal('purpose');
     var purposeText = purpose && purpose !== 'その他' ? purpose : '住宅等';
-    card.querySelector('.kanou-block').classList.toggle('hidden', !permit);
-    // 「審査しないと分からない」と答えを避けられないよう、意見ではなく事実を聞き、意図を先に断る
-    scriptLines(card.querySelector('.script-kanou'), [
-      '【最初に：そもそも転用を検討してよい土地か】',
-      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地について、' + purposeText + 'への転用（農地法の許可）を検討しており、申請前の下調べでお電話いたしました。」',
-      '「許可が下りるかどうかをお聞きするものではございません。結論は審査でご判断いただくものと承知しております。申請を検討してよい土地かどうか、事実関係を確認させてください。」',
-      '「1点目、農用地区域（青地）に含まれていますでしょうか。また、農地区分は甲種・第1種・第2種・第3種のどれにあたりますでしょうか。」（青地の場合は、下の「農振除外の見込み」も続けてお伺いします）',
-      '「2点目、土地改良事業（区画整理など）を実施済み、または実施中・計画中の区域ではございませんでしょうか。」',
-      '「3点目、集団的な優良農地（おおむね10ヘクタール以上のまとまり）に含まれておりませんでしょうか。」',
-      '「4点目、これまでの事前相談や申請の中で、この場所で' + purposeText + 'への転用が難しくなりそうな点（周辺の営農への影響、進入路、用排水など）がございましたら、差し支えない範囲で教えてください。」',
-      '→「審査しないと分からない」と言われたら：「はい、結論は審査次第と承知しております。そのうえで、原則として転用が認められない区分に当たるかどうかと、事前相談でよく指摘される点がないかだけ、お聞きしたいのですが。」',
-      '→ それでも回答が得られない場合：「では、事前相談はどちらの窓口で、どのように予約すればよろしいでしょうか。ご担当の方のお名前もお教えいただけますか。」'
-    ]);
-    // 青地（農用地区域）の場合：除外の見込み。「審議してみないと分からない」とかわされないよう、位置関係などの事実を聞く
     var noshin = getRadio(card, 'isNoshin');
-    var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない');
+    var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
+    card.querySelector('.kanou-block').classList.toggle('hidden', !permit);
+    // 転用の見込み：意見ではなく事実（農地区分など）を聞く。前置きは短く、逃げられたときだけ切り返す
+    var n = 0;
+    var q = function (t) { n++; return '「' + (n === 2 ? 'また、' : '') + t + '」'; };
+    var kanouLines = ['【' + (jogai ? '続けて' : '最初に') + '：転用の見込み】'];
+    if (!jogai) kanouLines.push('「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地で、' + purposeText + 'への転用を検討しています。申請の準備を進める前に、何点か確認させてください。」');
+    kanouLines.push(q('農地区分は、甲種・第1種・第2種・第3種のどれにあたりますでしょうか。' + (jogai ? '' : 'あわせて、農用地区域（青地）に含まれていますでしょうか。')));
+    if (!jogai) kanouLines.push(q('ほ場整備などの土地改良事業の区域に入っていますでしょうか。実施中・計画中のものも含めて教えてください。'));
+    kanouLines.push(q('集団的な優良農地（おおむね10ヘクタール以上のまとまり）に含まれますでしょうか。'));
+    kanouLines.push(q('これまでの事前相談などで、この辺りで' + purposeText + 'への転用が難しくなりそうな点（周辺の営農への影響、進入路、用排水など）があれば教えてください。'));
+    kanouLines.push('→ 結論は審査次第と言われたら：「もちろん、結論は審査でのご判断と承知しています。農地区分や、これまでによく指摘されている点だけでも教えていただけると、事前相談の準備がしやすくなります。」');
+    kanouLines.push('→ それでも回答が得られない場合：「では、事前相談はどちらの窓口で、どのように予約すればよろしいでしょうか。ご担当の方のお名前もお教えいただけますか。」');
+    scriptLines(card.querySelector('.script-kanou'), kanouLines);
+    // 青地（農用地区域）の場合：除外の見込み（事業区域・8年・近隣実績・受付時期という事実を聞く）
     card.querySelector('.jogai-block').classList.toggle('hidden', !jogai);
     scriptLines(card.querySelector('.script-jogai'), [
-      '【青地の場合：農振除外の見込み】' + (noshin === '分からない' ? '（青地と分かった場合）' : ''),
-      permit ? '「青地ということでしたら、除外の申出についても、可否ではなく事前に位置関係などの事実を確認させてください。」'
-        : '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地について、農振除外の申出を検討しており、申請前の下調べでお電話いたしました。可否ではなく、位置関係などの事実を確認させてください。」',
-      '「1点目、申請地は農用地区域のまとまりの中央部でしょうか、それとも区域の端（周辺部）でしょうか。」',
-      '「2点目、市街化区域や宅地、既存の集落に接していますでしょうか。」',
-      '「3点目、近くで過去に除外が認められた土地はございますでしょうか。」',
-      '「4点目、除外すると農用地の中に穴が開く（歯抜けになる）位置ではございませんでしょうか。角地や道路沿いなど、周りの農地の耕作に支障が出にくい位置かどうかも教えてください。」',
-      '「5点目、ほ場整備などの土地改良事業が完了してから8年以上たっていますでしょうか。」',
-      '「6点目、除外の申出の受付時期（年何回か、締切はいつか）を教えてください。」',
-      '→「審議してみないと分からない」と言われたら：「はい、結論は審議次第と承知しております。そのうえで、区域の中央で歯抜けになるなど、明らかに除外が難しい位置かどうかだけお伺いしたいのですが。」'
+      '【最初に：農振除外の見込み】' + (noshin === '分からない' ? '（青地と分かった場合）' : ''),
+      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地で' + purposeText + 'への転用を考えており、農振除外の申出を検討しています。申請の準備を進める前に、何点か確認させてください。」',
+      '「ほ場整備などの土地改良事業の区域に入っていますでしょうか。」',
+      '　→ 入っている場合：「事業の完了から8年以上たっていますでしょうか。」',
+      '「また、近くで過去に除外が認められた土地はございますでしょうか。」',
+      '「除外の申出の受付時期（年何回か、次の締切はいつか）も教えてください。」',
+      '→ 結論は審議次第と言われたら：「もちろん、結論は審議でのご判断と承知しています。事業区域かどうかや、これまでの除外の状況だけでも教えていただけると、準備がしやすくなります。」'
     ]);
+    card.querySelector('.hojo8-field').classList.toggle('hidden', getRadio(card, 'hojoKuiki') !== '区域内');
     scriptLines(card.querySelector('.script-main'), [
       permit || jogai ? '【続けて：土地改良区と地元委員】' : '「お世話になっております。（会社名）の（お名前）と申します。農地転用の件でお伺いします。」',
       '（ア）「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」',
@@ -907,8 +917,9 @@
     ]);
     card.querySelector('[data-contacts=localContacts]').classList.toggle('hidden', getRadio(card, 'localConsent') !== '必要');
     // 見込みが「難しい」なら、その先（土地改良区・地元委員・排水）は聞かない
-    var stop = (permit && getRadio(card, 'tenyoKanou') === '難しい') || (jogai && getRadio(card, 'jogaiKanou') === '難しい');
-    if (permit && getRadio(card, 'tenyoKanou') === '難しい') card.querySelector('.jogai-block').classList.add('hidden');
+    var jogaiStop = jogai && (getRadio(card, 'jogaiKanou') === '難しい' || getRadio(card, 'hojo8nen') === '未経過');
+    var stop = jogaiStop || (permit && getRadio(card, 'tenyoKanou') === '難しい');
+    if (jogaiStop) card.querySelector('.kanou-block').classList.add('hidden'); // 除外が見込めなければ転用の見込みも聞かない
     card.querySelector('.stop-msg').classList.toggle('hidden', !stop);
     ['.script-main', '.main-checks'].forEach(function (s) { card.querySelector(s).classList.toggle('hidden', stop); });
     if (stop) {

@@ -342,7 +342,8 @@ const FORM_OPTIONS = {
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（分家住宅は排水先の確認を行う）
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
   noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
-  jogaiIchi: ['周辺部', '中央部', '未確認'],               // 農用地区域のまとまりの中での位置（中央部の歯抜け除外は認められにくい）
+  hojoKuiki: ['区域内', '区域外', '未確認'],               // ほ場整備などの土地改良事業の区域か
+  hojo8nen: ['経過', '未経過', '未確認'],                  // 事業完了から8年経過したか（未経過は除外の要件を満たさない）
   jogaiJisseki: ['あり', 'なし', '未確認'],                // 近隣の除外実績
   drainAdjacent: ['ある', 'ない', '未確認'],               // 隣接に水路があるか（ない場合は側溝へ）
   drainConsent: ['必要', '不要', '未確認'],                // 流末の農業用水への排水承諾               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
@@ -430,9 +431,11 @@ const LOT_COLUMNS = [
   { key: 'noutiKubun', header: '農地区分（農業委員会）' },
   { key: 'kanouNote', header: '転用が難しい理由・指摘事項' },
   { key: 'jogaiKanou', header: '農振除外の見込み' },
-  { key: 'jogaiIchi', header: '農用地区域内の位置' },
+  { key: 'hojoKuiki', header: 'ほ場整備等の事業区域' },
+  { key: 'hojo8nen', header: '事業完了から8年' },
   { key: 'jogaiJisseki', header: '近隣の除外実績' },
-  { key: 'jogaiNote', header: '除外の指摘事項・受付時期' },
+  { key: 'jogaiUketsuke', header: '除外の受付時期' },
+  { key: 'jogaiNote', header: '除外の指摘事項' },
   { key: 'drainAdjacent', header: '隣接の水路' },
   { key: 'drainConsent', header: '排水承諾' },
   { key: 'drainName', header: '用水（管理者）名' },
