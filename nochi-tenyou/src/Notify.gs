@@ -67,6 +67,10 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       lines.push('　　転用の見込み（農業委員会）：' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') +
         (l.kanouNote ? '／' + l.kanouNote : ''));
     }
+    if (l.jogaiKanou || l.jogaiIchi || l.jogaiJisseki) {
+      lines.push('　　農振除外の見込み：' + (l.jogaiKanou || '-') + '／位置 ' + (l.jogaiIchi || '-') + '／近隣の除外実績 ' + (l.jogaiJisseki || '-') +
+        (l.jogaiNote ? '／' + l.jogaiNote : ''));
+    }
     if (l.drainConsent || l.drainAdjacent) {
       lines.push('　　排水：隣接水路 ' + (l.drainAdjacent || '-') + '／排水承諾 ' + (l.drainConsent || '-') +
         (l.drainName ? '／' + l.drainName + (l.drainTel ? '（' + l.drainTel + '）' : '') : '') +

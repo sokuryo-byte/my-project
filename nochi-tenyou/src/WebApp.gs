@@ -179,6 +179,7 @@ function submitCase(form, requestInvestigation) {
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
+      jogaiKanou: l.jogaiKanou, jogaiIchi: l.jogaiIchi, jogaiJisseki: l.jogaiJisseki, jogaiNote: l.jogaiNote,
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
       drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
       drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
@@ -326,6 +327,8 @@ function normalizeLot_(l, prefecture, master) {
   const split = splitLotNumber_(place);
   const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
   const permitZone = PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
+  const jogaiOn = pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
+    ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
   const drainOn = l.bunke === true;                                             // 転用目的が分家住宅
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
@@ -364,6 +367,11 @@ function normalizeLot_(l, prefecture, master) {
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
     noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
+    // 農振除外の見込み（青地「はい」「分からない」のとき）
+    jogaiKanou: jogaiOn ? pick_(l.jogaiKanou, FORM_OPTIONS.tenyoKanou) : '',
+    jogaiIchi: jogaiOn ? pick_(l.jogaiIchi, FORM_OPTIONS.jogaiIchi) : '',
+    jogaiJisseki: jogaiOn ? pick_(l.jogaiJisseki, FORM_OPTIONS.jogaiJisseki) : '',
+    jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
     drainConsent: drainOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',

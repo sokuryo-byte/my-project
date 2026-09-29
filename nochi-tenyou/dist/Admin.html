@@ -42,6 +42,7 @@
   .callbox .script { margin: 0; padding: 6px 10px; background: var(--surface); border-radius: 4px; border: 1px dashed var(--line); line-height: 1.7; }
   .callbox .script p { margin: 0; }
   .callbox .step1 { display: grid; gap: 8px; }
+  .caution { margin: 0; font-size: .82rem; color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-fg); border-radius: 5px; padding: 6px 10px; }
   .contacts { display: grid; gap: 6px; }
   .contact-rows { display: grid; gap: 6px; }
   .contact-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr) 32px; gap: 6px; align-items: center; }
@@ -426,6 +427,8 @@
           l.iinStamp === '必要' && '委員押印:必要' + (l.iinContacts ? '\n' + l.iinContacts : ''),
           l.localConsent && '地元同意:' + l.localConsent + (l.localContacts ? '\n' + l.localContacts : ''),
           (l.tenyoKanou || l.noutiKubun) && '転用の見込み:' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') + (l.kanouNote ? '／' + l.kanouNote : ''),
+          (l.jogaiKanou || l.jogaiIchi || l.jogaiJisseki) && '除外の見込み:' + (l.jogaiKanou || '-') + '／位置 ' + (l.jogaiIchi || '-') +
+            '／近隣実績 ' + (l.jogaiJisseki || '-') + (l.jogaiNote ? '／' + l.jogaiNote : ''),
           (l.drainConsent || l.drainAdjacent) && '排水:隣接水路 ' + (l.drainAdjacent || '-') + '／承諾 ' + (l.drainConsent || '-') +
             [l.drainName, l.drainTel, l.drainFee && '手数料 ' + l.drainFee, l.drainLocalConsent && '地元承諾 ' + l.drainLocalConsent]
               .filter(function (x) { return x; }).map(function (x) { return '／' + x; }).join('') + (l.drainContacts ? '\n' + l.drainContacts : '')]

@@ -140,8 +140,20 @@ function calculateEstimate_(input) {
     });
   }
   lots.forEach(function (l, i) {
+    // 現況利用と「既に転用済み」の食い違い
+    if (CONVERTED_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'いいえ') {
+      notes.push(lotName(l, i) + '：現況が「' + l.landUse + '」のため既に転用している状態です（「既に転用済み」が「いいえ」になっています）。');
+    } else if (FARMLAND_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'はい') {
+      notes.push(lotName(l, i) + '：現況が農地（' + l.landUse + '）なのに「既に転用済み」が「はい」になっています。ご確認ください。');
+    }
     if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') {
       notes.push(lotName(l, i) + '：' + l.noutiKubun + '農地は原則として転用が認められません（例外要件に該当する場合を除く）。');
+    }
+    if (l.jogaiIchi === '中央部') {
+      notes.push(lotName(l, i) + '：農用地区域の中央部で、除外すると歯抜けになる位置は除外が認められにくい点にご留意ください。');
+    }
+    if (l.jogaiKanou === '難しい') {
+      notes.push(lotName(l, i) + '：農業委員会より農振除外は難しいとの回答があります' + (l.jogaiNote ? '（' + l.jogaiNote + '）' : '') + '。');
     }
     if (l.tenyoKanou === '難しい') {
       notes.push(lotName(l, i) + '：農業委員会より転用は難しいとの回答があります' + (l.kanouNote ? '（' + l.kanouNote + '）' : '') + '。');
