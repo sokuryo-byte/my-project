@@ -66,7 +66,7 @@
 </div>
 
 <script>
-  var state = { cases: [], statuses: [], filter: '', selectedId: Number('<?= initialId ?>') || 0 };
+  var state = { cases: [], lotsByCase: {}, statuses: [], filter: '', selectedId: Number('<?= initialId ?>') || 0 };
   var $ = function (id) { return document.getElementById(id); };
 
   function el(tag, attrs, text) {
@@ -88,6 +88,7 @@
       .withSuccessHandler(function (data) {
         state.cases = data.cases;
         state.statuses = data.statuses;
+        state.lotsByCase = data.lotsByCase || {};
         $('userInfo').textContent = 'ログイン中：' + data.userEmail;
         renderChips();
         renderRows();
@@ -212,14 +213,34 @@
     if (c.folderUrl) links.appendChild(el('a', { href: c.folderUrl, target: '_blank', rel: 'noopener' }, 'アップロード資料（' + (c.fileCount || 0) + '件）を開く'));
     box.appendChild(links);
 
+    // 物件明細（1物件＝1行）
+    var lots = state.lotsByCase[c.id] || [];
+    if (lots.length) {
+      var wrap = el('div', { 'class': 'list' });
+      var t = el('table', { 'class': 'cases' });
+      var head = el('tr');
+      ['No', '所在・地番', '地目', '面積㎡', '区域', '農振', '現況', '転用済', '改良区'].forEach(function (h) { head.appendChild(el('th', {}, h)); });
+      var thead = el('thead'); thead.appendChild(head); t.appendChild(thead);
+      var tb = el('tbody');
+      lots.forEach(function (l) {
+        var tr = el('tr');
+        [l.no, (l.address + ' ' + l.lotNumber) + (l.readFromTohon ? '（謄本読取）' : ''), l.chimoku, l.area, l.zone,
+         boolText(l.isNoshin), l.landUse, boolText(l.isConverted), l.landImprovement].forEach(function (v, i) {
+          tr.appendChild(el('td', i === 1 ? { 'class': 'loc' } : {}, v === '' ? '―' : v));
+        });
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb); wrap.appendChild(t);
+      box.appendChild(el('span', { 'class': 'lbl' }, '物件明細（' + lots.length + '件）'));
+      box.appendChild(wrap);
+    }
+
     // 依頼内容（読み取り専用）
     var dl = el('dl', { 'class': 'kv' });
     [
       ['受付日時', c.receivedAt], ['入力者', c.submittedBy], ['依頼種別', c.requestFlag === true ? '見積調査依頼' : '保存のみ'],
-      ['所在地', [c.prefecture, c.address].filter(String).join(' ')], ['地番', c.lotNumber],
-      ['地目', c.chimoku], ['面積', c.area === '' ? '―' : c.area + ' ㎡'], ['区域区分', c.zone],
-      ['農振農用地', boolText(c.isNoshin)], ['現況利用', c.landUse], ['転用済み', boolText(c.isConverted)],
-      ['今後の転用計画', c.plan], ['土地改良区', c.landImprovement], ['水利・農事組合', c.waterAssociation],
+      ['都道府県', c.prefecture], ['面積合計', c.area === '' ? '―' : c.area + ' ㎡'],
+      ['今後の転用計画', c.plan], ['水利・農事組合', c.waterAssociation],
       ['手元の資料', c.documents], ['概算見積', yen(c.estimate)], ['見積内訳', c.estimateDetail],
       ['Chat通知', c.notifyResult], ['最終更新', c.updatedAt]
     ].forEach(function (kv) {

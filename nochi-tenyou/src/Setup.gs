@@ -28,6 +28,11 @@ function setupSpreadsheet() {
   ensureHeaders_(caseSheet, CASE_COLUMNS.map(function (c) { return c.header; }));
   formatCaseSheet_(caseSheet);
 
+  // --- 物件明細 ---
+  const lotSheet = getOrCreateSheet_(ss, SHEET_NAMES.LOTS);
+  ensureHeaders_(lotSheet, LOT_COLUMNS.map(function (c) { return c.header; }));
+  lotSheet.getRange(2, 6, Math.max(lotSheet.getMaxRows() - 1, 1), 1).setNumberFormat('#,##0.00');
+
   // --- マスタ ---
   const masterSheet = getOrCreateSheet_(ss, SHEET_NAMES.MASTER);
   ensureHeaders_(masterSheet, MASTER_HEADERS);

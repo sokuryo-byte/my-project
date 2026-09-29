@@ -42,21 +42,24 @@ function postToChat_(text) {
  * Chat の書式： *太字*、<URL|リンク文字>
  */
 function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
-  const location = [input.prefecture, input.address].filter(String).join(' ');
   const adminUrl = getAdminUrl_(caseId);
   const lines = [
     '*【農地転用】見積調査依頼が届きました*',
     '案件ID：' + caseId,
     '依頼者名：' + (input.requesterName || '（未入力）'),
-    '物件所在地：' + (location || '（未入力）'),
-    '地番：' + input.lotNumber,
-    '区域：' + (input.zone || '（未選択）'),
-    '農振農用地：' + (input.isNoshin || '-') + '　土地改良区：' + (input.landImprovement || '-'),
-    '現況利用：' + (input.landUse || '-') + '　転用済み：' + (input.isConverted || '-'),
+    '物件：' + input.lots.length + '件（' + input.prefecture + '）',
+  ];
+  input.lots.forEach(function (l, i) {
+    lines.push('　' + (i + 1) + '. ' + (l.address || '（所在未入力）') + ' ' + l.lotNumber +
+      '／' + (l.chimoku || '地目-') + (l.area !== null ? ' ' + l.area + '㎡' : '') +
+      '／' + (l.zone || '区域-') + '／農振:' + (l.isNoshin || '-') + '／現況:' + (l.landUse || '-') +
+      (l.readFromTohon ? '（謄本読取）' : ''));
+  });
+  lines.push(
     '概算見積金額：' + (estimate.ok ? formatYen_(estimate.total) : '算出不可'),
     '手元資料：' + (input.documents.join('、') || 'なし'),
-    '入力者：' + (input.submittedBy || '不明'),
-  ];
+    '入力者：' + (input.submittedBy || '不明')
+  );
   if (attach && attach.folderUrl) {
     lines.push('<' + attach.folderUrl + '|アップロード資料（' + attach.count + '件）を開く>');
   }

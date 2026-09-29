@@ -21,6 +21,7 @@ const SPREADSHEET_ID = '';
 /** シート名（変更する場合は、実際のシート名も合わせて変更してください） */
 const SHEET_NAMES = {
   CASES: '案件一覧',
+  LOTS: '物件明細',
   MASTER: 'マスタ',
   FEES: '見積設定',
 };
@@ -95,7 +96,9 @@ const DEFAULT_FEES = [
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区 地区除外手続き 加算', amount: 50000,
     note: '土地改良区「はい」の場合に加算' },
   { key: 'ADD_ALREADY_CONVERTED', label: '現況是正・事後手続き（始末書等）加算', amount: 50000,
-    note: '既に転用済み「はい」、または現況が駐車場・宅地・資材置場の場合に加算' },
+    note: '既に転用済み「はい」、または現況が駐車場・宅地・資材置場の物件がある場合に加算' },
+  { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
+    note: '同じ申請に含まれる2筆目以降の物件1筆ごとに加算' },
 ];
 
 /**
@@ -110,6 +113,9 @@ const CONVERTED_LAND_USES = ['駐車場', '宅地', '資材置場'];
 /** 「現況が農地」とみなす現況利用（この場合「今後の転用計画」が必須） */
 const FARMLAND_LAND_USES = ['耕作中', '休耕・荒地'];
 
+/** 1件の依頼で入力できる物件（筆）の上限 */
+const MAX_LOTS = 30;
+
 // ------------------------------------------------------------
 // フォームの選択肢（ここを編集すると画面の選択肢が変わります）
 // ------------------------------------------------------------
@@ -121,7 +127,7 @@ const FORM_OPTIONS = {
   zones: ['市街化区域', '市街化調整区域', '非線引き区域', '分からない'],
   yesNoUnknown: ['はい', 'いいえ', '分からない'],
   yesNo: ['はい', 'いいえ'],
-  chimoku: ['田', '畑', '田・畑混在', 'その他'],
+  chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
   landUses: ['耕作中', '休耕・荒地', '駐車場', '宅地', '資材置場', 'その他'],
   documents: ['謄本', '公図', '住宅地図', '課税明細', 'その他'],
 };
@@ -139,16 +145,17 @@ const CASE_COLUMNS = [
   { key: 'id', header: 'ID' },
   { key: 'receivedAt', header: '受付日時' },
   { key: 'requesterName', header: '依頼者名' },
-  { key: 'address', header: '物件所在地（住所）' },
-  { key: 'lotNumber', header: '地番' },
-  { key: 'chimoku', header: '地目' },
-  { key: 'area', header: '面積（登記地積㎡）' },
-  { key: 'zone', header: '市街化区域／調整区域' },
-  { key: 'isNoshin', header: '農振農用地' },
-  { key: 'landUse', header: '現況利用' },
-  { key: 'isConverted', header: '既に転用済み' },
+  // 物件ごとの詳細は「物件明細」シート。ここは全物件のまとめ（一覧で見やすくするため）
+  { key: 'address', header: '物件所在地（1件目）' },
+  { key: 'lotNumber', header: '地番（全物件）' },
+  { key: 'chimoku', header: '地目（全物件）' },
+  { key: 'area', header: '面積合計（登記地積㎡）' },
+  { key: 'zone', header: '区域区分（全物件）' },
+  { key: 'isNoshin', header: '農振農用地（いずれか）' },
+  { key: 'landUse', header: '現況利用（全物件）' },
+  { key: 'isConverted', header: '既に転用済み（いずれか）' },
   { key: 'plan', header: '今後の転用計画' },
-  { key: 'landImprovement', header: '土地改良区の有無' },
+  { key: 'landImprovement', header: '土地改良区の有無（全物件）' },
   { key: 'documents', header: '添付資料の有無' },
   { key: 'estimate', header: '概算見積金額' },
   { key: 'requestFlag', header: '見積調査依頼フラグ' },
@@ -167,6 +174,27 @@ const CASE_COLUMNS = [
   { key: 'formalEstimate', header: '正式見積金額' },
   { key: 'adminMemo', header: '対応メモ' },
   { key: 'updatedAt', header: '最終更新' },
+  { key: 'lotCount', header: '物件数（筆）' },
+];
+
+/**
+ * 物件明細シートの列（1物件＝1行）。案件IDで案件一覧とつながります。
+ * 列を追加する場合は末尾に追加してください。
+ */
+const LOT_COLUMNS = [
+  { key: 'caseId', header: '案件ID' },
+  { key: 'no', header: '物件No' },
+  { key: 'address', header: '所在' },
+  { key: 'lotNumber', header: '地番' },
+  { key: 'chimoku', header: '地目' },
+  { key: 'area', header: '面積（登記地積㎡）' },
+  { key: 'zone', header: '区域区分' },
+  { key: 'isNoshin', header: '農振農用地' },
+  { key: 'landUse', header: '現況利用' },
+  { key: 'isConverted', header: '既に転用済み' },
+  { key: 'landImprovement', header: '土地改良区' },
+  { key: 'municipality', header: '市区町村（所在から自動）' },
+  { key: 'readFromTohon', header: '謄本から読取' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */

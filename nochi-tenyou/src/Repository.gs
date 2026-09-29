@@ -56,6 +56,42 @@ function appendCase_(record) {
   }
 }
 
+/**
+ * 物件明細シートに、案件の物件をまとめて追加する（1物件＝1行）。
+ * @param {number} caseId
+ * @param {Array<Object>} lots LOT_COLUMNS の key を持つオブジェクト（caseId, no は不要）
+ */
+function appendLots_(caseId, lots) {
+  if (!lots.length) return;
+  const sheet = getSheet_(SHEET_NAMES.LOTS);
+  const rows = lots.map(function (lot, i) {
+    const data = Object.assign({}, lot, { caseId: caseId, no: i + 1 });
+    return LOT_COLUMNS.map(function (c) { return toCellValue_(data[c.key]); });
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, LOT_COLUMNS.length).setValues(rows);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 物件明細を案件IDごとにまとめて返す { 案件ID: [物件, ...] } */
+function getLotsByCase_() {
+  const sheet = getSheet_(SHEET_NAMES.LOTS);
+  const lastRow = sheet.getLastRow();
+  const result = {};
+  if (lastRow < 2) return result;
+  sheet.getRange(2, 1, lastRow - 1, LOT_COLUMNS.length).getValues().forEach(function (r) {
+    if (r[0] === '') return;
+    const lot = {};
+    LOT_COLUMNS.forEach(function (c, i) { lot[c.key] = r[i]; });
+    (result[lot.caseId] = result[lot.caseId] || []).push(lot);
+  });
+  return result;
+}
+
 /** 指定行の1セルを更新する（通知結果の書き戻しなどに使用） */
 function updateCaseCell_(rowNumber, key, value) {
   getSheet_(SHEET_NAMES.CASES)

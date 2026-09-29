@@ -1,7 +1,8 @@
 <script>
   /**
    * 依頼画面の処理
-   *  ・選択肢の描画（選択肢そのものはサーバー側 Config.gs の FORM_OPTIONS が正）
+   *  ・物件（1筆＝1カード）を複数入力できる。カードの追加・引き継ぎ追加・削除
+   *  ・謄本をドラッグ → アップロード → サーバーで読み取り → 空欄だけに入れて黄色で表示（要確認）
    *  ・入力のたびに概算見積をサーバーで再計算して表示（計算は Estimate.gs のみ）
    *  ・資料ファイルのドラッグ＆ドロップ → 即アップロード（Drive の一時フォルダ）
    *  ・送信（確認画面なし・ボタンを押したらすぐ送信）
@@ -14,15 +15,24 @@
     '非線引き区域':   { desc: '市街化区域・調整区域の区分がない区域（都市計画区域外を含む）', proc: '農地転用は「許可」' },
     '分からない':     { desc: '行政班が都市計画図で確認します', proc: '見積は「届出」で仮計算' }
   };
+  var TOHON = '謄本';
 
   var state = {
-    master: [], options: null, farmlandUses: [], upload: null,
-    uploads: [],        // { localId, docType, name, status:'uploading'|'done'|'error', fileId, error }
-    nextLocalId: 1,
+    master: [], options: null, farmlandUses: [], upload: null, maxLots: 30,
+    uploads: [],        // { localId, docType, name, status:'uploading'|'reading'|'done'|'error', fileId, error, note }
+    nextLocalId: 1, nextLotId: 1,
     previewTimer: null, previewSeq: 0, submitting: false
   };
 
   var $ = function (id) { return document.getElementById(id); };
+  var qsa = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+
+  function el(tag, attrs, text) {
+    var e = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
 
   // ---------------------------------------------------------
   // 初期化
@@ -39,78 +49,68 @@
     state.options = data.options;
     state.farmlandUses = data.farmlandUses || [];
     state.upload = data.upload;
+    state.maxLots = data.maxLots || 30;
     if (data.userEmail) $('userInfo').textContent = 'ログイン中：' + data.userEmail;
-
-    var o = data.options;
-    fillSelect('chimoku', o.chimoku, '選択してください');
-    fillSelect('landUse', o.landUses, '選択してください');
-    renderZones(o.zones);
-    renderChoices('isNoshinChoices', 'isNoshin', o.yesNoUnknown);
-    renderChoices('isConvertedChoices', 'isConverted', o.yesNo);
-    renderChoices('landImprovementChoices', 'landImprovement', o.yesNoUnknown);
-    renderChoices('waterAssociationChoices', 'waterAssociation', o.yesNoUnknown);
-    renderDocs(o.documents);
-    $('uploadHelp').textContent += '（PDF・画像、1ファイル' + data.upload.maxMb + 'MBまで）';
 
     // 都道府県：既定値（愛知県）を先頭に、マスタにある都道府県を並べる
     var prefs = [data.defaultPrefecture];
     state.master.forEach(function (m) { if (prefs.indexOf(m.prefecture) < 0) prefs.push(m.prefecture); });
     prefs.forEach(function (p, i) { $('prefecture').appendChild(new Option(p, p, i === 0, i === 0)); });
 
+    renderChoices($('waterAssociationChoices'), 'waterAssociation', state.options.yesNoUnknown);
+    renderDocs(state.options.documents);
+    $('uploadHelp').textContent += '（PDF・画像、1ファイル' + data.upload.maxMb + 'MBまで）';
+    $('tohonStatus').setAttribute('data-type', TOHON);
+    $('tohonFile').setAttribute('accept', state.upload.mimeTypes.join(','));
+    setupDropArea($('tohonDrop'), $('tohonFile'), function (files) { addFiles(TOHON, files); });
+
+    addLot();
     bindEvents();
-    updatePlanRequired();
     requestPreview();
   }
 
   function bindEvents() {
     var form = $('caseForm');
-    form.addEventListener('change', schedulePreview);
-    form.addEventListener('input', schedulePreview);
+    form.addEventListener('change', onFormChange);
+    form.addEventListener('input', onFormChange);
     form.addEventListener('submit', function (e) { e.preventDefault(); });
-    $('prefecture').addEventListener('change', onAddressChange);
-    $('address').addEventListener('input', onAddressChange);
-    $('landUse').addEventListener('change', updatePlanRequired);
+    $('prefecture').addEventListener('change', function () { qsa('.lot').forEach(updateLotLinks); });
+    $('addLotBtn').addEventListener('click', function () { focusLot(addLot()); });
+    $('copyLotBtn').addEventListener('click', function () {
+      var lots = qsa('.lot');
+      focusLot(addLot(lots.length ? getLotData(lots[lots.length - 1]) : null));
+    });
     $('requestBtn').addEventListener('click', function () { submit(true); });
     $('saveOnlyBtn').addEventListener('click', function () { submit(false); });
     $('toDetail').addEventListener('click', function () { $('detail').scrollIntoView({ block: 'start' }); });
     $('againBtn').addEventListener('click', resetForm);
+    // 枠の外にファイルを落としてもブラウザでファイルが開かないようにする
+    window.addEventListener('dragover', function (e) { e.preventDefault(); });
+    window.addEventListener('drop', function (e) { e.preventDefault(); });
+  }
+
+  function onFormChange(e) {
+    // 謄本から入れた欄を人が直したら、黄色の表示を外す
+    if (e && e.target && e.target.classList) {
+      e.target.classList.remove('from-tohon');
+      e.target.classList.remove('invalid'); // 直したらエラー表示も外す
+      var zones = e.target.closest && e.target.closest('.zones');
+      if (zones) zones.classList.remove('invalid');
+    }
+    updatePlanRequired();
+    schedulePreview();
   }
 
   // ---------------------------------------------------------
-  // 画面部品の描画
+  // 共通の部品
   // ---------------------------------------------------------
-  function fillSelect(id, values, placeholder) {
-    var sel = $(id);
+  function fillSelect(sel, values, placeholder) {
     sel.innerHTML = '';
     sel.appendChild(new Option(placeholder, ''));
     values.forEach(function (v) { sel.appendChild(new Option(v, v)); });
   }
 
-  function el(tag, attrs, text) {
-    var e = document.createElement(tag);
-    Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
-    if (text !== undefined) e.textContent = text;
-    return e;
-  }
-
-  function renderZones(zones) {
-    var box = $('zoneChoices');
-    box.innerHTML = '';
-    zones.forEach(function (z) {
-      var hint = ZONE_HINTS[z] || { desc: '', proc: '' };
-      var label = el('label', { 'class': 'zone' + (z === '分からない' ? ' unknown' : '') });
-      label.appendChild(el('input', { type: 'radio', name: 'zone', value: z }));
-      var span = el('span');
-      span.appendChild(el('b', {}, z));
-      span.appendChild(el('small', {}, hint.desc));
-      span.appendChild(el('em', {}, hint.proc));
-      label.appendChild(span);
-      box.appendChild(label);
-    });
-  }
-
-  function renderChoices(containerId, name, values) {
-    var box = $(containerId);
+  function renderChoices(box, name, values) {
     box.innerHTML = '';
     values.forEach(function (v) {
       var label = el('label');
@@ -120,7 +120,246 @@
     });
   }
 
-  /** 資料種別ごとのカード（チェック＋ドロップ枠＋ファイル一覧） */
+  /** ラベル＋入力欄＋説明文のまとまりを作る（wrapper を渡すと入力欄の代わりにそれを置く） */
+  function field(labelText, control, help, required, wrapper) {
+    var f = el('div', { 'class': 'field' });
+    var l = el('label', { 'for': control.id }, labelText);
+    if (required) l.appendChild(el('span', { 'class': 'req' }, '必須'));
+    f.appendChild(l);
+    f.appendChild(wrapper || control);
+    if (help) f.appendChild(el('p', { 'class': 'help' }, help));
+    return f;
+  }
+
+  function radioField(labelText, box, help, required) {
+    var f = el('div', { 'class': 'field' });
+    var l = el('span', { 'class': 'lbl' }, labelText);
+    if (required) l.appendChild(el('span', { 'class': 'req' }, '必須'));
+    f.appendChild(l);
+    if (help) f.appendChild(help);
+    f.appendChild(box);
+    return f;
+  }
+
+  function setupDropArea(drop, input, onFiles) {
+    drop.addEventListener('click', function () { input.click(); });
+    drop.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+    drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
+    drop.addEventListener('drop', function (e) { e.preventDefault(); drop.classList.remove('over'); onFiles(e.dataTransfer.files); });
+    input.addEventListener('change', function () { onFiles(input.files); input.value = ''; });
+  }
+
+  // ---------------------------------------------------------
+  // 物件カード
+  // ---------------------------------------------------------
+  /**
+   * 物件カードを追加する。
+   * @param {Object=} inherit 引き継ぐ値（所在・区域・農振・現況・転用済み・改良区。地番・地目・面積は引き継がない）
+   */
+  function addLot(inherit) {
+    if (qsa('.lot').length >= state.maxLots) {
+      showErrors(['物件は' + state.maxLots + '件まで入力できます。']);
+      return null;
+    }
+    var uid = state.nextLotId++;
+    var o = state.options;
+    var id = function (name) { return 'lot' + uid + '_' + name; };
+    var card = el('div', { 'class': 'lot', 'data-uid': String(uid) });
+
+    var head = el('div', { 'class': 'lot-head' });
+    head.appendChild(el('b', { 'class': 'lot-title' }));
+    head.appendChild(el('span', { 'class': 'badge hidden' }, '謄本から読取・要確認'));
+    head.appendChild(el('span', { 'class': 'spacer' }));
+    var del = el('button', { type: 'button', 'class': 'lot-del' }, 'この物件を削除');
+    del.addEventListener('click', function () { card.remove(); renumberLots(); updatePlanRequired(); schedulePreview(); });
+    head.appendChild(del);
+    card.appendChild(head);
+
+    // 所在・地番
+    var address = el('input', { type: 'text', id: id('address'), maxlength: '200', placeholder: '例）豊田市○○町字△△', 'data-f': 'address' });
+    address.addEventListener('input', function () { updateLotLinks(card); });
+    var lotNumber = el('input', { type: 'text', id: id('lotNumber'), maxlength: '100', placeholder: '例）123番1', 'data-f': 'lotNumber' });
+    var row1 = el('div', { 'class': 'row' });
+    row1.appendChild(field('所在', address, '市区町村から入力'));
+    row1.appendChild(field('地番', lotNumber, '登記簿上の地番（住居表示ではありません）', true));
+    card.appendChild(row1);
+
+    // 地目・面積
+    var chimoku = el('select', { id: id('chimoku'), 'data-f': 'chimoku' });
+    fillSelect(chimoku, o.chimoku, '選択してください');
+    var area = el('input', { type: 'text', id: id('area'), inputmode: 'decimal', placeholder: '例）496', 'data-f': 'area' });
+    var unit = el('div', { 'class': 'unit' });
+    unit.appendChild(area);
+    unit.appendChild(el('span', {}, '㎡'));
+    var row2 = el('div', { 'class': 'row' });
+    row2.appendChild(field('地目（登記地目）', chimoku));
+    row2.appendChild(field('面積（登記地積）', area, null, false, unit));
+    card.appendChild(row2);
+
+    // 区域区分
+    var zones = el('div', { 'class': 'zones' });
+    o.zones.forEach(function (z) {
+      var hint = ZONE_HINTS[z] || { desc: '', proc: '' };
+      var label = el('label', { 'class': 'zone' + (z === '分からない' ? ' unknown' : '') });
+      label.appendChild(el('input', { type: 'radio', name: id('zone'), value: z }));
+      var span = el('span');
+      span.appendChild(el('b', {}, z));
+      span.appendChild(el('small', {}, hint.desc));
+      span.appendChild(el('em', {}, hint.proc));
+      label.appendChild(span);
+      zones.appendChild(label);
+    });
+    var zoneHelp = el('p', { 'class': 'help' }, '都市計画図を確認して選んでください。確認できない場合は「分からない」で構いません（システムによる自動判定はしません）。');
+    zoneHelp.appendChild(el('a', { 'class': 'hidden city-link', target: '_blank', rel: 'noopener' }, ' この市区町村の都市計画情報を開く'));
+    card.appendChild(radioField('区域区分', zones, zoneHelp, true));
+
+    // 農振
+    var noshin = el('div', { 'class': 'choices' });
+    renderChoices(noshin, id('isNoshin'), o.yesNoUnknown);
+    var noshinHelp = el('p', { 'class': 'help' }, '農振図を確認して選んでください。');
+    noshinHelp.appendChild(el('a', { 'class': 'hidden noshin-link', target: '_blank', rel: 'noopener' }, ' この市区町村の農振図を開く'));
+    card.appendChild(radioField('農振農用地（青地）かどうか', noshin, noshinHelp));
+
+    // 現況
+    var landUse = el('select', { id: id('landUse'), 'data-f': 'landUse' });
+    fillSelect(landUse, o.landUses, '選択してください');
+    var landUseOther = el('input', { type: 'text', id: id('landUseOther'), maxlength: '100', placeholder: '例）一部に物置あり', 'data-f': 'landUseOther' });
+    var row3 = el('div', { 'class': 'row' });
+    row3.appendChild(field('現況利用', landUse, '現地や航空写真で見た、今の使われ方'));
+    row3.appendChild(field('現況利用（補足）', landUseOther));
+    card.appendChild(row3);
+
+    // 転用済み・土地改良区
+    var converted = el('div', { 'class': 'choices' });
+    renderChoices(converted, id('isConverted'), o.yesNo);
+    var kairyo = el('div', { 'class': 'choices' });
+    renderChoices(kairyo, id('landImprovement'), o.yesNoUnknown);
+    var row4 = el('div', { 'class': 'row' });
+    row4.appendChild(radioField('既に転用済みかどうか', converted, el('p', { 'class': 'help' }, '許可・届出をせずに既に駐車場などとして使っている場合は「はい」')));
+    row4.appendChild(radioField('土地改良区の有無', kairyo, el('p', { 'class': 'help' }, '賦課金の請求が来ている場合は「はい」')));
+    card.appendChild(row4);
+
+    $('lots').appendChild(card);
+
+    if (inherit) {
+      address.value = inherit.address || '';
+      landUse.value = inherit.landUse || '';
+      setRadio(card, 'zone', inherit.zone);
+      setRadio(card, 'isNoshin', inherit.isNoshin);
+      setRadio(card, 'isConverted', inherit.isConverted);
+      setRadio(card, 'landImprovement', inherit.landImprovement);
+    }
+    renumberLots();
+    updateLotLinks(card);
+    updatePlanRequired();
+    schedulePreview();
+    return card;
+  }
+
+  function focusLot(card) {
+    if (!card) return;
+    card.scrollIntoView({ block: 'center' });
+    lotInput(card, 'lotNumber').focus();
+  }
+
+  function renumberLots() {
+    var lots = qsa('.lot');
+    lots.forEach(function (card, i) {
+      card.querySelector('.lot-title').textContent = '物件' + (i + 1);
+      card.querySelector('.lot-del').classList.toggle('hidden', lots.length === 1);
+    });
+  }
+
+  function lotInput(card, f) { return card.querySelector('[data-f=' + f + ']'); }
+
+  function radioName(card, f) { return 'lot' + card.getAttribute('data-uid') + '_' + f; }
+
+  function setRadio(card, f, value) {
+    qsa('input[type=radio][name="' + radioName(card, f) + '"]', card).forEach(function (r) { r.checked = r.value === value; });
+  }
+
+  function getRadio(card, f) {
+    var r = card.querySelector('input[type=radio][name="' + radioName(card, f) + '"]:checked');
+    return r ? r.value : '';
+  }
+
+  function getLotData(card) {
+    return {
+      address: lotInput(card, 'address').value,
+      lotNumber: lotInput(card, 'lotNumber').value,
+      chimoku: lotInput(card, 'chimoku').value,
+      area: lotInput(card, 'area').value,
+      zone: getRadio(card, 'zone'),
+      isNoshin: getRadio(card, 'isNoshin'),
+      landUse: lotInput(card, 'landUse').value,
+      landUseOther: lotInput(card, 'landUseOther').value,
+      isConverted: getRadio(card, 'isConverted'),
+      landImprovement: getRadio(card, 'landImprovement'),
+      readFromTohon: card.getAttribute('data-tohon') === '1'
+    };
+  }
+
+  /** 所在の先頭がマスタの市区町村名と一致したら、参照用リンクを出す（前方一致のみ・推測なし） */
+  function updateLotLinks(card) {
+    var pref = $('prefecture').value;
+    var a = lotInput(card, 'address').value.trim();
+    if (a.indexOf(pref) === 0) a = a.slice(pref.length);
+    var row = state.master
+      .filter(function (m) { return m.prefecture === pref && a.indexOf(m.municipality) === 0; })
+      .sort(function (x, y) { return y.municipality.length - x.municipality.length; })[0];
+    setLink(card.querySelector('.city-link'), row && row.cityPlanUrl);
+    setLink(card.querySelector('.noshin-link'), row && row.noshinUrl);
+  }
+
+  function setLink(a, url) {
+    if (url) { a.href = url; a.classList.remove('hidden'); }
+    else { a.removeAttribute('href'); a.classList.add('hidden'); }
+  }
+
+  // ---------------------------------------------------------
+  // 謄本の読み取り結果を物件カードへ反映
+  // ---------------------------------------------------------
+  /**
+   * 読み取った物件を反映する。人が入力済みの欄は上書きしない。
+   *  ・同じ地番のカードがあればそこへ
+   *  ・なければ空のカード（所在・地番・面積が空）へ
+   *  ・それもなければ新しいカードを追加
+   * @return {number} 1つ以上の欄を埋めたカードの数
+   */
+  function applyTohon(cands) {
+    var filled = 0;
+    cands.forEach(function (c) {
+      var lots = qsa('.lot');
+      var card = lots.filter(function (k) { return c.lotNumber && lotInput(k, 'lotNumber').value.trim() === c.lotNumber; })[0] ||
+        lots.filter(function (k) { return !lotInput(k, 'address').value && !lotInput(k, 'lotNumber').value && !lotInput(k, 'area').value; })[0] ||
+        addLot();
+      if (!card) return;
+      var any = false;
+      [['address', c.address], ['lotNumber', c.lotNumber], ['chimoku', c.chimoku], ['area', c.area]].forEach(function (kv) {
+        var input = lotInput(card, kv[0]);
+        if (kv[1] && !input.value) {
+          input.value = kv[1];
+          input.classList.add('from-tohon');
+          any = true;
+        }
+      });
+      if (any) {
+        filled++;
+        card.setAttribute('data-tohon', '1');
+        var badge = card.querySelector('.badge');
+        badge.textContent = '謄本から読取・要確認' + (c.chimokuRaw && c.chimokuRaw !== c.chimoku ? '（謄本の地目：' + c.chimokuRaw + '）' : '');
+        badge.classList.remove('hidden');
+        updateLotLinks(card);
+      }
+    });
+    schedulePreview();
+    return filled;
+  }
+
+  // ---------------------------------------------------------
+  // 資料カード・ファイルアップロード
+  // ---------------------------------------------------------
   function renderDocs(types) {
     var box = $('docs');
     box.innerHTML = '';
@@ -129,8 +368,7 @@
       var head = el('div', { 'class': 'doc-head' });
       head.appendChild(el('b', {}, type));
       var chkLabel = el('label');
-      var chk = el('input', { type: 'checkbox', name: 'documents', value: type, id: 'doc' + i });
-      chkLabel.appendChild(chk);
+      chkLabel.appendChild(el('input', { type: 'checkbox', name: 'documents', value: type, id: 'doc' + i }));
       chkLabel.appendChild(document.createTextNode('手元にある'));
       head.appendChild(chkLabel);
       if (type === 'その他') {
@@ -138,31 +376,18 @@
       }
       card.appendChild(head);
 
-      var drop = el('div', { 'class': 'drop', tabindex: '0', role: 'button' }, 'ここにファイルをドラッグ、またはクリックして選択');
+      var drop = el('div', { 'class': 'drop', tabindex: '0', role: 'button' },
+        type === TOHON ? 'ここにファイルをドラッグ（所在・地番なども読み取ります）' : 'ここにファイルをドラッグ、またはクリックして選択');
       var input = el('input', { type: 'file', multiple: 'multiple', accept: state.upload.mimeTypes.join(','), 'class': 'hidden' });
-      drop.addEventListener('click', function () { input.click(); });
-      drop.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
-      drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
-      drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
-      drop.addEventListener('drop', function (e) {
-        e.preventDefault(); drop.classList.remove('over');
-        addFiles(type, e.dataTransfer.files, chk);
-      });
-      input.addEventListener('change', function () { addFiles(type, input.files, chk); input.value = ''; });
+      setupDropArea(drop, input, function (files) { addFiles(type, files); });
       card.appendChild(drop);
       card.appendChild(input);
       card.appendChild(el('ul', { 'class': 'files', 'data-type': type }));
       box.appendChild(card);
     });
-    // 枠の外にファイルを落としてもブラウザでファイルが開かないようにする
-    window.addEventListener('dragover', function (e) { e.preventDefault(); });
-    window.addEventListener('drop', function (e) { e.preventDefault(); });
   }
 
-  // ---------------------------------------------------------
-  // ファイルアップロード
-  // ---------------------------------------------------------
-  function addFiles(docType, fileList, checkbox) {
+  function addFiles(docType, fileList) {
     Array.prototype.forEach.call(fileList, function (file) {
       var item = { localId: state.nextLocalId++, docType: docType, name: file.name, status: 'uploading' };
       state.uploads.push(item);
@@ -174,7 +399,8 @@
         uploadOne(item, file);
       }
     });
-    checkbox.checked = true;
+    var chk = qsa('input[name=documents]').filter(function (c) { return c.value === docType; })[0];
+    if (chk) chk.checked = true;
     renderFiles();
     schedulePreview();
   }
@@ -184,7 +410,11 @@
     reader.onload = function () {
       var base64 = String(reader.result).split(',')[1] || '';
       google.script.run
-        .withSuccessHandler(function (res) { item.status = 'done'; item.fileId = res.fileId; renderFiles(); })
+        .withSuccessHandler(function (res) {
+          item.fileId = res.fileId;
+          if (item.docType === TOHON) { readTohonFile(item); } else { item.status = 'done'; }
+          renderFiles();
+        })
         .withFailureHandler(function (err) { item.status = 'error'; item.error = err.message; renderFiles(); })
         .uploadAttachment({ name: file.name, mimeType: file.type, data: base64 });
     };
@@ -192,23 +422,41 @@
     reader.readAsDataURL(file);
   }
 
+  /** 謄本はアップロード後に読み取りを行う（読み取りに失敗してもアップロード自体は有効） */
+  function readTohonFile(item) {
+    item.status = 'reading';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        item.status = 'done';
+        var found = (res.lots || []).length;
+        var filled = applyTohon(res.lots || []);
+        item.note = found && !filled ? '読み取り済み（入力済みの欄は変更していません）' : res.message;
+        renderFiles();
+      })
+      .withFailureHandler(function (err) { item.status = 'done'; item.note = '読み取りに失敗：' + err.message; renderFiles(); })
+      .readTohon(item.fileId);
+  }
+
   function removeUpload(localId) {
     var item = state.uploads.filter(function (u) { return u.localId === localId; })[0];
-    if (!item || item.status === 'uploading') return;
+    if (!item || item.status === 'uploading' || item.status === 'reading') return;
     if (item.fileId) google.script.run.removeAttachment(item.fileId); // 失敗しても一時フォルダに残るだけ
     state.uploads = state.uploads.filter(function (u) { return u.localId !== localId; });
     renderFiles();
   }
 
   function renderFiles() {
-    Array.prototype.forEach.call(document.querySelectorAll('ul.files'), function (ul) {
+    qsa('ul.files').forEach(function (ul) {
       ul.innerHTML = '';
       state.uploads.filter(function (u) { return u.docType === ul.getAttribute('data-type'); }).forEach(function (u) {
         var li = el('li');
         li.appendChild(el('span', { 'class': 'name' }, u.name));
-        var st = u.status === 'uploading' ? 'アップロード中…' : u.status === 'done' ? 'アップロード済み' : '失敗：' + u.error;
+        var st = {
+          uploading: 'アップロード中…', reading: '謄本を読み取り中…',
+          done: u.note || 'アップロード済み', error: '失敗：' + u.error
+        }[u.status];
         li.appendChild(el('span', { 'class': 'st' + (u.status === 'error' ? ' ng' : '') }, st));
-        if (u.status !== 'uploading') {
+        if (u.status === 'done' || u.status === 'error') {
           var btn = el('button', { type: 'button', 'aria-label': u.name + ' を取り消す', title: '取り消す' }, '×');
           btn.addEventListener('click', function () { removeUpload(u.localId); });
           li.appendChild(btn);
@@ -219,39 +467,6 @@
   }
 
   // ---------------------------------------------------------
-  // 市区町村・現況に応じた表示切り替え
-  // ---------------------------------------------------------
-  /**
-   * 所在の先頭がマスタの市区町村名と一致したら、その市区町村の参照用リンクを出す。
-   * （文字列の前方一致だけ。区域などの判定はしない）
-   */
-  function onAddressChange() {
-    var row = findMasterRow($('prefecture').value, $('address').value);
-    setLink('cityPlanLink', row && row.cityPlanUrl);
-    setLink('noshinLink', row && row.noshinUrl);
-  }
-
-  function findMasterRow(pref, address) {
-    var a = address.trim();
-    if (a.indexOf(pref) === 0) a = a.slice(pref.length); // 「愛知県豊田市…」と書かれた場合
-    return state.master
-      .filter(function (m) { return m.prefecture === pref && a.indexOf(m.municipality) === 0; })
-      .sort(function (x, y) { return y.municipality.length - x.municipality.length; })[0]; // 長い名前を優先
-  }
-
-  function setLink(id, url) {
-    var a = $(id);
-    if (url) { a.href = url; a.classList.remove('hidden'); }
-    else { a.removeAttribute('href'); a.classList.add('hidden'); }
-  }
-
-  function isFarmland() { return state.farmlandUses.indexOf($('landUse').value) >= 0; }
-
-  function updatePlanRequired() {
-    $('planReq').classList.toggle('hidden', !isFarmland());
-  }
-
-  // ---------------------------------------------------------
   // 入力値の取得・チェック
   // ---------------------------------------------------------
   function radioVal(name) {
@@ -259,26 +474,25 @@
     return e ? e.value : '';
   }
 
+  function hasFarmland() {
+    return qsa('.lot').some(function (card) { return state.farmlandUses.indexOf(lotInput(card, 'landUse').value) >= 0; });
+  }
+
+  function updatePlanRequired() {
+    $('planReq').classList.toggle('hidden', !hasFarmland());
+  }
+
   function collectForm() {
     return {
       requesterName: $('requesterName').value,
       prefecture: $('prefecture').value,
-      address: $('address').value,
-      lotNumber: $('lotNumber').value,
-      chimoku: $('chimoku').value,
-      area: $('area').value,
-      zone: radioVal('zone'),
-      isNoshin: radioVal('isNoshin'),
-      landUse: $('landUse').value,
-      landUseOther: $('landUseOther').value,
-      isConverted: radioVal('isConverted'),
+      lots: qsa('.lot').map(getLotData),
       plan: $('plan').value,
-      landImprovement: radioVal('landImprovement'),
       waterAssociation: radioVal('waterAssociation'),
-      documents: Array.prototype.map.call(document.querySelectorAll('input[name="documents"]:checked'), function (e) { return e.value; }),
+      documents: qsa('input[name="documents"]:checked').map(function (e) { return e.value; }),
       documentsOther: $('documentsOther') ? $('documentsOther').value : '',
       attachments: state.uploads
-        .filter(function (u) { return u.status === 'done'; })
+        .filter(function (u) { return u.status === 'done' && u.fileId; })
         .map(function (u) { return { fileId: u.fileId, docType: u.docType }; })
     };
   }
@@ -286,18 +500,21 @@
   /** 送信前のチェック（最終チェックはサーバー側でも行う）。最初のエラー項目を返す */
   function validateForm(f) {
     var errors = [], first = null;
-    function check(ok, id, msg) {
-      if (id) $(id).classList.toggle('invalid', !ok);
-      if (!ok) { errors.push(msg); if (!first) first = id ? $(id) : $('zoneChoices'); }
+    function check(ok, target, msg) {
+      if (target) target.classList.toggle('invalid', !ok);
+      if (!ok) { errors.push(msg); if (!first) first = target; }
     }
-    check(!!f.requesterName.trim(), 'requesterName', '依頼者名を入力してください。');
-    check(!!f.lotNumber.trim(), 'lotNumber', '地番を入力してください。');
-    check(!!f.zone, null, '区域区分を選択してください（不明なら「分からない」）。');
-    var area = f.area.replace(/[,，]/g, '').trim();
-    check(area === '' || (!isNaN(Number(area)) && Number(area) >= 0), 'area', '面積は0以上の数値で入力してください（単位：㎡）。');
-    check(!isFarmland() || !!f.plan.trim(), 'plan', '現況が農地の場合は、今後の転用計画を入力してください。');
-    if (state.uploads.some(function (u) { return u.status === 'uploading'; })) {
-      errors.push('アップロード中のファイルがあります。完了してから送信してください。');
+    check(!!f.requesterName.trim(), $('requesterName'), '依頼者名を入力してください。');
+    qsa('.lot').forEach(function (card, i) {
+      var d = f.lots[i], name = '物件' + (i + 1) + '：';
+      check(!!d.lotNumber.trim(), lotInput(card, 'lotNumber'), name + '地番を入力してください。');
+      check(!!d.zone, card.querySelector('.zones'), name + '区域区分を選択してください（不明なら「分からない」）。');
+      var area = d.area.replace(/[,，]/g, '').trim();
+      check(area === '' || (!isNaN(Number(area)) && Number(area) >= 0), lotInput(card, 'area'), name + '面積は0以上の数値で入力してください（単位：㎡）。');
+    });
+    check(!hasFarmland() || !!f.plan.trim(), $('plan'), '現況が農地の物件があるため、今後の転用計画を入力してください。');
+    if (state.uploads.some(function (u) { return u.status === 'uploading' || u.status === 'reading'; })) {
+      errors.push('アップロード中・読み取り中のファイルがあります。完了してから送信してください。');
     }
     return { errors: errors, first: first };
   }
@@ -363,13 +580,13 @@
 
     setBusy(true, isRequest);
     google.script.run
-      .withSuccessHandler(function (res) { setBusy(false); onSubmitted(res, isRequest); })
+      .withSuccessHandler(function (res) { setBusy(false); onSubmitted(res, isRequest, f.lots.length); })
       .withFailureHandler(function (err) { setBusy(false); showErrors(['送信に失敗しました：' + err.message]); })
       .submitCase(f, isRequest);
   }
 
-  function onSubmitted(res, isRequest) {
-    var lines = ['案件ID ' + res.id + ' として受け付けました。'];
+  function onSubmitted(res, isRequest, lotCount) {
+    var lines = ['案件ID ' + res.id + ' として受け付けました（物件 ' + lotCount + ' 件）。'];
     var type = 'ok';
     if (res.fileCount) lines.push('資料ファイル ' + res.fileCount + ' 件を保存しました。');
     if (res.attachErrors && res.attachErrors.length) {
@@ -396,12 +613,13 @@
 
   function resetForm() {
     $('caseForm').reset();
+    $('lots').innerHTML = '';
     state.uploads = [];
+    addLot();
     renderFiles();
-    onAddressChange();
     updatePlanRequired();
     showErrors([]);
-    Array.prototype.forEach.call(document.querySelectorAll('.invalid'), function (e) { e.classList.remove('invalid'); });
+    qsa('.invalid').forEach(function (e) { e.classList.remove('invalid'); });
     $('resultBox').className = 'result hidden';
     $('caseForm').classList.remove('hidden');
     $('estimateBar').classList.remove('hidden');

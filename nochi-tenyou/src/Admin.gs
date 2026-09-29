@@ -12,6 +12,7 @@ function getAdminData() {
   requireAdmin_();
   return {
     cases: getAllCases_(),
+    lotsByCase: getLotsByCase_(),
     statuses: CASE_STATUSES,
     userEmail: getUserEmail_(),
   };

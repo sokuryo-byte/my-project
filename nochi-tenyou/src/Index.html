@@ -26,99 +26,65 @@
 
   <form id="caseForm" autocomplete="off" novalidate class="wrap" style="padding:0">
 
-    <!-- ===================== STEP 1 基本情報 ===================== -->
+    <!-- ===================== STEP 1 依頼者 ===================== -->
     <section>
-      <h2><span class="step">STEP 1</span>基本情報</h2>
-      <div class="field">
-        <label for="requesterName">依頼者名<span class="req">必須</span></label>
-        <input type="text" id="requesterName" maxlength="50" placeholder="例）山田 太郎">
-        <p class="help">依頼をするあなた（または顧客）のお名前</p>
-      </div>
-      <div class="field">
-        <label for="address">物件所在地</label>
-        <div class="unit">
-          <select id="prefecture" aria-label="都道府県" style="width:auto"></select>
-          <input type="text" id="address" maxlength="200" placeholder="例）豊田市○○町字△△">
-        </div>
-        <p class="help">市区町村から入力してください（都道府県は通常「愛知県」のままで構いません）。</p>
-      </div>
-      <div class="field">
-        <label for="lotNumber">地番<span class="req">必須</span></label>
-        <input type="text" id="lotNumber" maxlength="100" placeholder="例）123番1、123番2">
-        <p class="help">登記簿上の地番です（住居表示とは異なります）。複数筆は「、」区切りで。</p>
-      </div>
+      <h2><span class="step">STEP 1</span>依頼者</h2>
       <div class="row">
         <div class="field">
-          <label for="chimoku">地目（登記地目）</label>
-          <select id="chimoku"></select>
+          <label for="requesterName">依頼者名<span class="req">必須</span></label>
+          <input type="text" id="requesterName" maxlength="50" placeholder="例）山田 太郎">
+          <p class="help">依頼をするあなた（または顧客）のお名前</p>
         </div>
         <div class="field">
-          <label for="area">面積（登記地積）</label>
-          <div class="unit"><input type="text" id="area" inputmode="decimal" placeholder="例）330.00"><span>㎡</span></div>
-          <p class="help">複数筆の場合は合計面積</p>
+          <label for="prefecture">物件の都道府県</label>
+          <select id="prefecture"></select>
+          <p class="help">通常は「愛知県」のままで構いません。</p>
         </div>
       </div>
     </section>
 
-    <!-- ===================== STEP 2 区域・農振 ===================== -->
+    <!-- ===================== STEP 2 物件（複数可） ===================== -->
     <section>
-      <h2><span class="step">STEP 2</span>区域・農振</h2>
+      <h2><span class="step">STEP 2</span>物件<span class="help">1筆ごとに入力（複数可）</span></h2>
+
       <div class="field">
-        <span class="lbl">区域区分<span class="req">必須</span></span>
-        <p class="help">都市計画図を確認して、いずれかを選んでください。確認できない場合は「分からない」を選べば行政班が調査します。システムによる自動判定はしません。
-          <a id="cityPlanLink" class="hidden" target="_blank" rel="noopener">この市区町村の都市計画情報を開く</a></p>
-        <div class="zones" id="zoneChoices"></div>
+        <span class="lbl">謄本から読み取る</span>
+        <div class="drop tohon-drop" id="tohonDrop" tabindex="0" role="button">
+          謄本（登記事項証明書）のPDF・画像をここにドラッグすると、所在・地番・地目・地積を読み取って下の物件欄に入れます
+        </div>
+        <input type="file" id="tohonFile" multiple class="hidden">
+        <p class="help">読み取った項目は黄色で表示されます。読み取りは文字認識のため誤りがあり得ます。<strong>必ず謄本と見比べて確認してください。</strong>
+          区域・農振・現況は謄本に載っていないため、手で選んでください。</p>
+        <ul class="files" id="tohonStatus"></ul>
       </div>
-      <div class="field">
-        <span class="lbl">農振農用地（青地）かどうか</span>
-        <p class="help">農振図を確認して選んでください。
-          <a id="noshinLink" class="hidden" target="_blank" rel="noopener">この市区町村の農振図を開く</a></p>
-        <div class="choices" id="isNoshinChoices"></div>
+
+      <div class="lots" id="lots"></div>
+      <div class="btns">
+        <button type="button" class="ghost" id="addLotBtn">＋ 物件を追加</button>
+        <button type="button" class="ghost" id="copyLotBtn">＋ 最後の物件の区域などを引き継いで追加</button>
       </div>
     </section>
 
-    <!-- ===================== STEP 3 現況・計画 ===================== -->
+    <!-- ===================== STEP 3 計画 ===================== -->
     <section>
-      <h2><span class="step">STEP 3</span>現況・計画</h2>
-      <div class="row">
-        <div class="field">
-          <label for="landUse">現況利用</label>
-          <select id="landUse"></select>
-          <p class="help">現地や航空写真で見た、今の使われ方</p>
-        </div>
-        <div class="field">
-          <label for="landUseOther">現況利用（補足）</label>
-          <input type="text" id="landUseOther" maxlength="100" placeholder="例）一部に物置あり">
-        </div>
-      </div>
-      <div class="field">
-        <span class="lbl">既に転用済みかどうか</span>
-        <p class="help">許可・届出をせずに、既に駐車場や宅地などとして使っている場合は「はい」</p>
-        <div class="choices" id="isConvertedChoices"></div>
-      </div>
+      <h2><span class="step">STEP 3</span>計画・関係者</h2>
       <div class="field">
         <label for="plan">今後の転用計画<span class="req hidden" id="planReq">必須</span></label>
         <textarea id="plan" rows="3" maxlength="1000" placeholder="例）自己用住宅の建築、月極駐車場として貸したい、売却予定 など"></textarea>
-        <p class="help" id="planHelp">現況が農地（耕作中・休耕・荒地）の場合は必須です。</p>
-      </div>
-    </section>
-
-    <!-- ===================== STEP 4 土地改良区・資料 ===================== -->
-    <section>
-      <h2><span class="step">STEP 4</span>土地改良区・資料</h2>
-      <div class="field">
-        <span class="lbl">土地改良区の有無</span>
-        <p class="help">賦課金の請求が来ている場合は「はい」</p>
-        <div class="choices" id="landImprovementChoices"></div>
+        <p class="help">現況が農地（耕作中・休耕・荒地）の物件がある場合は必須です。</p>
       </div>
       <div class="field">
         <span class="lbl">水利組合・農事組合の有無</span>
         <p class="help">同意書や意見書が必要になる場合があります。分からなければ「分からない」で構いません。</p>
         <div class="choices" id="waterAssociationChoices"></div>
       </div>
+    </section>
+
+    <!-- ===================== STEP 4 資料 ===================== -->
+    <section>
+      <h2><span class="step">STEP 4</span>手元にある資料</h2>
       <div class="field">
-        <span class="lbl">手元にある資料</span>
-        <p class="help" id="uploadHelp">資料ごとに、ファイルを枠へドラッグ（またはクリックして選択）するとアップロードされます。データが無い資料は「手元にある」にチェックだけ入れてください。</p>
+        <p class="help" id="uploadHelp">資料ごとに、ファイルを枠へドラッグ（またはクリックして選択）するとアップロードされます。謄本はここに入れても読み取ります。データが無い資料は「手元にある」にチェックだけ入れてください。</p>
         <div class="docs" id="docs"></div>
       </div>
     </section>
