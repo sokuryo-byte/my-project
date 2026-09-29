@@ -42,7 +42,7 @@
   .callbox .script { margin: 0; padding: 6px 10px; background: var(--surface); border-radius: 4px; border: 1px dashed var(--line); line-height: 1.7; }
   .callbox .script p { margin: 0; }
   .callbox .step1 { display: grid; gap: 8px; }
-  .caution { margin: 0; font-size: .82rem; color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-fg); border-radius: 5px; padding: 6px 10px; }
+  .caution { margin: 0; font-size: .8rem; color: var(--warn-fg); } /* 注意は控えめな※の一行 */
   .contacts { display: grid; gap: 6px; }
   .contact-rows { display: grid; gap: 6px; }
   .contact-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr) 32px; gap: 6px; align-items: center; }
@@ -78,8 +78,10 @@
   .zone input:focus-visible + span { outline: 2px solid var(--accent); }
   .zone.unknown span { border-style: dashed; }
 
-  .choices { display: flex; flex-wrap: wrap; gap: 6px 20px; }
-  .choices label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 400; }
+  .choices { display: flex; flex-wrap: wrap; gap: 6px 12px; min-height: 28px; align-items: center; }
+  .choices label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 400; min-width: 6.5em; line-height: 1.6; } /* 選択肢の幅をそろえて行ごとの位置を合わせる */
+  .choices label input { margin: 0; }
+  .choices + .help::before { content: '※ '; }
 
   /* 資料アップロード */
   .docs { display: grid; gap: 10px; }
