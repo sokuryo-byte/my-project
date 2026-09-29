@@ -174,7 +174,7 @@ function submitCase(form, requestInvestigation) {
       address: l.address, lotNumber: l.lotNumber, chimoku: l.chimoku, area: l.area === null ? '' : l.area,
       zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
-      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit,
+      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
@@ -326,6 +326,7 @@ function normalizeLot_(l, prefecture, master) {
   if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
   const split = splitLotNumber_(place);
   const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
+  const benefitOn = kairyoOn && pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) === '該当する';
   const permitZone = PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
   const jogaiOn = pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
     ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
@@ -355,8 +356,10 @@ function normalizeLot_(l, prefecture, master) {
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
     kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
-    kairyoSettlement: kairyoOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
-    kairyoSettlementNote: kairyoOn ? str_(l.kairyoSettlementNote, 200) : '',
+    // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
+    kairyoProcedure: benefitOn ? pick_(l.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
+    kairyoSettlement: benefitOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
+    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? str_(l.kairyoSettlementNote, 200) : '',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
     iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],

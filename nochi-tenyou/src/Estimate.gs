@@ -95,7 +95,8 @@ function calculateEstimate_(input) {
 
   // --- 4. 土地改良区 地区除外 加算（「分からない」も加算。土地改良区に「受益地に該当しない」と確認できた物件は除く） ---
   const kairyoLots = lots.filter(function (l) {
-    return l.landImprovement === '分からない' || (l.landImprovement === 'はい' && l.kairyoBenefit !== '該当しない');
+    return l.landImprovement === '分からない' ||
+      (l.landImprovement === 'はい' && l.kairyoBenefit !== '該当しない' && l.kairyoProcedure !== '不要');
   });
   if (kairyoLots.length) {
     items.push(item('ADD_LAND_IMPROVEMENT'));

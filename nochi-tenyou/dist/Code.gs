@@ -101,7 +101,7 @@ const DEFAULT_FEES = [
   { key: 'ADD_NOSHIN', label: '農振除外申出', amount: 290000,
     note: '農振農用地「はい」の場合に加算（料金表 4006）' },
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 35000,
-    note: '土地改良区「はい」または「分からない」の物件がある場合に加算（料金表 4201）' },
+    note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
   { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）', amount: 18000,
     note: '土地改良区に確認した地元関係者の同意（押印）が「必要」「未確認」、または土地改良区が「分からない」物件がある場合に加算' },
   { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 290000,
@@ -330,6 +330,7 @@ const FORM_OPTIONS = {
   yesNo: ['はい', 'いいえ'],
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
+  kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（分家住宅は排水先の確認を行う）
@@ -412,6 +413,7 @@ const LOT_COLUMNS = [
   { key: 'kairyoName', header: '土地改良区名' },
   { key: 'kairyoTel', header: '土地改良区 電話' },
   { key: 'kairyoBenefit', header: '受益地該当' },
+  { key: 'kairyoProcedure', header: '地区除外の手続き' },
   { key: 'kairyoSettlement', header: '地区除外決済金' },
   { key: 'kairyoSettlementNote', header: '決済金（金額・備考）' },
   { key: 'iinStamp', header: '農業委員・推進委員の押印' },
@@ -777,7 +779,7 @@ function submitCase(form, requestInvestigation) {
       address: l.address, lotNumber: l.lotNumber, chimoku: l.chimoku, area: l.area === null ? '' : l.area,
       zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
-      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit,
+      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
@@ -929,6 +931,7 @@ function normalizeLot_(l, prefecture, master) {
   if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
   const split = splitLotNumber_(place);
   const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
+  const benefitOn = kairyoOn && pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) === '該当する';
   const permitZone = PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
   const jogaiOn = pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
     ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
@@ -958,8 +961,10 @@ function normalizeLot_(l, prefecture, master) {
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
     kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
-    kairyoSettlement: kairyoOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
-    kairyoSettlementNote: kairyoOn ? str_(l.kairyoSettlementNote, 200) : '',
+    // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
+    kairyoProcedure: benefitOn ? pick_(l.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
+    kairyoSettlement: benefitOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
+    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? str_(l.kairyoSettlementNote, 200) : '',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
     iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],
@@ -1352,7 +1357,8 @@ function calculateEstimate_(input) {
 
   // --- 4. 土地改良区 地区除外 加算（「分からない」も加算。土地改良区に「受益地に該当しない」と確認できた物件は除く） ---
   const kairyoLots = lots.filter(function (l) {
-    return l.landImprovement === '分からない' || (l.landImprovement === 'はい' && l.kairyoBenefit !== '該当しない');
+    return l.landImprovement === '分からない' ||
+      (l.landImprovement === 'はい' && l.kairyoBenefit !== '該当しない' && l.kairyoProcedure !== '不要');
   });
   if (kairyoLots.length) {
     items.push(item('ADD_LAND_IMPROVEMENT'));
@@ -1756,7 +1762,8 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       (l.readFromTohon ? '（謄本読取）' : ''));
     if (l.landImprovement === 'はい' && (l.kairyoName || l.kairyoBenefit || l.kairyoSettlement)) {
       lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') +
-        '／受益地:' + (l.kairyoBenefit || '-') + '／決済金:' + (l.kairyoSettlement || '-') +
+        '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +
+        (l.kairyoSettlement ? '／決済金:' + l.kairyoSettlement : '') +
         (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''));
     }
     if (l.iinStamp === '必要') {

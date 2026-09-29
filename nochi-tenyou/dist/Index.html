@@ -608,6 +608,7 @@
       kairyoName: lotInput(card, 'kairyoName').value,
       kairyoTel: lotInput(card, 'kairyoTel').value,
       kairyoBenefit: getRadio(card, 'kairyoBenefit'),
+      kairyoProcedure: getRadio(card, 'kairyoProcedure'),
       kairyoSettlement: getRadio(card, 'kairyoSettlement'),
       kairyoSettlementNote: lotInput(card, 'kairyoSettlementNote').value,
       iinStamp: getRadio(card, 'iinStamp'),
@@ -679,10 +680,12 @@
     jb.appendChild(radioField('農振除外の見込み', jk));
     jb.appendChild(field('除外の指摘事項・受付時期', el('input', { type: 'text', id: id('jogaiNote'), maxlength: '300', placeholder: '例）市街化区域に隣接・角地／受付は年2回（○月・○月締切） など', 'data-f': 'jogaiNote' })));
     s1.appendChild(jb);
+    s1.appendChild(el('p', { 'class': 'caution stop-msg hidden' },
+      '見込みが「難しい」ため、以降の確認（土地改良区・地元委員・排水）は不要です。このまま依頼すれば、行政班が内容を確認します。'));
     s1.appendChild(el('div', { 'class': 'script script-main' }));
     var iin = el('div', { 'class': 'choices' });
     renderChoices(iin, id('iinStamp'), o.iinStamp);
-    var r0 = el('div', { 'class': 'row' });
+    var r0 = el('div', { 'class': 'row main-checks' });
     r0.appendChild(radioField('土地改良区にかかっているか', kairyo));
     r0.appendChild(radioField('地元の農業委員・推進委員の押印', iin));
     s1.appendChild(r0);
@@ -703,11 +706,18 @@
     renderChoices(benefit, id('kairyoBenefit'), o.kairyoBenefit);
     var settle = el('div', { 'class': 'choices' });
     renderChoices(settle, id('kairyoSettlement'), o.kairyoSettlement);
+    var proc = el('div', { 'class': 'choices' });
+    renderChoices(proc, id('kairyoProcedure'), o.kairyoProcedure);
+    s2.appendChild(radioField('受益地に該当するか', benefit));
+    var kd = el('div', { 'class': 'kairyo-detail hidden', style: 'display:grid;gap:8px' });
     var r2 = el('div', { 'class': 'row' });
-    r2.appendChild(radioField('受益地に該当するか', benefit));
+    r2.appendChild(radioField('地区除外の手続き', proc, el('p', { 'class': 'help' }, '決済金がなくても手続きが必要な場合があります')));
     r2.appendChild(radioField('地区除外の決済金', settle));
-    s2.appendChild(r2);
-    s2.appendChild(field('決済金の金額・備考', el('input', { type: 'text', id: id('kairyoSettlementNote'), maxlength: '200', placeholder: '例）約○○円／㎡あたり○円 など', 'data-f': 'kairyoSettlementNote' })));
+    kd.appendChild(r2);
+    var sn = field('決済金の金額・備考', el('input', { type: 'text', id: id('kairyoSettlementNote'), maxlength: '200', placeholder: '例）約○○円／㎡あたり○円 など', 'data-f': 'kairyoSettlementNote' }));
+    sn.classList.add('settle-note', 'hidden');
+    kd.appendChild(sn);
+    s2.appendChild(kd);
     var consent = el('div', { 'class': 'choices' });
     renderChoices(consent, id('localConsent'), o.localConsent);
     s2.appendChild(radioField('地元関係者の同意（押印）', consent,
@@ -892,14 +902,26 @@
       '「また、地元の承諾（押印）が必要な方はいらっしゃいますでしょうか。いらっしゃる場合は、お名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
     ]);
     card.querySelector('[data-contacts=localContacts]').classList.toggle('hidden', getRadio(card, 'localConsent') !== '必要');
-    var on = getRadio(card, 'landImprovement') === 'はい';
+    // 見込みが「難しい」なら、その先（土地改良区・地元委員・排水）は聞かない
+    var stop = (permit && getRadio(card, 'tenyoKanou') === '難しい') || (jogai && getRadio(card, 'jogaiKanou') === '難しい');
+    if (permit && getRadio(card, 'tenyoKanou') === '難しい') card.querySelector('.jogai-block').classList.add('hidden');
+    card.querySelector('.stop-msg').classList.toggle('hidden', !stop);
+    ['.script-main', '.main-checks'].forEach(function (s) { card.querySelector(s).classList.toggle('hidden', stop); });
+    if (stop) {
+      card.querySelector('[data-contacts=iinContacts]').classList.add('hidden');
+      card.querySelector('.step3').classList.add('hidden');
+    }
+    var on = !stop && getRadio(card, 'landImprovement') === 'はい';
     card.querySelector('.step2').classList.toggle('hidden', !on);
+    var benefitOn = getRadio(card, 'kairyoBenefit') === '該当する';
+    card.querySelector('.kairyo-detail').classList.toggle('hidden', !benefitOn);
+    card.querySelector('.settle-note').classList.toggle('hidden', !(benefitOn && getRadio(card, 'kairyoSettlement') === '必要'));
     var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
     telLink(card.querySelector('.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
     scriptLines(card.querySelector('.script2'), [
       '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。」',
       '「' + where + 'の土地で農地転用を予定しております。' + (kname === '土地改良区' ? '貴改良区の' : kname + 'の') + '受益地に該当しますでしょうか。」',
-      '→ 該当する場合：「地区除外の手続きに決済金は必要でしょうか。必要な場合は、金額の目安をお教えいただけますでしょうか。」',
+      '→ 該当する場合：「地区除外の手続きは必要でしょうか。また、決済金は必要でしょうか。必要な場合は、金額の目安をお教えいただけますでしょうか。」',
       '「また、地元の自治会長さんや水利組合、地元の委員・理事の方など、ご説明や同意書への押印が必要な方はいらっしゃいますでしょうか。」',
       '→ いらっしゃる場合：「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
     ]);

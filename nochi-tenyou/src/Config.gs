@@ -98,7 +98,7 @@ const DEFAULT_FEES = [
   { key: 'ADD_NOSHIN', label: '農振除外申出', amount: 290000,
     note: '農振農用地「はい」の場合に加算（料金表 4006）' },
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 35000,
-    note: '土地改良区「はい」または「分からない」の物件がある場合に加算（料金表 4201）' },
+    note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
   { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）', amount: 18000,
     note: '土地改良区に確認した地元関係者の同意（押印）が「必要」「未確認」、または土地改良区が「分からない」物件がある場合に加算' },
   { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 290000,
@@ -327,6 +327,7 @@ const FORM_OPTIONS = {
   yesNo: ['はい', 'いいえ'],
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
+  kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（分家住宅は排水先の確認を行う）
@@ -409,6 +410,7 @@ const LOT_COLUMNS = [
   { key: 'kairyoName', header: '土地改良区名' },
   { key: 'kairyoTel', header: '土地改良区 電話' },
   { key: 'kairyoBenefit', header: '受益地該当' },
+  { key: 'kairyoProcedure', header: '地区除外の手続き' },
   { key: 'kairyoSettlement', header: '地区除外決済金' },
   { key: 'kairyoSettlementNote', header: '決済金（金額・備考）' },
   { key: 'iinStamp', header: '農業委員・推進委員の押印' },
