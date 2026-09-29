@@ -48,8 +48,8 @@ var google = { script: { get run() {
 SEED = '''
 submitCase({ requesterName: '田中 一郎', prefecture: '愛知県', plan: '自己用住宅', waterAssociation: '分からない', documents: ['謄本'],
   lots: [
-    { address: '豊田市○○町字△△', lotNumber: '123番1', chimoku: '畑', area: '496', zone: '市街化調整区域', isNoshin: 'いいえ', landUse: '耕作中', isConverted: 'いいえ', landImprovement: 'はい', readFromTohon: true },
-    { address: '豊田市○○町字△△', lotNumber: '123番2', chimoku: '田', area: '1024', zone: '市街化調整区域', isNoshin: 'はい', landUse: '駐車場', isConverted: 'はい', landImprovement: 'いいえ' }
+    { municipality: '豊田市', address: '○○町字△△ 123番1', chimoku: '畑', area: '496', zone: '市街化調整区域', isNoshin: 'いいえ', landUse: '耕作中', isConverted: 'いいえ', landImprovement: 'はい', readFromTohon: true },
+    { municipality: '豊田市', address: '○○町字△△ 123番2', chimoku: '田', area: '1024', zone: '市街化調整区域', isNoshin: 'はい', landUse: '駐車場', isConverted: 'はい', landImprovement: 'いいえ' }
   ] }, true);
 '''
 

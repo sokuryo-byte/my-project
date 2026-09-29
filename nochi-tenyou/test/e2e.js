@@ -30,13 +30,13 @@ const OUT = path.join(__dirname, 'out');
   await p.waitForFunction(() => document.querySelectorAll('.lot').length === 2 &&
     document.querySelector('#tohonStatus li .st').textContent.includes('読み取りました'), null, { timeout: 5000 });
   const lots = await p.$$eval('.lot', (ls) => ls.map((l) => ({
-    address: l.querySelector('[data-f=address]').value, lotNumber: l.querySelector('[data-f=lotNumber]').value,
+    city: l.querySelector('[data-f=municipality]').value, address: l.querySelector('[data-f=address]').value,
     chimoku: l.querySelector('[data-f=chimoku]').value, area: l.querySelector('[data-f=area]').value,
     yellow: l.querySelectorAll('.from-tohon').length,
   })));
   assert.deepStrictEqual(lots, [
-    { address: '豊田市○○町字△△', lotNumber: '123番1', chimoku: '畑', area: '496', yellow: 4 },
-    { address: '豊田市○○町字△△', lotNumber: '123番2', chimoku: '田', area: '1024', yellow: 4 },
+    { city: '豊田市', address: '○○町字△△ 123番1', chimoku: '畑', area: '496', yellow: 4 },
+    { city: '豊田市', address: '○○町字△△ 123番2', chimoku: '田', area: '1024', yellow: 4 },
   ]);
 
   // 区域などを選ぶ（物件1：調整区域・耕作中、物件2：分からない・農振はい）
@@ -50,7 +50,9 @@ const OUT = path.join(__dirname, 'out');
   await p.click('#copyLotBtn');
   const third = (await p.$$('.lot'))[2];
   assert.strictEqual(await third.$eval('input[value="分からない"]', (e) => e.checked), true);
-  assert.strictEqual(await third.$eval('[data-f=address]', (e) => e.value), '豊田市○○町字△△');
+  // 市区町村と町名・字は引き継ぎ、地番は引き継がない
+  assert.strictEqual(await third.$eval('[data-f=municipality]', (e) => e.value), '豊田市');
+  assert.strictEqual(await third.$eval('[data-f=address]', (e) => e.value), '○○町字△△');
   await (await third.$('.lot-del')).click();
 
   // 見積：調整区域(許可) + 分からない(届出で仮計算) + 農振除外
@@ -69,10 +71,13 @@ const OUT = path.join(__dirname, 'out');
   const saved = await p.evaluate(() => ({
     lotRows: SHEETS['物件明細'].rows.length - 1,
     caseLots: SHEETS['案件一覧'].rows[1][4],
+    lot1: SHEETS['物件明細'].rows[1].slice(0, 4),
     chat: CHAT_LOG[0],
   }));
   assert.strictEqual(saved.lotRows, 2);
   assert.strictEqual(saved.caseLots, '123番1、123番2');
+  // シートには 所在＝市区町村＋町名・字、地番＝末尾の地番 に分けて保存
+  assert.deepStrictEqual(saved.lot1.slice(2), ['豊田市○○町字△△', '123番1']);
   assert.ok(saved.chat.includes('物件：2件') && saved.chat.includes('管理画面で案件を開く'));
   await p.screenshot({ path: path.join(OUT, 'index.png'), fullPage: true });
 
@@ -89,8 +94,8 @@ const OUT = path.join(__dirname, 'out');
   assert.ok((await bulk.textContent('#tohonStatus')).includes('待機中'), '4通目は待機中になるはず');
   await bulk.waitForFunction(() => document.querySelectorAll('.lot').length === 4 &&
     !document.querySelector('#tohonStatus').textContent.match(/待機中|アップロード中|読み取り中/), null, { timeout: 8000 });
-  const bulkLots = await bulk.$$eval('.lot [data-f=lotNumber]', (e) => e.map((x) => x.value).sort());
-  assert.deepStrictEqual(bulkLots, ['10番', '11番', '12番', '13番']);
+  const bulkLots = await bulk.$$eval('.lot [data-f=address]', (e) => e.map((x) => x.value).sort());
+  assert.deepStrictEqual(bulkLots, ['××町 10番', '××町 11番', '××町 12番', '××町 13番']);
 
   // ---------------- 管理画面 ----------------
   const a = await browser.newPage({ viewport: { width: 1280, height: 1000 } });

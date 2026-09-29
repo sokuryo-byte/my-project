@@ -35,6 +35,8 @@
   .step { font-size: .75rem; color: var(--accent); letter-spacing: .08em; }
 
   .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .row.row-addr { grid-template-columns: minmax(140px, 1fr) minmax(0, 2.4fr); }
+  @media (max-width: 560px) { .row.row-addr { grid-template-columns: minmax(0, 1fr); } }
   .field { display: grid; gap: 4px; min-width: 0; }
   .field > label, .lbl { font-weight: 700; font-size: .92rem; }
   .req { font-size: .68rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 3px; padding: 1px 6px; margin-left: 6px; vertical-align: 2px; }

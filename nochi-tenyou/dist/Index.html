@@ -35,6 +35,8 @@
   .step { font-size: .75rem; color: var(--accent); letter-spacing: .08em; }
 
   .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .row.row-addr { grid-template-columns: minmax(140px, 1fr) minmax(0, 2.4fr); }
+  @media (max-width: 560px) { .row.row-addr { grid-template-columns: minmax(0, 1fr); } }
   .field { display: grid; gap: 4px; min-width: 0; }
   .field > label, .lbl { font-weight: 700; font-size: .92rem; }
   .req { font-size: .68rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 3px; padding: 1px 6px; margin-left: 6px; vertical-align: 2px; }
@@ -249,6 +251,8 @@
     '分からない':     { desc: '行政班にて確認します', proc: '見積は「届出」で仮計算' }
   };
   var TOHON = '謄本';
+  // 所在・地番欄の末尾から地番を切り出す（Config.gs の LOT_NUMBER_TAIL_RE と同じ規則）
+  var LOT_TAIL_RE = /^(.*?)\s*([0-9０-９]+(?:番地?[0-9０-９]*)?(?:[-－‐ー][0-9０-９]+)*)$/;
 
   var state = {
     master: [], options: null, farmlandUses: [], upload: null, maxLots: 30,
@@ -279,6 +283,7 @@
 
   function init(data) {
     state.master = data.master || [];
+    state.municipalities = data.municipalities || {};
     state.options = data.options;
     state.farmlandUses = data.farmlandUses || [];
     state.upload = data.upload;
@@ -287,8 +292,11 @@
 
     // 都道府県：既定値（愛知県）を先頭に、マスタにある都道府県を並べる
     var prefs = [data.defaultPrefecture];
+    Object.keys(state.municipalities).forEach(function (p) { if (prefs.indexOf(p) < 0) prefs.push(p); });
     state.master.forEach(function (m) { if (prefs.indexOf(m.prefecture) < 0) prefs.push(m.prefecture); });
     prefs.forEach(function (p, i) { $('prefecture').appendChild(new Option(p, p, i === 0, i === 0)); });
+    document.body.appendChild(el('datalist', { id: 'cityList' }));
+    fillCityList();
 
     renderChoices($('waterAssociationChoices'), 'waterAssociation', state.options.yesNoUnknown);
     renderDocs(state.options.documents);
@@ -307,7 +315,7 @@
     form.addEventListener('change', onFormChange);
     form.addEventListener('input', onFormChange);
     form.addEventListener('submit', function (e) { e.preventDefault(); });
-    $('prefecture').addEventListener('change', function () { qsa('.lot').forEach(updateLotLinks); });
+    $('prefecture').addEventListener('change', function () { fillCityList(); qsa('.lot').forEach(updateLotLinks); });
     $('addLotBtn').addEventListener('click', function () { focusLot(addLot()); });
     $('copyLotBtn').addEventListener('click', function () {
       var lots = qsa('.lot');
@@ -414,13 +422,13 @@
     head.appendChild(del);
     card.appendChild(head);
 
-    // 所在・地番
-    var address = el('input', { type: 'text', id: id('address'), maxlength: '200', placeholder: '例）豊田市○○町字△△', 'data-f': 'address' });
-    address.addEventListener('input', function () { updateLotLinks(card); });
-    var lotNumber = el('input', { type: 'text', id: id('lotNumber'), maxlength: '100', placeholder: '例）123番1', 'data-f': 'lotNumber' });
-    var row1 = el('div', { 'class': 'row' });
-    row1.appendChild(field('所在', address, '市区町村から入力'));
-    row1.appendChild(field('地番', lotNumber, '登記地番（住居表示ではありません）', true));
+    // 市区町村・所在地番
+    var city = el('input', { type: 'text', id: id('municipality'), maxlength: '50', placeholder: '例）豊田市', list: 'cityList', 'data-f': 'municipality' });
+    city.addEventListener('input', function () { updateLotLinks(card); });
+    var address = el('input', { type: 'text', id: id('address'), maxlength: '200', placeholder: '例）○○町字△△ 123番1', 'data-f': 'address' });
+    var row1 = el('div', { 'class': 'row row-addr' });
+    row1.appendChild(field('市区町村', city, null, true));
+    row1.appendChild(field('所在・地番', address, '町名・字から地番まで（登記地番。住居表示ではありません）', true));
     card.appendChild(row1);
 
     // 地目・面積
@@ -481,7 +489,8 @@
     $('lots').appendChild(card);
 
     if (inherit) {
-      address.value = inherit.address || '';
+      city.value = inherit.municipality || '';
+      address.value = splitLotNumber(inherit.address || '').place;
       landUse.value = inherit.landUse || '';
       setRadio(card, 'zone', inherit.zone);
       setRadio(card, 'isNoshin', inherit.isNoshin);
@@ -499,7 +508,7 @@
   function focusLot(card) {
     if (!card) return;
     card.scrollIntoView({ block: 'center' });
-    lotInput(card, 'lotNumber').focus();
+    lotInput(card, 'address').focus();
   }
 
   function renumberLots() {
@@ -540,8 +549,9 @@
 
   function getLotData(card) {
     return {
+      municipality: lotInput(card, 'municipality').value,
       address: lotInput(card, 'address').value,
-      lotNumber: lotInput(card, 'lotNumber').value,
+      lotNumber: splitLotNumber(lotInput(card, 'address').value).lotNumber,
       chimoku: lotInput(card, 'chimoku').value,
       area: lotInput(card, 'area').value,
       zone: getRadio(card, 'zone'),
@@ -554,16 +564,61 @@
     };
   }
 
-  /** 所在の先頭がマスタの市区町村名と一致したら、参照用リンクを出す（前方一致のみ・推測なし） */
+  /** 市区町村欄がマスタの市区町村名と一致したら、参照用リンクを出す（一致のみ・推測なし） */
   function updateLotLinks(card) {
     var pref = $('prefecture').value;
-    var a = lotInput(card, 'address').value.trim();
+    var a = lotInput(card, 'municipality').value.trim();
     if (a.indexOf(pref) === 0) a = a.slice(pref.length);
-    var row = state.master
-      .filter(function (m) { return m.prefecture === pref && a.indexOf(m.municipality) === 0; })
-      .sort(function (x, y) { return y.municipality.length - x.municipality.length; })[0];
+    var row = state.master.filter(function (m) { return m.prefecture === pref && a === m.municipality; })[0];
     setLink(card.querySelector('.city-link'), row && row.cityPlanUrl);
     setLink(card.querySelector('.noshin-link'), row && row.noshinUrl);
+  }
+
+  /** 「○○町字△△ 123番1」→ { place: '○○町字△△', lotNumber: '123番1' } */
+  function splitLotNumber(text) {
+    var m = String(text || '').trim().match(LOT_TAIL_RE);
+    return m ? { place: m[1].trim(), lotNumber: m[2] } : { place: String(text || '').trim(), lotNumber: '' };
+  }
+
+  /**
+   * 選択中の都道府県の市区町村：[{ full: 謄本上の表記（郡名付き）, name: 市区町村欄に入れる名前 }]
+   * 組み込みの一覧（Config.gs の MUNICIPALITIES）＋「マスタ」シートの市区町村。
+   */
+  function cityEntries() {
+    var pref = $('prefecture').value;
+    var out = [], seen = {};
+    function add(full) {
+      full = String(full || '').trim();
+      var name = full.replace(/^.+?郡(?=.+[町村]$)/, '');
+      if (full && !seen[full]) { seen[full] = true; out.push({ full: full, name: name }); }
+    }
+    (state.municipalities[pref] || []).forEach(add);
+    state.master.forEach(function (m) { if (m.prefecture === pref) add(m.municipality); });
+    return out;
+  }
+
+  /** 文字列の先頭にある市区町村（郡名付き・なしの両方で前方一致、長い方を優先）。{ name, length } か null */
+  function cityPrefixOf(text) {
+    var pref = $('prefecture').value;
+    var t = String(text || '');
+    var offset = 0;
+    if (t.indexOf(pref) === 0) { t = t.slice(pref.length); offset = pref.length; }
+    var best = null;
+    cityEntries().forEach(function (c) {
+      [c.full, c.name].forEach(function (label) {
+        if (t.indexOf(label) === 0 && (!best || label.length > best.length - offset)) best = { name: c.name, length: offset + label.length };
+      });
+    });
+    return best;
+  }
+
+  /** 市区町村欄の入力候補（候補にない市区町村も入力可） */
+  function fillCityList() {
+    var list = $('cityList');
+    list.innerHTML = '';
+    var names = [];
+    cityEntries().forEach(function (c) { if (names.indexOf(c.name) < 0) names.push(c.name); });
+    names.forEach(function (n) { list.appendChild(el('option', { value: n })); });
   }
 
   function setLink(a, url) {
@@ -585,12 +640,18 @@
     var filled = 0;
     cands.forEach(function (c) {
       var lots = qsa('.lot');
-      var card = lots.filter(function (k) { return c.lotNumber && lotInput(k, 'lotNumber').value.trim() === c.lotNumber; })[0] ||
-        lots.filter(function (k) { return !lotInput(k, 'address').value && !lotInput(k, 'lotNumber').value && !lotInput(k, 'area').value; })[0] ||
+      var card = lots.filter(function (k) { return c.lotNumber && splitLotNumber(lotInput(k, 'address').value).lotNumber === c.lotNumber; })[0] ||
+        lots.filter(function (k) { return !lotInput(k, 'municipality').value && !lotInput(k, 'address').value && !lotInput(k, 'area').value; })[0] ||
         addLot();
       if (!card) return;
       var any = false;
-      [['address', c.address], ['lotNumber', c.lotNumber], ['chimoku', c.chimoku], ['area', c.area]].forEach(function (kv) {
+      // 謄本の所在「豊田市○○町字△△」を、マスタの市区町村名との前方一致で 市区町村／町名・字 に分ける（一致しなければ全体を所在・地番欄へ）
+      var place = c.address || '';
+      var hit = cityPrefixOf(place);
+      var city = hit ? hit.name : '';
+      if (hit) place = place.slice(hit.length).trim();
+      var addrText = [place, c.lotNumber].filter(String).join(' ');
+      [['municipality', city], ['address', addrText], ['chimoku', c.chimoku], ['area', c.area]].forEach(function (kv) {
         var input = lotInput(card, kv[0]);
         if (kv[1] && !input.value) {
           input.value = kv[1];
@@ -781,7 +842,8 @@
     check(!!f.requesterName.trim(), $('requesterName'), '依頼者名を入力してください。');
     qsa('.lot').forEach(function (card, i) {
       var d = f.lots[i], name = '物件' + (i + 1) + '：';
-      check(!!d.lotNumber.trim(), lotInput(card, 'lotNumber'), name + '地番を入力してください。');
+      check(!!d.municipality.trim(), lotInput(card, 'municipality'), name + '市区町村を入力してください。');
+      check(!!d.lotNumber, lotInput(card, 'address'), name + '所在・地番の末尾に地番を入力してください（例：○○町字△△ 123番1）。');
       check(!!d.zone, card.querySelector('.zones'), name + '区域区分を選択してください（不明なら「分からない」）。');
       var area = d.area.replace(/[,，]/g, '').trim();
       check(area === '' || (!isNaN(Number(area)) && Number(area) >= 0), lotInput(card, 'area'), name + '面積は0以上の数値で入力してください（単位：㎡）。');

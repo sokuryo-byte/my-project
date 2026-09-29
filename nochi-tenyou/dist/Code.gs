@@ -27,6 +27,7 @@ const SHEET_NAMES = {
   LOTS: '物件明細',
   MASTER: 'マスタ',
   FEES: '見積設定',
+  ERRORS: 'エラーログ', // 謄本読取・アップロードの失敗内容（原因調査用。初回のエラー時に自動作成）
 };
 
 // ------------------------------------------------------------
@@ -115,6 +116,12 @@ const FALLBACK_ZONE_FOR_UNKNOWN = '市街化区域';
 /** 農地転用が「許可」となる区域区分（事後手続き加算の対象。市街化区域は届出のため対象外） */
 const PERMIT_ZONES = ['市街化調整区域', '非線引き区域'];
 
+/**
+ * 所在・地番欄の末尾から地番を切り出す正規表現（1=町名・字、2=地番）。
+ * 例：「○○町字△△123番1」「○○町5丁目12番3」「○○町123-1」「○○町123」
+ */
+const LOT_NUMBER_TAIL_RE = /^(.*?)\s*([0-9０-９]+(?:番地?[0-9０-９]*)?(?:[-－‐ー][0-9０-９]+)*)$/;
+
 /** 「既に転用済み」とみなす現況利用（事後手続き加算の対象） */
 const CONVERTED_LAND_USES = ['駐車場', '宅地', '資材置場'];
 
@@ -130,6 +137,37 @@ const MAX_LOTS = 30;
 
 /** 物件所在地の都道府県の初期値（プルダウンの先頭に表示） */
 const DEFAULT_PREFECTURE = '愛知県';
+
+/**
+ * 市区町村の一覧（市区町村欄の入力候補、謄本の所在を「市区町村／町名・字」に分けるのに使用）。
+ * 町村は謄本の所在に合わせて郡名付きで記載（画面の市区町村欄には郡名を除いた名前が入る）。
+ * 「マスタ」シートに行を追加した市区町村も候補に加わります。
+ */
+const MUNICIPALITIES = {
+  '愛知県': [
+    '名古屋市', '豊橋市', '岡崎市', '一宮市', '瀬戸市', '半田市', '春日井市', '豊川市', '津島市', '碧南市',
+    '刈谷市', '豊田市', '安城市', '西尾市', '蒲郡市', '犬山市', '常滑市', '江南市', '小牧市', '稲沢市',
+    '新城市', '東海市', '大府市', '知多市', '知立市', '尾張旭市', '高浜市', '岩倉市', '豊明市', '日進市',
+    '田原市', '愛西市', '清須市', '北名古屋市', '弥富市', 'みよし市', 'あま市', '長久手市',
+    '愛知郡東郷町', '西春日井郡豊山町', '丹羽郡大口町', '丹羽郡扶桑町', '海部郡大治町', '海部郡蟹江町', '海部郡飛島村',
+    '知多郡阿久比町', '知多郡東浦町', '知多郡南知多町', '知多郡美浜町', '知多郡武豊町', '額田郡幸田町',
+    '北設楽郡設楽町', '北設楽郡東栄町', '北設楽郡豊根村',
+  ],
+  '岐阜県': [
+    '岐阜市', '大垣市', '高山市', '多治見市', '関市', '中津川市', '美濃市', '瑞浪市', '羽島市', '恵那市',
+    '美濃加茂市', '土岐市', '各務原市', '可児市', '山県市', '瑞穂市', '飛騨市', '本巣市', '郡上市', '下呂市', '海津市',
+    '羽島郡岐南町', '羽島郡笠松町', '養老郡養老町', '不破郡垂井町', '不破郡関ケ原町', '安八郡神戸町', '安八郡輪之内町',
+    '安八郡安八町', '揖斐郡揖斐川町', '揖斐郡大野町', '揖斐郡池田町', '本巣郡北方町', '加茂郡坂祝町', '加茂郡富加町',
+    '加茂郡川辺町', '加茂郡七宗町', '加茂郡八百津町', '加茂郡白川町', '加茂郡東白川村', '可児郡御嵩町', '大野郡白川村',
+  ],
+  '三重県': [
+    '津市', '四日市市', '伊勢市', '松阪市', '桑名市', '鈴鹿市', '名張市', '尾鷲市', '亀山市', '鳥羽市',
+    '熊野市', 'いなべ市', '志摩市', '伊賀市',
+    '桑名郡木曽岬町', '員弁郡東員町', '三重郡菰野町', '三重郡朝日町', '三重郡川越町', '多気郡多気町', '多気郡明和町',
+    '多気郡大台町', '度会郡玉城町', '度会郡度会町', '度会郡大紀町', '度会郡南伊勢町', '北牟婁郡紀北町',
+    '南牟婁郡御浜町', '南牟婁郡紀宝町',
+  ],
+};
 
 const FORM_OPTIONS = {
   zones: ['市街化区域', '市街化調整区域', '非線引き区域', '分からない'],
@@ -169,7 +207,7 @@ const CASE_COLUMNS = [
   { key: 'requestFlag', header: '見積調査依頼フラグ' },
   // ---- 補助列 ----
   { key: 'prefecture', header: '都道府県' },
-  { key: 'municipality', header: '市区町村（所在から自動）' },
+  { key: 'municipality', header: '市区町村' },
   { key: 'waterAssociation', header: '水利組合・農事組合の有無' },
   { key: 'estimateDetail', header: '見積内訳' },
   { key: 'submittedBy', header: '入力者（Googleアカウント）' },
@@ -201,7 +239,7 @@ const LOT_COLUMNS = [
   { key: 'landUse', header: '現況利用' },
   { key: 'isConverted', header: '既に転用済み' },
   { key: 'landImprovement', header: '土地改良区' },
-  { key: 'municipality', header: '市区町村（所在から自動）' },
+  { key: 'municipality', header: '市区町村' },
   { key: 'readFromTohon', header: '謄本から読取' },
 ];
 
@@ -441,6 +479,7 @@ function getInitialData() {
     defaultPrefecture: DEFAULT_PREFECTURE,
     maxLots: MAX_LOTS,
     master: getMasterList_(),
+    municipalities: MUNICIPALITIES,
     userEmail: getUserEmail_(),
     upload: { maxMb: MAX_UPLOAD_MB, mimeTypes: ALLOWED_MIME_TYPES },
   };
@@ -453,7 +492,12 @@ function previewEstimate(form) {
 
 /** 資料ファイルを一時フォルダへ保存する（ドラッグ直後に呼ばれる） */
 function uploadAttachment(file) {
-  return saveUploadedFile_(file);
+  try {
+    return saveUploadedFile_(file);
+  } catch (e) {
+    logError_('uploadAttachment', e, file && file.name);
+    throw e;
+  }
 }
 
 /** アップロードを取り消す（一時フォルダ内のファイルのみ削除可能） */
@@ -469,6 +513,7 @@ function readTohon(fileId) {
   try {
     return readTohonFile_(fileId);
   } catch (e) {
+    logError_('readTohon', e, 'fileId=' + fileId);
     return { lots: [], message: '謄本を読み取れませんでした（' + (e && e.message || e) + '）。手入力してください。' };
   }
 }
@@ -628,18 +673,23 @@ function normalizeInput_(form) {
 
 /** 物件1件分の入力を整える */
 function normalizeLot_(l, prefecture, master) {
-  // 所在は「市区町村〜」を1欄で受け取り、市区町村はマスタとの前方一致で取り出す（一致しなければ空欄）
-  let address = str_(l.address);
-  if (address.indexOf(prefecture) === 0) address = address.slice(prefecture.length).trim();
+  // 画面は「市区町村」と「所在・地番（町名・字〜地番）」の2欄。
+  // シートには 所在＝市区町村＋町名・字、地番＝末尾の地番 に分けて保存する（末尾の数字部分を切り出すだけ・推測なし）
+  let municipality = str_(l.municipality, 50);
+  if (municipality.indexOf(prefecture) === 0) municipality = municipality.slice(prefecture.length).trim();
+  let place = str_(l.address);
+  if (place.indexOf(prefecture) === 0) place = place.slice(prefecture.length).trim();
+  if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
+  const split = splitLotNumber_(place);
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
   const landUse = pick_(l.landUse, FORM_OPTIONS.landUses);
   const landUseOther = str_(l.landUseOther, 100);
 
   return {
-    address: address,
-    municipality: detectMunicipality_(prefecture, address, master),
-    lotNumber: str_(l.lotNumber, 100),
+    address: municipality + split.place,
+    municipality: municipality,
+    lotNumber: split.lotNumber.slice(0, 100),
     chimoku: pick_(l.chimoku, FORM_OPTIONS.chimoku),
     area: areaText === '' ? null : Number(areaText),
     zone: pick_(l.zone, FORM_OPTIONS.zones),
@@ -654,14 +704,13 @@ function normalizeLot_(l, prefecture, master) {
 }
 
 /**
- * 所在の先頭がマスタの市区町村名と一致すれば、その市区町村名を返す（長い名前を優先）。
- * 文字列の前方一致だけで、推測はしない。
+ * 「○○町字△△ 123番1」の末尾から地番を切り出す（例：123番1／123番地1／123-1／123）。
+ * 末尾が数字で終わらない場合は地番なし（空文字）。画面側（JavaScript.html）と同じ規則。
+ * @return {{place:string, lotNumber:string}}
  */
-function detectMunicipality_(prefecture, address, master) {
-  return (master || getMasterList_())
-    .filter(function (m) { return m.prefecture === prefecture && address.indexOf(m.municipality) === 0; })
-    .map(function (m) { return m.municipality; })
-    .sort(function (a, b) { return b.length - a.length; })[0] || '';
+function splitLotNumber_(text) {
+  const m = String(text || '').match(LOT_NUMBER_TAIL_RE);
+  return m ? { place: m[1].trim(), lotNumber: m[2] } : { place: String(text || '').trim(), lotNumber: '' };
 }
 
 /** 保存前の必須チェック。エラーメッセージの配列を返す（空ならOK） */
@@ -671,7 +720,8 @@ function validateInput_(input) {
   if (!input.lots.length) errors.push('物件を1件以上入力してください。');
   input.lots.forEach(function (l, i) {
     const name = '物件' + (i + 1) + '：';
-    if (!l.lotNumber) errors.push(name + '地番を入力してください。');
+    if (!l.municipality) errors.push(name + '市区町村を入力してください。');
+    if (!l.lotNumber) errors.push(name + '所在・地番の末尾に地番を入力してください（例：○○町字△△ 123番1）。');
     if (!l.zone) errors.push(name + '区域区分を選択してください（不明な場合は「分からない」）。');
     if (l.area !== null && (isNaN(l.area) || l.area < 0)) errors.push(name + '面積は0以上の数値で入力してください。');
   });
@@ -696,6 +746,24 @@ function getUserEmail_() {
     return Session.getActiveUser().getEmail() || '';
   } catch (e) {
     return '';
+  }
+}
+
+/**
+ * 失敗内容を「エラーログ」シートに記録する（原因調査用）。記録自体の失敗は無視する。
+ * @param {string} where 発生した処理
+ * @param {*} e 例外
+ * @param {string=} detail 補足（ファイル名など）
+ */
+function logError_(where, e, detail) {
+  try {
+    const ss = getSpreadsheet_();
+    const sheet = ss.getSheetByName(SHEET_NAMES.ERRORS) || ss.insertSheet(SHEET_NAMES.ERRORS);
+    if (sheet.getLastRow() === 0) sheet.appendRow(['日時', 'ユーザー', '処理', '内容', '補足', '詳細']);
+    sheet.appendRow([new Date(), getUserEmail_(), where, String(e && e.message || e),
+      String(detail || ''), String(e && e.stack || '').slice(0, 2000)]);
+  } catch (ignore) {
+    // ログが書けなくても本来の処理結果は返す
   }
 }
 

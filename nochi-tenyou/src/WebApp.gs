@@ -67,6 +67,7 @@ function getInitialData() {
     defaultPrefecture: DEFAULT_PREFECTURE,
     maxLots: MAX_LOTS,
     master: getMasterList_(),
+    municipalities: MUNICIPALITIES,
     userEmail: getUserEmail_(),
     upload: { maxMb: MAX_UPLOAD_MB, mimeTypes: ALLOWED_MIME_TYPES },
   };
@@ -79,7 +80,12 @@ function previewEstimate(form) {
 
 /** 資料ファイルを一時フォルダへ保存する（ドラッグ直後に呼ばれる） */
 function uploadAttachment(file) {
-  return saveUploadedFile_(file);
+  try {
+    return saveUploadedFile_(file);
+  } catch (e) {
+    logError_('uploadAttachment', e, file && file.name);
+    throw e;
+  }
 }
 
 /** アップロードを取り消す（一時フォルダ内のファイルのみ削除可能） */
@@ -95,6 +101,7 @@ function readTohon(fileId) {
   try {
     return readTohonFile_(fileId);
   } catch (e) {
+    logError_('readTohon', e, 'fileId=' + fileId);
     return { lots: [], message: '謄本を読み取れませんでした（' + (e && e.message || e) + '）。手入力してください。' };
   }
 }
@@ -254,18 +261,23 @@ function normalizeInput_(form) {
 
 /** 物件1件分の入力を整える */
 function normalizeLot_(l, prefecture, master) {
-  // 所在は「市区町村〜」を1欄で受け取り、市区町村はマスタとの前方一致で取り出す（一致しなければ空欄）
-  let address = str_(l.address);
-  if (address.indexOf(prefecture) === 0) address = address.slice(prefecture.length).trim();
+  // 画面は「市区町村」と「所在・地番（町名・字〜地番）」の2欄。
+  // シートには 所在＝市区町村＋町名・字、地番＝末尾の地番 に分けて保存する（末尾の数字部分を切り出すだけ・推測なし）
+  let municipality = str_(l.municipality, 50);
+  if (municipality.indexOf(prefecture) === 0) municipality = municipality.slice(prefecture.length).trim();
+  let place = str_(l.address);
+  if (place.indexOf(prefecture) === 0) place = place.slice(prefecture.length).trim();
+  if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
+  const split = splitLotNumber_(place);
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
   const landUse = pick_(l.landUse, FORM_OPTIONS.landUses);
   const landUseOther = str_(l.landUseOther, 100);
 
   return {
-    address: address,
-    municipality: detectMunicipality_(prefecture, address, master),
-    lotNumber: str_(l.lotNumber, 100),
+    address: municipality + split.place,
+    municipality: municipality,
+    lotNumber: split.lotNumber.slice(0, 100),
     chimoku: pick_(l.chimoku, FORM_OPTIONS.chimoku),
     area: areaText === '' ? null : Number(areaText),
     zone: pick_(l.zone, FORM_OPTIONS.zones),
@@ -280,14 +292,13 @@ function normalizeLot_(l, prefecture, master) {
 }
 
 /**
- * 所在の先頭がマスタの市区町村名と一致すれば、その市区町村名を返す（長い名前を優先）。
- * 文字列の前方一致だけで、推測はしない。
+ * 「○○町字△△ 123番1」の末尾から地番を切り出す（例：123番1／123番地1／123-1／123）。
+ * 末尾が数字で終わらない場合は地番なし（空文字）。画面側（JavaScript.html）と同じ規則。
+ * @return {{place:string, lotNumber:string}}
  */
-function detectMunicipality_(prefecture, address, master) {
-  return (master || getMasterList_())
-    .filter(function (m) { return m.prefecture === prefecture && address.indexOf(m.municipality) === 0; })
-    .map(function (m) { return m.municipality; })
-    .sort(function (a, b) { return b.length - a.length; })[0] || '';
+function splitLotNumber_(text) {
+  const m = String(text || '').match(LOT_NUMBER_TAIL_RE);
+  return m ? { place: m[1].trim(), lotNumber: m[2] } : { place: String(text || '').trim(), lotNumber: '' };
 }
 
 /** 保存前の必須チェック。エラーメッセージの配列を返す（空ならOK） */
@@ -297,7 +308,8 @@ function validateInput_(input) {
   if (!input.lots.length) errors.push('物件を1件以上入力してください。');
   input.lots.forEach(function (l, i) {
     const name = '物件' + (i + 1) + '：';
-    if (!l.lotNumber) errors.push(name + '地番を入力してください。');
+    if (!l.municipality) errors.push(name + '市区町村を入力してください。');
+    if (!l.lotNumber) errors.push(name + '所在・地番の末尾に地番を入力してください（例：○○町字△△ 123番1）。');
     if (!l.zone) errors.push(name + '区域区分を選択してください（不明な場合は「分からない」）。');
     if (l.area !== null && (isNaN(l.area) || l.area < 0)) errors.push(name + '面積は0以上の数値で入力してください。');
   });
@@ -322,5 +334,23 @@ function getUserEmail_() {
     return Session.getActiveUser().getEmail() || '';
   } catch (e) {
     return '';
+  }
+}
+
+/**
+ * 失敗内容を「エラーログ」シートに記録する（原因調査用）。記録自体の失敗は無視する。
+ * @param {string} where 発生した処理
+ * @param {*} e 例外
+ * @param {string=} detail 補足（ファイル名など）
+ */
+function logError_(where, e, detail) {
+  try {
+    const ss = getSpreadsheet_();
+    const sheet = ss.getSheetByName(SHEET_NAMES.ERRORS) || ss.insertSheet(SHEET_NAMES.ERRORS);
+    if (sheet.getLastRow() === 0) sheet.appendRow(['日時', 'ユーザー', '処理', '内容', '補足', '詳細']);
+    sheet.appendRow([new Date(), getUserEmail_(), where, String(e && e.message || e),
+      String(detail || ''), String(e && e.stack || '').slice(0, 2000)]);
+  } catch (ignore) {
+    // ログが書けなくても本来の処理結果は返す
   }
 }
