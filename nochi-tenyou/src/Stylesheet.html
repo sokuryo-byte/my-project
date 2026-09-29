@@ -1,0 +1,114 @@
+<style>
+  :root {
+    --green: #3a7d44;
+    --green-light: #e8f0e3;
+    --border: #d5dbd2;
+    --text: #222;
+    --muted: #666;
+    --danger: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif;
+    color: var(--text);
+    background: #f6f7f5;
+    line-height: 1.6;
+  }
+  .page-header, form { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 8px; color: var(--green); }
+  .lead { margin: 0 0 4px; font-size: .92rem; }
+  .user { margin: 0 0 16px; font-size: .8rem; color: var(--muted); }
+
+  .card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 1.1rem;
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--green-light);
+  }
+  .num {
+    display: inline-block;
+    width: 1.6em; height: 1.6em;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    color: #fff;
+    text-align: center;
+    font-size: .85rem;
+    line-height: 1.6em;
+  }
+
+  .field { margin-bottom: 14px; flex: 1; min-width: 0; }
+  .field-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .field-row .field { min-width: 220px; }
+  label, .label { display: block; font-weight: bold; font-size: .92rem; margin-bottom: 4px; }
+  .help { margin: 0 0 6px; font-size: .8rem; color: var(--muted); }
+  .req {
+    font-size: .7rem; color: #fff; background: var(--danger);
+    border-radius: 3px; padding: 1px 5px; margin-left: 4px; vertical-align: middle;
+  }
+  input[type=text], select, textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: .95rem;
+    font-family: inherit;
+    background: #fff;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--green); border-color: var(--green); }
+  input:disabled { background: #f0f0f0; }
+  .invalid { border-color: var(--danger) !important; background: #fff5f5 !important; }
+  .with-unit { display: flex; align-items: center; gap: 6px; }
+  #municipalityOther { margin-top: 6px; }
+
+  .choices { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+  .choice { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; cursor: pointer; margin: 0; }
+  .other-doc { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .other-doc input[type=text] { max-width: 320px; }
+  a.ext { margin-left: 6px; color: var(--green); font-weight: bold; }
+
+  .estimate { border: 2px solid var(--green); }
+  .total { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; }
+  .total strong { font-size: 1.8rem; color: var(--green); }
+  .breakdown { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: .9rem; }
+  .breakdown td { padding: 4px 0; border-bottom: 1px dashed var(--border); }
+  .breakdown td.amount { text-align: right; white-space: nowrap; }
+  .notes { margin: 8px 0 0; padding-left: 1.2em; font-size: .8rem; color: var(--muted); }
+
+  .actions { text-align: center; margin: 8px 0 16px; }
+  button {
+    font-size: 1rem; font-family: inherit;
+    padding: 12px 24px; margin: 4px;
+    border-radius: 6px; cursor: pointer;
+  }
+  button.primary { background: var(--green); color: #fff; border: none; font-weight: bold; }
+  button.secondary { background: #fff; color: var(--green); border: 1px solid var(--green); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .errors { color: var(--danger); white-space: pre-line; font-size: .9rem; text-align: left; }
+
+  .result { border-radius: 8px; padding: 16px 20px; margin-bottom: 32px; }
+  .result.ok { background: var(--green-light); border: 1px solid var(--green); }
+  .result.warn { background: #fff8e1; border: 1px solid #e0a800; }
+  .result.ng { background: #fff5f5; border: 1px solid var(--danger); }
+
+  .loading {
+    position: fixed; inset: 0; background: rgba(255,255,255,.7);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .spinner {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 4px solid var(--green-light); border-top-color: var(--green);
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+</style>

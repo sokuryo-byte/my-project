@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+  <header class="page-header">
+    <h1>農地転用 見積・調査依頼フォーム</h1>
+    <p class="lead">
+      分かる範囲で入力してください。入力内容から<strong>概算見積</strong>を画面下部に自動表示します。<br>
+      「見積調査依頼」を押すと案件一覧に保存され、担当行政書士へ Google Chat で通知されます。
+      正式な調査・見積は担当者から改めてご連絡します。
+    </p>
+    <p class="user" id="userInfo"></p>
+  </header>
+
+  <form id="caseForm" autocomplete="off" novalidate>
+
+    <!-- ===================== 1. 基本情報 ===================== -->
+    <section class="card">
+      <h2><span class="num">1</span>基本情報</h2>
+
+      <div class="field">
+        <label for="requesterName">依頼者名 <span class="req">必須</span></label>
+        <input type="text" id="requesterName" name="requesterName" maxlength="50" placeholder="例）山田 太郎">
+        <p class="help">依頼をするあなた（または顧客）のお名前を入力してください。</p>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="prefecture">都道府県</label>
+          <select id="prefecture" name="prefecture"><option value="">読み込み中…</option></select>
+        </div>
+        <div class="field">
+          <label for="municipality">市区町村</label>
+          <select id="municipality" name="municipality"><option value="">先に都道府県を選択</option></select>
+          <p class="help">一覧に無い場合は「その他（手入力）」を選び、下の欄に入力してください。</p>
+          <input type="text" id="municipalityOther" maxlength="50" placeholder="市区町村名を入力" class="hidden">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="address">物件所在地（住所）</label>
+        <input type="text" id="address" name="address" maxlength="200" placeholder="例）○○町字△△">
+        <p class="help">市区町村より後ろの住所（大字・字など）を入力してください。</p>
+      </div>
+
+      <div class="field">
+        <label for="lotNumber">地番 <span class="req">必須</span></label>
+        <input type="text" id="lotNumber" name="lotNumber" maxlength="100" placeholder="例）123番1、123番2">
+        <p class="help">登記簿上の地番です（住居表示とは異なります）。複数筆ある場合は「、」区切りで入力してください。</p>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="chimoku">地目（登記地目）</label>
+          <select id="chimoku" name="chimoku"></select>
+        </div>
+        <div class="field">
+          <label for="area">面積（登記地積）</label>
+          <div class="with-unit">
+            <input type="text" id="area" name="area" inputmode="decimal" placeholder="例）330.00">
+            <span>㎡</span>
+          </div>
+          <p class="help">複数筆の場合は合計面積を入力してください。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 2. 区域・農振 ===================== -->
+    <section class="card">
+      <h2><span class="num">2</span>区域・農振</h2>
+
+      <div class="field">
+        <span class="label">市街化区域／調整区域 <span class="req">必須</span></span>
+        <p class="help">都市計画図を確認して、市街化区域か調整区域かを選択してください。
+          <a id="cityPlanLink" class="ext hidden" target="_blank" rel="noopener">→ この市区町村の都市計画情報を開く</a>
+        </p>
+        <div class="choices" id="zoneChoices"></div>
+      </div>
+
+      <div class="field">
+        <span class="label">農振農用地かどうか</span>
+        <p class="help">農振図を確認して、農用地（青地）かどうかを選択してください。
+          <a id="noshinLink" class="ext hidden" target="_blank" rel="noopener">→ この市区町村の農振図を開く</a>
+        </p>
+        <div class="choices" id="isNoshinChoices"></div>
+      </div>
+    </section>
+
+    <!-- ===================== 3. 現況・計画 ===================== -->
+    <section class="card">
+      <h2><span class="num">3</span>現況・計画</h2>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="landUse">現況利用</label>
+          <select id="landUse" name="landUse"></select>
+          <p class="help">現地や航空写真で見た、今の使われ方を選択してください。</p>
+        </div>
+        <div class="field">
+          <label for="landUseOther">現況利用（補足・自由記載）</label>
+          <input type="text" id="landUseOther" name="landUseOther" maxlength="100" placeholder="例）一部に物置あり">
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="label">既に転用済みかどうか</span>
+        <p class="help">許可・届出をせずに、既に駐車場や宅地などとして使っている場合は「はい」を選択してください。</p>
+        <div class="choices" id="isConvertedChoices"></div>
+      </div>
+
+      <div class="field">
+        <label for="plan">今後の転用計画</label>
+        <textarea id="plan" name="plan" rows="3" maxlength="1000" placeholder="例）自己用住宅の建築、月極駐車場として貸したい、売却予定 など"></textarea>
+      </div>
+    </section>
+
+    <!-- ===================== 4. 土地改良区・資料 ===================== -->
+    <section class="card">
+      <h2><span class="num">4</span>土地改良区・資料</h2>
+
+      <div class="field">
+        <span class="label">土地改良区の有無</span>
+        <p class="help">土地改良区の区域内か（賦課金の請求があるか等）を選択してください。</p>
+        <div class="choices" id="landImprovementChoices"></div>
+      </div>
+
+      <div class="field">
+        <span class="label">水利組合・農事組合の有無</span>
+        <p class="help">同意書や意見書が必要になる場合があります。分からなければ「分からない」で構いません。</p>
+        <div class="choices" id="waterAssociationChoices"></div>
+      </div>
+
+      <div class="field">
+        <span class="label">手元にある資料</span>
+        <p class="help">お手元にある資料をすべてチェックしてください。</p>
+        <div class="choices" id="documentsChoices"></div>
+        <div class="other-doc">
+          <label class="choice"><input type="checkbox" id="hasOtherDocument"> その他</label>
+          <input type="text" id="documentsOther" maxlength="100" placeholder="資料名を入力" disabled>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 5. 概算見積＋アクション ===================== -->
+    <section class="card estimate" id="estimateCard">
+      <h2><span class="num">5</span>概算見積</h2>
+      <div class="total">
+        <span>概算見積金額（税込）</span>
+        <strong id="estimateTotal">―</strong>
+      </div>
+      <table class="breakdown"><tbody id="estimateItems"></tbody></table>
+      <ul class="notes" id="estimateNotes"></ul>
+    </section>
+
+    <div class="actions">
+      <p id="formErrors" class="errors hidden" role="alert"></p>
+      <button type="button" id="requestBtn" class="primary">見積調査依頼（保存して担当者へ通知）</button>
+      <button type="button" id="saveOnlyBtn" class="secondary">保存のみ（通知しない）</button>
+    </div>
+
+    <div id="resultBox" class="result hidden" role="status"></div>
+  </form>
+
+  <div id="loading" class="loading hidden"><div class="spinner"></div><p>送信中です…</p></div>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>

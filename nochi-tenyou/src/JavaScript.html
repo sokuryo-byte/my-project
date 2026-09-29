@@ -1,0 +1,298 @@
+<script>
+  /**
+   * フォーム画面の処理
+   *  ・選択肢の描画（選択肢そのものはサーバー側 Config.gs の FORM_OPTIONS が正）
+   *  ・入力のたびに概算見積をサーバーで再計算して表示
+   *  ・保存／見積調査依頼の送信
+   * 見積の計算ロジックはサーバー側（Estimate.gs）だけに置き、画面側では計算しません。
+   */
+
+  var OTHER_CITY = '__other__';   // 市区町村「その他（手入力）」の値
+  var state = { master: [], options: null, previewTimer: null, previewSeq: 0 };
+
+  // ---------------------------------------------------------
+  // 初期化
+  // ---------------------------------------------------------
+  document.addEventListener('DOMContentLoaded', function () {
+    google.script.run
+      .withSuccessHandler(init)
+      .withFailureHandler(function (err) { showResult('ng', '初期データの読み込みに失敗しました：' + err.message); })
+      .getInitialData();
+  });
+
+  function init(data) {
+    state.master = data.master || [];
+    state.options = data.options;
+
+    if (data.userEmail) {
+      document.getElementById('userInfo').textContent = 'ログイン中：' + data.userEmail;
+    }
+
+    var o = data.options;
+    fillSelect('chimoku', o.chimoku, '選択してください');
+    fillSelect('landUse', o.landUses, '選択してください');
+    renderChoices('zoneChoices', 'zone', o.zones, 'radio');
+    renderChoices('isNoshinChoices', 'isNoshin', o.yesNoUnknown, 'radio');
+    renderChoices('isConvertedChoices', 'isConverted', o.yesNo, 'radio');
+    renderChoices('landImprovementChoices', 'landImprovement', o.yesNoUnknown, 'radio');
+    renderChoices('waterAssociationChoices', 'waterAssociation', o.yesNoUnknown, 'radio');
+    renderChoices('documentsChoices', 'documents', o.documents, 'checkbox');
+
+    // 都道府県（マスタから重複なしで作成）
+    var prefs = [];
+    state.master.forEach(function (m) { if (prefs.indexOf(m.prefecture) < 0) prefs.push(m.prefecture); });
+    fillSelect('prefecture', prefs, '選択してください');
+
+    bindEvents();
+    requestPreview();
+  }
+
+  function bindEvents() {
+    var form = document.getElementById('caseForm');
+    // どの項目が変わっても見積を再計算（少し待ってからまとめて1回）
+    form.addEventListener('change', schedulePreview);
+    form.addEventListener('input', schedulePreview);
+
+    document.getElementById('prefecture').addEventListener('change', onPrefectureChange);
+    document.getElementById('municipality').addEventListener('change', onMunicipalityChange);
+    document.getElementById('hasOtherDocument').addEventListener('change', function (e) {
+      var t = document.getElementById('documentsOther');
+      t.disabled = !e.target.checked;
+      if (!e.target.checked) t.value = '';
+    });
+
+    document.getElementById('requestBtn').addEventListener('click', function () { submit(true); });
+    document.getElementById('saveOnlyBtn').addEventListener('click', function () { submit(false); });
+  }
+
+  // ---------------------------------------------------------
+  // 画面部品の描画
+  // ---------------------------------------------------------
+  function fillSelect(id, values, placeholder) {
+    var sel = document.getElementById(id);
+    sel.innerHTML = '';
+    sel.appendChild(new Option(placeholder, ''));
+    values.forEach(function (v) { sel.appendChild(new Option(v, v)); });
+  }
+
+  function renderChoices(containerId, name, values, type) {
+    var box = document.getElementById(containerId);
+    box.innerHTML = '';
+    values.forEach(function (v) {
+      var label = document.createElement('label');
+      label.className = 'choice';
+      var input = document.createElement('input');
+      input.type = type;
+      input.name = name;
+      input.value = v;
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(' ' + v));
+      box.appendChild(label);
+    });
+  }
+
+  function onPrefectureChange() {
+    var pref = document.getElementById('prefecture').value;
+    var cities = state.master
+      .filter(function (m) { return m.prefecture === pref; })
+      .map(function (m) { return m.municipality; });
+    var sel = document.getElementById('municipality');
+    fillSelect('municipality', cities, pref ? '選択してください' : '先に都道府県を選択');
+    if (pref) sel.appendChild(new Option('その他（手入力）', OTHER_CITY));
+    onMunicipalityChange();
+  }
+
+  /** 市区町村に応じて、都市計画図・農振図へのリンクと手入力欄を切り替える */
+  function onMunicipalityChange() {
+    var pref = document.getElementById('prefecture').value;
+    var city = document.getElementById('municipality').value;
+    document.getElementById('municipalityOther').classList.toggle('hidden', city !== OTHER_CITY);
+
+    var row = state.master.filter(function (m) { return m.prefecture === pref && m.municipality === city; })[0];
+    setLink('cityPlanLink', row && row.cityPlanUrl);
+    setLink('noshinLink', row && row.noshinUrl);
+  }
+
+  function setLink(id, url) {
+    var a = document.getElementById(id);
+    if (url) { a.href = url; a.classList.remove('hidden'); }
+    else { a.removeAttribute('href'); a.classList.add('hidden'); }
+  }
+
+  // ---------------------------------------------------------
+  // 入力値の取得
+  // ---------------------------------------------------------
+  function val(id) { return document.getElementById(id).value; }
+
+  function radioVal(name) {
+    var el = document.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : '';
+  }
+
+  function collectForm() {
+    var city = val('municipality');
+    return {
+      requesterName: val('requesterName'),
+      prefecture: val('prefecture'),
+      municipality: city === OTHER_CITY ? val('municipalityOther') : city,
+      address: val('address'),
+      lotNumber: val('lotNumber'),
+      chimoku: val('chimoku'),
+      area: val('area'),
+      zone: radioVal('zone'),
+      isNoshin: radioVal('isNoshin'),
+      landUse: val('landUse'),
+      landUseOther: val('landUseOther'),
+      isConverted: radioVal('isConverted'),
+      plan: val('plan'),
+      landImprovement: radioVal('landImprovement'),
+      waterAssociation: radioVal('waterAssociation'),
+      documents: Array.prototype.map.call(
+        document.querySelectorAll('input[name="documents"]:checked'),
+        function (el) { return el.value; }),
+      hasOtherDocument: document.getElementById('hasOtherDocument').checked,
+      documentsOther: val('documentsOther'),
+    };
+  }
+
+  /** 送信前の簡易チェック（最終チェックはサーバー側でも行う） */
+  function validateForm(f) {
+    var errors = [];
+    markInvalid('requesterName', !f.requesterName.trim());
+    markInvalid('lotNumber', !f.lotNumber.trim());
+    if (!f.requesterName.trim()) errors.push('依頼者名を入力してください。');
+    if (!f.lotNumber.trim()) errors.push('地番を入力してください。');
+    if (!f.zone) errors.push('市街化区域／調整区域を選択してください（不明な場合は「分からない」）。');
+    var area = f.area.replace(/[,，]/g, '').trim();
+    var badArea = area !== '' && (isNaN(Number(area)) || Number(area) < 0);
+    markInvalid('area', badArea);
+    if (badArea) errors.push('面積は0以上の数値で入力してください（単位：㎡）。');
+    return errors;
+  }
+
+  function markInvalid(id, invalid) {
+    document.getElementById(id).classList.toggle('invalid', invalid);
+  }
+
+  // ---------------------------------------------------------
+  // 概算見積のプレビュー
+  // ---------------------------------------------------------
+  function schedulePreview() {
+    clearTimeout(state.previewTimer);
+    state.previewTimer = setTimeout(requestPreview, 400);
+  }
+
+  function requestPreview() {
+    var seq = ++state.previewSeq; // 古い応答で上書きしないための通し番号
+    google.script.run
+      .withSuccessHandler(function (est) { if (seq === state.previewSeq) renderEstimate(est); })
+      .withFailureHandler(function () { /* プレビュー失敗は致命的でないため無視 */ })
+      .previewEstimate(collectForm());
+  }
+
+  function renderEstimate(est) {
+    document.getElementById('estimateTotal').textContent = est.ok ? yen(est.total) : '―';
+
+    var tbody = document.getElementById('estimateItems');
+    tbody.innerHTML = '';
+    (est.items || []).forEach(function (it) {
+      var tr = document.createElement('tr');
+      var td1 = document.createElement('td'); td1.textContent = it.label;
+      var td2 = document.createElement('td'); td2.textContent = yen(it.amount); td2.className = 'amount';
+      tr.appendChild(td1); tr.appendChild(td2);
+      tbody.appendChild(tr);
+    });
+
+    var ul = document.getElementById('estimateNotes');
+    ul.innerHTML = '';
+    (est.notes || []).forEach(function (n) {
+      var li = document.createElement('li'); li.textContent = n; ul.appendChild(li);
+    });
+  }
+
+  function yen(n) {
+    return '¥' + String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  // ---------------------------------------------------------
+  // 送信（保存／見積調査依頼）
+  // ---------------------------------------------------------
+  function submit(isRequest) {
+    var f = collectForm();
+    var errors = validateForm(f);
+    var errBox = document.getElementById('formErrors');
+    if (errors.length) {
+      errBox.textContent = errors.join('\n');
+      errBox.classList.remove('hidden');
+      return;
+    }
+    errBox.classList.add('hidden');
+
+    var msg = isRequest
+      ? '案件を保存し、担当行政書士へ見積調査依頼を通知します。よろしいですか？'
+      : '案件を保存します（通知はしません）。よろしいですか？';
+    if (!confirm(msg)) return;
+
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(function (res) { setBusy(false); onSubmitted(res, isRequest); })
+      .withFailureHandler(function (err) { setBusy(false); showResult('ng', '保存に失敗しました：\n' + err.message); })
+      .submitCase(f, isRequest);
+  }
+
+  function onSubmitted(res, isRequest) {
+    renderEstimate(res.estimate);
+    var lines = ['案件ID ' + res.id + ' として保存しました。'];
+    var type = 'ok';
+    if (isRequest) {
+      if (res.notified) {
+        lines.push('担当行政書士へ見積調査依頼を通知しました。担当者からの連絡をお待ちください。');
+      } else {
+        type = 'warn';
+        lines.push('※案件は保存されましたが、Chat への通知に失敗しました（' + res.notifyMessage + '）。');
+        lines.push('お手数ですが、担当者へ案件IDを直接お伝えください。');
+      }
+    }
+    showResult(type, lines.join('\n'), true);
+    document.getElementById('requestBtn').disabled = true;
+    document.getElementById('saveOnlyBtn').disabled = true;
+  }
+
+  /** 結果表示。withReset=true なら「新しい案件を入力」ボタンを付ける */
+  function showResult(type, text, withReset) {
+    var box = document.getElementById('resultBox');
+    box.className = 'result ' + type;
+    box.innerHTML = '';
+    var p = document.createElement('p');
+    p.style.whiteSpace = 'pre-line';
+    p.style.margin = '0';
+    p.textContent = text;
+    box.appendChild(p);
+    if (withReset) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'secondary';
+      btn.textContent = '新しい案件を入力する';
+      btn.addEventListener('click', resetForm);
+      box.appendChild(btn);
+    }
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function resetForm() {
+    document.getElementById('caseForm').reset();
+    document.getElementById('documentsOther').disabled = true;
+    onPrefectureChange();
+    document.getElementById('resultBox').classList.add('hidden');
+    document.getElementById('requestBtn').disabled = false;
+    document.getElementById('saveOnlyBtn').disabled = false;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    requestPreview();
+  }
+
+  function setBusy(busy) {
+    document.getElementById('loading').classList.toggle('hidden', !busy);
+    document.getElementById('requestBtn').disabled = busy;
+    document.getElementById('saveOnlyBtn').disabled = busy;
+  }
+</script>
