@@ -97,6 +97,7 @@ function getInitialData() {
     municipalities: MUNICIPALITIES,
     nogyoIinkai: NOGYO_IINKAI,
     noCityPlanningTax: NO_CITY_PLANNING_TAX,
+    fees: getFeeSettings_(), // 画面で概算見積を即時計算するための料金（見積設定シート）
     userEmail: getUserEmail_(),
     upload: { maxMb: MAX_UPLOAD_MB, mimeTypes: ALLOWED_MIME_TYPES },
   };
@@ -250,6 +251,12 @@ function summarizeLots_(lots) {
     localContacts: lots.map(function (l) { return contactsToText_(l.localContacts); })
       .filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('\n'),
   };
+}
+
+/** 金額の数値（数字以外・負数は0） */
+function numOrZero_(v) {
+  const n = Number(String(v === undefined || v === null ? '' : v).replace(/[,，円¥\s]/g, ''));
+  return isNaN(n) || n < 0 ? 0 : n;
 }
 
 /** 金額 → 「300,000円」（数字以外は空文字） */
@@ -431,6 +438,10 @@ function normalizeLot_(l, prefecture, master) {
       ? settlementText_(l.kairyoSettlementNote, pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits), areaText === '' ? null : Number(areaText)) : '',
     // 決済金とは別の手数料など（金額・内容）
     kairyoFee: benefitOn ? [yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／') : '',
+    // 見積（実費）の計算用の数値
+    settlementAmount: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? numOrZero_(l.kairyoSettlementNote) : 0,
+    settlementUnit: pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits) || '総額',
+    kairyoFeeAmount: benefitOn ? numOrZero_(l.kairyoFeeAmount) : 0,
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
     iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],
@@ -460,7 +471,8 @@ function normalizeLot_(l, prefecture, master) {
     drainConsent: drainOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
     drainName: drainConsentOn ? str_(l.drainName, 100) : '',
     drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',
-    drainFee: drainConsentOn ? str_(l.drainFee, 200) : '',
+    drainFee: drainConsentOn ? [yenText_(l.drainFeeAmount), str_(l.drainFeeNote, 100)].filter(String).join('／') : '',
+    drainFeeAmount: drainConsentOn ? numOrZero_(l.drainFeeAmount) : 0,
     drainLocalConsent: drainConsentOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
     drainContacts: drainLocalOn ? normalizeContacts_(l.drainContacts) : [],
   };

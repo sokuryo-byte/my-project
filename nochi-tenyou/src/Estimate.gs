@@ -74,7 +74,7 @@ function calculateEstimate_(input) {
     }
     const base = item(baseKey);
     if (input.trust) { // 信託手続きに付随する場合は農地転用の基本報酬を1.5倍
-      base.label += '（信託手続き付随 ×' + TRUST_MULTIPLIER + '）';
+      base.label += '（信託手続き付随）';
       base.amount = Math.round(base.amount * TRUST_MULTIPLIER);
     }
     items.push(base);
@@ -82,7 +82,7 @@ function calculateEstimate_(input) {
   // 調査実費（区域区分ごとに1回）
   zones.forEach(function (z) {
     const surveyKey = Object.keys(fees).filter(function (k) { return fees[k].surveyZone === z; })[0];
-    if (surveyKey && fees[surveyKey].amount > 0) items.push(item(surveyKey));
+    if (surveyKey && fees[surveyKey].amount > 0) items.push(cost(item(surveyKey)));
   });
   if (zones.length > 1) {
     notes.push('区域区分が異なるため、申請' + zones.length + '件として計算しています。');
@@ -114,15 +114,7 @@ function calculateEstimate_(input) {
       notes.push('土地改良区の受益地か未確認のため加算しています。該当しない場合は減額となります。');
     }
   }
-  lots.forEach(function (l, i) {
-    if (l.landImprovement === 'はい' && l.kairyoSettlement === '必要') {
-      notes.push(lotName(l, i) + '：地区除外決済金は実費のため見積に含みません' +
-        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + '。');
-    }
-    if (l.landImprovement === 'はい' && l.kairyoFee) {
-      notes.push(lotName(l, i) + '：土地改良区の手数料等は実費のため見積に含みません（' + l.kairyoFee + '）。');
-    }
-  });
+
 
   // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---
   const consentLots = lots.filter(function (l) {
@@ -148,10 +140,7 @@ function calculateEstimate_(input) {
         notes.push('排水承諾の要否が未確認のため加算しています。不要な場合は減額となります。');
       }
     }
-    bunkeLots.forEach(function (l) {
-      const i = lots.indexOf(l);
-      if (l.drainConsent === '必要' && l.drainFee) notes.push(lotName(l, i) + '：用水への手数料等は実費のため見積に含みません（' + l.drainFee + '）。');
-    });
+
   }
   lots.forEach(function (l, i) {
     // 現況利用と「既に転用済み」の食い違い
@@ -188,7 +177,11 @@ function calculateEstimate_(input) {
     notes.push('市街化区域外の場合は +' + formatYen_(fees.ADD_GENKYO.amount) + '（現況証明（非農地証明））が見込まれます。');
   }
 
+  // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
+  addActualCosts_(lots, items, notes);
+
   const total = items.reduce(function (sum, it) { return sum + it.amount; }, 0);
+  const costTotal = items.filter(function (it) { return it.kind === 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
   notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
   // 最後に：過去の転用届出・許可の履歴がある物件（新たな手続きが不要な場合がある）
   lots.forEach(function (l, i) {
@@ -198,14 +191,66 @@ function calculateEstimate_(input) {
     notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
       '。新たな手続きが不要な場合があります。');
   });
-  return { ok: true, total: total, items: items, notes: notes };
+  return { ok: true, total: total, feeTotal: total - costTotal, costTotal: costTotal, items: items, notes: notes };
+}
+
+/** 見積の行を「実費」にする */
+function cost(it) {
+  it.kind = 'cost';
+  return it;
+}
+
+/**
+ * 実費を見積に加える。
+ *  ・地区除外決済金：同じ土地改良区（名称が同じ）の受益地の物件をまとめ、単価 × 申請地の面積合計で計算（総額の場合はそのまま）
+ *  ・土地改良区の手数料等：土地改良区ごとに1回
+ *  ・用水の手数料（排水承諾）：用水ごとに1回
+ */
+function addActualCosts_(lots, items, notes) {
+  const groups = {};
+  lots.forEach(function (l) {
+    if (l.landImprovement !== 'はい' || l.kairyoBenefit !== '該当する') return;
+    const key = l.kairyoName || '土地改良区';
+    const g = groups[key] = groups[key] || { name: key, area: 0, noArea: false, amount: 0, unit: '', fee: 0 };
+    if (l.area > 0) g.area += l.area; else g.noArea = true;
+    if (!g.amount && l.settlementAmount > 0) { g.amount = l.settlementAmount; g.unit = l.settlementUnit; }
+    if (!g.fee && l.kairyoFeeAmount > 0) g.fee = l.kairyoFeeAmount;
+  });
+  Object.keys(groups).forEach(function (k) {
+    const g = groups[k];
+    if (g.amount > 0) {
+      if (g.unit === '総額') {
+        items.push(cost({ label: '地区除外決済金（' + g.name + '）', amount: Math.round(g.amount) }));
+      } else if (g.area > 0) {
+        const total = g.unit === '㎡あたり' ? g.amount * g.area : g.amount * g.area / 10000;
+        items.push(cost({ label: '地区除外決済金（' + g.name + '：' + (g.unit === '㎡あたり' ? '1㎡' : '1ha') + 'あたり' +
+          formatYen_(g.amount) + ' × 面積合計' + g.area + '㎡）', amount: Math.round(total) }));
+        if (g.noArea) notes.push('面積が未入力の物件があるため、地区除外決済金は入力済みの面積で計算しています。');
+      } else {
+        notes.push('面積が未入力のため、地区除外決済金（' + g.name + '）を計算できません。');
+      }
+    }
+    if (g.fee > 0) items.push(cost({ label: '土地改良区 手数料等（' + g.name + '）', amount: Math.round(g.fee) }));
+  });
+  const drains = {};
+  lots.forEach(function (l) {
+    if (l.drainConsent !== '必要' || !(l.drainFeeAmount > 0)) return;
+    const key = l.drainName || '用水';
+    if (!drains[key]) drains[key] = l.drainFeeAmount;
+  });
+  Object.keys(drains).forEach(function (k) {
+    items.push(cost({ label: '排水承諾 手数料等（' + k + '）', amount: Math.round(drains[k]) }));
+  });
 }
 
 /** 見積内訳をシート保存用の1つの文字列にする */
 function estimateToText_(estimate) {
   if (!estimate.ok) return estimate.notes.join('\n');
-  return estimate.items
-    .map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); })
+  const fees = estimate.items.filter(function (it) { return it.kind !== 'cost'; });
+  const costs = estimate.items.filter(function (it) { return it.kind === 'cost'; });
+  return ['【報酬】'].concat(fees.map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); }))
+    .concat(costs.length ? ['【実費】'].concat(costs.map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); })) : [])
+    .concat(['報酬 ' + formatYen_(estimate.feeTotal) + '／実費 ' + formatYen_(estimate.costTotal) + '／合計 ' + formatYen_(estimate.total)])
     .concat(estimate.notes.map(function (n) { return '※' + n; }))
     .join('\n');
 }

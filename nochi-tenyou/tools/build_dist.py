@@ -20,8 +20,23 @@ def read(name):
         return f.read()
 
 
+# 依頼画面で概算見積を即時計算するため、見積の計算に使う .gs を画面にも同梱する（送信時の計算と同じコード）
+ESTIMATE_LIB_GS = ['Config.gs', 'Estimate.gs', 'WebApp.gs']
+ESTIMATE_LIB_STUB = '''
+// ---- 画面用の差し替え（シートを読まず、画面を開いたときに受け取った値を使う） ----
+function getFeeSettings_() { return window.ESTIMATE_FEES_ || {}; }
+function getMasterList_() { return []; }
+function getUserEmail_() { return ''; }
+'''
+
+
+def estimate_lib():
+    return '<script>' + chr(10) + chr(10).join(read(n) for n in ESTIMATE_LIB_GS) + ESTIMATE_LIB_STUB + '</script>'
+
+
 def inline_includes(html):
-    return re.sub(r"<\?!= include\('(\w+)'\); \?>", lambda m: read(m.group(1) + '.html'), html)
+    return re.sub(r"<\?!= include\('(\w+)'\); \?>",
+                  lambda m: estimate_lib() if m.group(1) == 'EstimateLib' else read(m.group(1) + '.html'), html)
 
 
 def main():

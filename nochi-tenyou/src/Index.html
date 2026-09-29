@@ -4,6 +4,7 @@
   <base target="_top">
   <meta charset="UTF-8">
   <?!= include('Stylesheet'); ?>
+  <?!= include('EstimateLib'); ?>
 </head>
 <body>
 <div class="wrap">
@@ -37,7 +38,6 @@
         <div class="field">
           <span class="lbl">信託手続き</span>
           <label style="font-weight:400;display:inline-flex;gap:6px;align-items:center;min-height:40px"><input type="checkbox" id="trust"> 信託手続きに付随する依頼</label>
-          <p class="help">※ 農地転用の基本報酬が1.5倍になります</p>
         </div>
       </div>
     </section>
@@ -98,7 +98,7 @@
     <p id="formErrors" class="errors hidden" role="alert"></p>
     <div class="main">
       <div class="total">
-        <small>概算見積金額（税込・目安）</small>
+        <small>概算見積（報酬＋実費・目安）</small>
         <strong id="estimateTotal">―</strong>
         <button type="button" class="linkbtn" id="toDetail">内訳を見る</button>
       </div>

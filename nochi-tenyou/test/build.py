@@ -56,7 +56,9 @@ submitCase({ requesterName: '田中 一郎', prefecture: '愛知県', plan: '自
 
 def page(name, seed=''):
     html = read(os.path.join(SRC, name + '.html'))
-    html = re.sub(r"<\?!= include\('(\w+)'\); \?>", lambda m: read(os.path.join(SRC, m.group(1) + '.html')), html)
+    # EstimateLib（見積の計算コード）は、テストではページ内の .gs がそのまま使えるので空にする
+    html = re.sub(r"<\?!= include\('(\w+)'\); \?>",
+                  lambda m: '' if m.group(1) == 'EstimateLib' else read(os.path.join(SRC, m.group(1) + '.html')), html)
     html = html.replace('<?= initialId ?>', '')
     stub = '<script>' + read(os.path.join(HERE, 'mocks.js')) + '\n' + gs_code() + '\n' + RUN_STUB + seed + '</script>'
     return html.replace('<head>', '<head>' + stub, 1)

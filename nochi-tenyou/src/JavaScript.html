@@ -3,7 +3,7 @@
    * 依頼画面の処理
    *  ・物件（1筆＝1カード）を複数入力できる。カードの追加・引き継ぎ追加・削除
    *  ・謄本をドラッグ → アップロード → サーバーで読み取り → 空欄だけに入れて黄色で表示（要確認）
-   *  ・入力のたびに概算見積をサーバーで再計算して表示（計算は Estimate.gs のみ）
+   *  ・入力のたびに概算見積を画面で即時計算して表示（計算コードは Estimate.gs を画面にも同梱）
    *  ・資料ファイルのドラッグ＆ドロップ → 即アップロード（Drive の一時フォルダ）
    *  ・送信（確認画面なし・ボタンを押したらすぐ送信）
    */
@@ -54,6 +54,7 @@
     state.municipalities = data.municipalities || {};
     state.nogyoIinkai = data.nogyoIinkai || {};
     state.noCityPlanningTax = data.noCityPlanningTax || {};
+    if (data.fees) window.ESTIMATE_FEES_ = data.fees;
     state.options = data.options;
     state.farmlandUses = data.farmlandUses || [];
     state.upload = data.upload;
@@ -111,6 +112,7 @@
         else if (e.target.name === radioName(lot, 'isNoshin')) lot.removeAttribute('data-noshin-auto'); // 人が選んだ値は以後触らない
       }
       if (lot) { updateCallBox(lot); updateConvertedWarn(lot); }         // 選択に合わせて電話確認・注意表示を更新
+      if (lot && ['area', 'kairyoName'].indexOf(e.target.getAttribute('data-f')) >= 0) qsa('.lot').forEach(updateCallBox); // 決済金の面積合計
     }
     updatePlanRequired();
     schedulePreview();
@@ -300,7 +302,8 @@
       setRadio(card, 'drainConsent', inherit.drainConsent);
       lotInput(card, 'drainName').value = inherit.drainName || '';
       lotInput(card, 'drainTel').value = inherit.drainTel || '';
-      lotInput(card, 'drainFee').value = inherit.drainFee || '';
+      lotInput(card, 'drainFeeAmount').value = inherit.drainFeeAmount || '';
+      lotInput(card, 'drainFeeNote').value = inherit.drainFeeNote || '';
       setRadio(card, 'drainLocalConsent', inherit.drainLocalConsent);
       setContacts(card, 'drainContacts', inherit.drainContacts);
       applyNoshinDefault(card);
@@ -408,7 +411,8 @@
       drainConsent: getRadio(card, 'drainConsent'),
       drainName: lotInput(card, 'drainName').value,
       drainTel: lotInput(card, 'drainTel').value,
-      drainFee: lotInput(card, 'drainFee').value,
+      drainFeeAmount: lotInput(card, 'drainFeeAmount').value,
+      drainFeeNote: lotInput(card, 'drainFeeNote').value,
       drainLocalConsent: getRadio(card, 'drainLocalConsent'),
       drainContacts: getContacts(card, 'drainContacts'),
       readFromTohon: card.getAttribute('data-tohon') === '1'
@@ -607,7 +611,13 @@
     h3b.appendChild(el('a', { 'class': 'tel drain-tel hidden' }));
     s3b.appendChild(h3b);
     s3b.appendChild(el('div', { 'class': 'script script3b' }));
-    s3b.appendChild(field('手数料（負担金）の金額・備考', el('input', { type: 'text', id: id('drainFee'), maxlength: '200', placeholder: '例）○万円／なし など', 'data-f': 'drainFee' })));
+    var dfBox = el('div', { 'class': 'inline-inputs' });
+    dfBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('drainFeeAmount'), 'data-f': 'drainFeeAmount', style: 'width:11em;text-align:right', 'aria-label': '手数料（負担金）の金額' }));
+    dfBox.appendChild(el('span', {}, '円'));
+    var dfNote = el('input', { type: 'text', id: id('drainFeeNote'), maxlength: '100', placeholder: '内容（例：排水負担金）', 'data-f': 'drainFeeNote', 'aria-label': '手数料の内容' });
+    dfNote.style.flex = '1'; dfNote.style.minWidth = '12em';
+    dfBox.appendChild(dfNote);
+    s3b.appendChild(field('手数料（負担金）', dfBox.firstChild, null, false, dfBox));
     var dl = el('div', { 'class': 'choices' });
     renderChoices(dl, id('drainLocalConsent'), o.localConsent);
     s3b.appendChild(radioField('地元承諾（押印）', dl));
@@ -813,10 +823,10 @@
     // 単価のときは面積から概算の総額を表示
     var sAmt = Number(lotInput(card, 'kairyoSettlementNote').value);
     var sUnit = lotInput(card, 'kairyoSettlementUnit').value;
-    var sArea = Number(String(lotInput(card, 'area').value).replace(/[,，]/g, ''));
+    var sArea = kairyoAreaTotal(lotInput(card, 'kairyoName').value.trim() || '土地改良区');
     var calc = card.querySelector('.settle-calc');
     calc.textContent = sAmt > 0 && sUnit !== '総額' && sArea > 0
-      ? '→ ' + sArea + '㎡で約' + String(Math.round(sUnit === '㎡あたり' ? sAmt * sArea : sAmt * sArea / 10000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円'
+      ? '→ 申請地の面積合計 ' + sArea + '㎡で約' + String(Math.round(sUnit === '㎡あたり' ? sAmt * sArea : sAmt * sArea / 10000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円'
       : (sUnit !== '総額' && !(sArea > 0) ? '※ 面積を入力すると概算の総額を表示します' : '');
     var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
     telLink(card.querySelector('.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
@@ -847,6 +857,16 @@
     var w = card.querySelector('.conv-warn');
     w.textContent = msg;
     w.classList.toggle('hidden', !msg);
+  }
+
+  /** 同じ土地改良区（名称）で受益地に該当する物件の面積（登記地積）の合計 */
+  function kairyoAreaTotal(name) {
+    return qsa('.lot').reduce(function (sum, c) {
+      if (getRadio(c, 'landImprovement') !== 'はい' || getRadio(c, 'kairyoBenefit') !== '該当する') return sum;
+      if ((lotInput(c, 'kairyoName').value.trim() || '土地改良区') !== name) return sum;
+      var a = Number(String(lotInput(c, 'area').value).replace(/[,，]/g, ''));
+      return sum + (a > 0 ? a : 0);
+    }, 0);
   }
 
   /** 「○○町字△△ 123番1」→ { place: '○○町字△△', lotNumber: '123番1' } */
@@ -1170,10 +1190,14 @@
   // ---------------------------------------------------------
   function schedulePreview() {
     clearTimeout(state.previewTimer);
-    state.previewTimer = setTimeout(requestPreview, 400);
+    state.previewTimer = setTimeout(requestPreview, 120); // 画面内で計算するので短い間隔で十分
   }
 
   function requestPreview() {
+    // 見積の計算コード（Estimate.gs と同じもの）が画面にあれば、その場で計算する（サーバーへの問い合わせ不要）
+    if (typeof calculateEstimate_ === 'function' && typeof normalizeInput_ === 'function') {
+      try { renderEstimate(calculateEstimate_(normalizeInput_(collectForm()))); return; } catch (e) { /* 失敗したらサーバーで計算 */ }
+    }
     var seq = ++state.previewSeq; // 古い応答で上書きしないための通し番号
     google.script.run
       .withSuccessHandler(function (est) { if (seq === state.previewSeq) renderEstimate(est); })
@@ -1185,18 +1209,22 @@
     $('estimateTotal').textContent = est.ok ? yen(est.total) : '―';
     var tbody = $('estimateItems');
     tbody.innerHTML = '';
-    (est.items || []).forEach(function (it) {
-      var tr = el('tr');
-      tr.appendChild(el('td', {}, it.label));
-      tr.appendChild(el('td', {}, yen(it.amount)));
+    var row = function (label, amount, cls) {
+      var tr = el('tr', cls ? { 'class': cls } : {});
+      tr.appendChild(el('td', {}, label));
+      tr.appendChild(el('td', {}, amount === null ? '' : yen(amount)));
       tbody.appendChild(tr);
-    });
-    if (est.ok) {
-      var sum = el('tr', { 'class': 'sum' });
-      sum.appendChild(el('td', {}, '合計'));
-      sum.appendChild(el('td', {}, yen(est.total)));
-      tbody.appendChild(sum);
-    }
+    };
+    var items = est.items || [];
+    var fees = items.filter(function (it) { return it.kind !== 'cost'; });
+    var costs = items.filter(function (it) { return it.kind === 'cost'; });
+    if (fees.length) row('報酬', null, 'group');
+    fees.forEach(function (it) { row(it.label, it.amount); });
+    if (est.ok && costs.length) row('報酬 小計', est.feeTotal, 'sub');
+    if (costs.length) row('実費', null, 'group');
+    costs.forEach(function (it) { row(it.label, it.amount); });
+    if (est.ok && costs.length) row('実費 小計', est.costTotal, 'sub');
+    if (est.ok) row('合計', est.total, 'sum');
     var ul = $('estimateNotes');
     ul.innerHTML = '';
     (est.notes || []).forEach(function (n) { ul.appendChild(el('li', {}, n)); });

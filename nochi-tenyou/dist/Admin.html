@@ -62,6 +62,8 @@
   }
   input[type=text], input[type=tel], input[type=number], input[type=date], select { height: 40px; line-height: 1.4; }
   textarea { resize: vertical; } /* 広げるのは縦方向だけ */
+  table.breakdown tr.group td { font-weight: 700; color: var(--accent); padding-top: 10px; border-bottom: none; }
+  table.breakdown tr.sub td { color: var(--muted); font-size: .85rem; }
   .inline-inputs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .inline-inputs input[type=number] { width: 5.5em; text-align: right; }
   .inline-inputs input[type=date] { width: 11em; } /* テキスト欄とプルダウンの高さをそろえる */
