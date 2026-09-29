@@ -17,6 +17,7 @@
 /** Webアプリの入口 */
 function doGet(e) {
   ensureSetup_();
+  runMigrations_();
   const params = (e && e.parameter) || {};
   if (params.page === 'admin') {
     if (!isAdmin_()) {
@@ -49,6 +50,32 @@ function ensureSetup_() {
   lock.waitLock(30 * 1000);
   try {
     if (!getSpreadsheet_().getSheetByName(SHEET_NAMES.CASES)) setupSpreadsheet();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * デプロイ後に1回だけ行う更新（画面が開かれたときに実行）。
+ *  ・料金表の改定：FEE_TABLE_VERSION が変わったら「見積設定」シートを DEFAULT_FEES の値で上書き
+ */
+function runMigrations_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('FEE_TABLE_VERSION') === FEE_TABLE_VERSION) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30 * 1000);
+  try {
+    if (props.getProperty('FEE_TABLE_VERSION') !== FEE_TABLE_VERSION) { // 他の人が先に実行していないか再確認
+      const sheet = getOrCreateSheet_(getSpreadsheet_(), SHEET_NAMES.FEES);
+      ensureHeaders_(sheet, FEE_HEADERS);
+      addMissingFeeRows_(sheet);
+      const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
+      DEFAULT_FEES.forEach(function (d) {
+        const i = keys.indexOf(d.key);
+        if (i >= 0) sheet.getRange(i + 2, 2, 1, 3).setValues([[d.label, d.amount, d.note]]);
+      });
+      props.setProperty('FEE_TABLE_VERSION', FEE_TABLE_VERSION);
+    }
   } finally {
     lock.releaseLock();
   }
