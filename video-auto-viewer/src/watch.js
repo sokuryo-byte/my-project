@@ -1,6 +1,6 @@
 // 自動視聴テスト本体。
-// 画面操作のみで「動画を選ぶ → 等倍で再生 → 80%到達を待つ → タグ/コメント入力 → 視聴登録」を行う。
-// アプリのAPIを直接呼んだり、再生速度・シーク位置・計測値を操作したりはしない（ブラックボックス試験）。
+// 画面操作のみで「動画を選ぶ → 指定速度で再生 → 80%到達を待つ → タグ/コメント入力 → 視聴登録」を行う。
+// アプリのAPIを直接呼んだり、シーク位置・計測値を操作したりはしない（ブラックボックス試験）。
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -18,8 +18,10 @@ const TAGS = [
 const { values: opts } = parseArgs({
   options: {
     count: { type: 'string', default: '1' },
-    tag: { type: 'string', multiple: true, default: ['基本を確認できた'] },
-    comment: { type: 'string', default: '【自動視聴テスト】' },
+    tag: { type: 'string', multiple: true, default: [] },
+    comment: { type: 'string', default: '' },
+    'comments-file': { type: 'string' },
+    rate: { type: 'string', default: '2' },
     video: { type: 'string' },
     'max-minutes': { type: 'string', default: '40' },
     'dry-run': { type: 'boolean', default: false },
@@ -31,9 +33,11 @@ const { values: opts } = parseArgs({
 if (opts.help) {
   console.log(`使い方: npm run watch -- [オプション]
   --count N          視聴登録する本数（既定 1）
-  --tag タグ          付けるタグ。複数指定可（既定「基本を確認できた」）
+  --rate 倍率         再生速度（既定 2。YouTubeの選択肢 0.25〜2 の範囲）
+  --tag タグ          付けるタグ。複数指定可（既定 なし）
                      選択肢: ${TAGS.join(' / ')}
-  --comment 文字列    自由コメント（既定「【自動視聴テスト】」、"" で無し）
+  --comment 文字列    自由コメント（全動画共通）
+  --comments-file パス 1行1コメントのテキストファイル。動画ごとに順番に使う
   --video 文字列      タイトルにこの文字列を含む動画だけを対象にする
   --max-minutes N    これより長い動画はスキップ（既定 40 分）
   --dry-run          80%到達まで確認し、「視聴登録する」は押さない
@@ -44,11 +48,19 @@ if (opts.help) {
 const count = Number(opts.count);
 const maxSeconds = Number(opts['max-minutes']) * 60;
 const tags = opts.tag.filter(Boolean);
-const comment = opts.comment.trim();
+const rate = Number(opts.rate);
+if (!(rate > 0 && rate <= 2)) throw new Error('--rate は 0 より大きく 2 以下で指定してください。');
+const comments = opts['comments-file']
+  ? fs.readFileSync(opts['comments-file'], 'utf8').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  : [opts.comment.trim()].filter(Boolean);
+const commentFor = (i) => (comments.length ? comments[i % comments.length] : '');
 for (const t of tags) {
   if (!TAGS.includes(t)) throw new Error(`不明なタグ: ${t}（選択肢: ${TAGS.join(' / ')}）`);
 }
-if (tags.length === 0 && !comment) throw new Error('--tag か --comment のどちらかは必要です。');
+// アプリ側の仕様で、タグかコメントのどちらかが無いと登録できない
+if (tags.length === 0 && comments.length === 0) {
+  throw new Error('タグを付けない場合は --comment か --comments-file でコメントを指定してください。');
+}
 
 const runId = new Date().toISOString().replace(/[:.]/g, '-');
 const runDir = path.join(REPORT_DIR, runId);
@@ -83,6 +95,20 @@ async function clickPlay(page) {
   if (paused) await frame.locator('video').click().catch(() => {});
 }
 
+// YouTube埋め込みプレーヤー自身のAPIで再生速度を設定する（アプリが読む getPlaybackRate() と一致させるため）
+async function applyRate(page) {
+  const frame = page.frames().find((f) => /youtube(-nocookie)?\.com\/embed\//.test(f.url()));
+  if (!frame) return null;
+  return frame
+    .evaluate((r) => {
+      const player = document.getElementById('movie_player');
+      if (!player?.setPlaybackRate) return null;
+      if (player.getPlaybackRate() !== r) player.setPlaybackRate(r);
+      return player.getPlaybackRate();
+    }, rate)
+    .catch(() => null);
+}
+
 async function pickVideo(page, attempted) {
   await page.locator('.video-grid').waitFor({ timeout: 30_000 });
   const cards = page.locator('.video-card:not(.is-watched)');
@@ -109,8 +135,8 @@ async function watchOne(page, { card, title, duration }) {
   await card.locator('.video-card__button').click();
   await page.locator('.player-host iframe').waitFor({ timeout: 60_000 });
 
-  // 80%分の等倍再生 + 余裕を持たせたタイムアウト
-  const deadline = Date.now() + (duration * 0.8 + 600) * 1000 * 1.5;
+  // 80%分の再生時間 + 余裕を持たせたタイムアウト
+  const deadline = Date.now() + ((duration * 0.8) / rate + 600) * 1000 * 1.5;
   let lastWatched = -1;
   let stalledSince = Date.now();
   let lastLog = 0;
@@ -119,6 +145,7 @@ async function watchOne(page, { card, title, duration }) {
     const err = await page.locator('.player-page .alert--error').innerText().catch(() => '');
     if (err) throw new Error(`プレーヤーエラー: ${err}`);
 
+    const currentRate = await applyRate(page);
     const p = await readProgress(page);
     if (p.status === '視聴を記録できます') {
       log(`  80%到達: ${p.hint}`);
@@ -134,7 +161,7 @@ async function watchOne(page, { card, title, duration }) {
       stalledSince = Date.now();
     }
     if (Date.now() - lastLog > 60_000) {
-      log(`  ${p.status || '準備中'} ${p.hint}`);
+      log(`  ${p.status || '準備中'} ${p.hint} 速度 ${currentRate ?? '-'}x`);
       lastLog = Date.now();
     }
     if (Date.now() > deadline) throw new Error(`タイムアウト（${p.hint}）`);
@@ -151,6 +178,7 @@ async function watchOne(page, { card, title, duration }) {
   }
 
   for (const t of tags) await page.getByRole('button', { name: t, exact: true }).click();
+  const comment = commentFor(results.length);
   if (comment) await page.locator('.comment-input').fill(comment);
   await page.getByRole('button', { name: '視聴登録する' }).click();
 
@@ -168,7 +196,7 @@ async function watchOne(page, { card, title, duration }) {
   const monthly = await page.locator('.monthly-card strong').innerText().catch(() => '');
   log(`  ✓ ${message}（今月の動画視聴数: ${monthly}）`);
   await page.screenshot({ path: path.join(runDir, `${results.length + 1}-registered.png`), fullPage: true });
-  return { ...result, registered: true, message, monthlyCount: monthly };
+  return { ...result, rate, comment, registered: true, message, monthlyCount: monthly };
 }
 
 const context = await launch({ headless: !opts.headed });
@@ -184,7 +212,7 @@ try {
   }
   const user = await page.locator('.app-header h1').innerText();
   const before = await page.locator('.monthly-card strong').innerText();
-  log(`ログイン中: ${user} / 今月の動画視聴数: ${before} / 目標本数: ${count}`);
+  log(`ログイン中: ${user} / 今月の動画視聴数: ${before} / 目標本数: ${count} / 速度: ${rate}x`);
 
   const attempted = new Set();
   let done = 0;
