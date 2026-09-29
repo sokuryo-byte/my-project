@@ -97,7 +97,7 @@ const DEFAULT_FEES = [
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区 地区除外手続き 加算', amount: 50000,
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算' },
   { key: 'ADD_WATER_ASSOCIATION', label: '地元同意書（自治会・水利組合等）取得 加算', amount: 30000,
-    note: '地元関係者の同意（押印）「はい」または「分からない」の場合に加算' },
+    note: '土地改良区に確認した地元関係者の同意（押印）が「必要」「未確認」、または土地改良区が「分からない」物件がある場合に加算' },
   { key: 'ADD_ALREADY_CONVERTED', label: '現況是正・事後手続き（始末書等）加算', amount: 50000,
     note: '許可の区域（市街化調整・非線引き）で、既に転用済み「はい」または現況が駐車場・宅地・資材置場の物件がある場合に加算（届出では不要）' },
   { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
@@ -134,6 +134,9 @@ const MAX_LOTS = 30;
 
 /** 物件所在地の都道府県の初期値（プルダウンの先頭に表示） */
 const DEFAULT_PREFECTURE = '愛知県';
+
+/** 委員・地元関係者の連絡先を1物件あたり何人まで入力できるか */
+const MAX_CONTACTS = 5;
 
 /**
  * 農業委員会の問い合わせ先（土地改良区の確認電話用）。各市町村の公式サイトで確認した番号。
@@ -312,6 +315,7 @@ const FORM_OPTIONS = {
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
+  localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
   chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
   landUses: ['耕作中', '休耕・荒地', '駐車場', '宅地', '資材置場', 'その他'],
   documents: ['謄本', '公図', '住宅地図', '課税明細', 'その他'],
@@ -360,7 +364,7 @@ const CASE_COLUMNS = [
   { key: 'adminMemo', header: '対応メモ' },
   { key: 'updatedAt', header: '最終更新' },
   { key: 'lotCount', header: '物件数（筆）' },
-  { key: 'localConsentNote', header: '同意が必要な相手' },
+  { key: 'localConsentNote', header: '同意が必要な方（氏名／住所／電話）' },
 ];
 
 /**
@@ -387,8 +391,9 @@ const LOT_COLUMNS = [
   { key: 'kairyoSettlement', header: '地区除外決済金' },
   { key: 'kairyoSettlementNote', header: '決済金（金額・備考）' },
   { key: 'iinStamp', header: '農業委員・推進委員の押印' },
-  { key: 'iinName', header: '委員 氏名' },
-  { key: 'iinContact', header: '委員 連絡先' },
+  { key: 'iinContacts', header: '委員（氏名／住所／電話）' },
+  { key: 'localConsent', header: '地元関係者の同意（押印）' },
+  { key: 'localContacts', header: '同意が必要な方（氏名／住所／電話）' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */

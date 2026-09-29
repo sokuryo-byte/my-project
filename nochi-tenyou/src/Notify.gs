@@ -60,11 +60,14 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
         (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''));
     }
     if (l.iinStamp === '必要') {
-      lines.push('　　農業委員等の押印：必要（' + [l.iinName, l.iinContact].filter(String).join('・') + '）');
+      lines.push('　　農業委員等の押印：必要');
+      (l.iinContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
+    }
+    if (l.localConsent) {
+      lines.push('　　地元関係者の同意（押印）：' + l.localConsent);
+      (l.localContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
     }
   });
-  lines.push('地元関係者の同意（押印）：' + (input.waterAssociation || '-') +
-    (input.localConsentNote ? '（' + input.localConsentNote + '）' : ''));
   lines.push(
     '概算見積金額：' + (estimate.ok ? formatYen_(estimate.total) : '算出不可'),
     '資料：' + (input.documents.join('、') || 'なし'),

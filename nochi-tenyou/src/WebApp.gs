@@ -132,8 +132,8 @@ function submitCase(form, requestInvestigation) {
     estimate: estimate.ok ? estimate.total : '',
     requestFlag: isRequest,
     prefecture: input.prefecture,
-    waterAssociation: input.waterAssociation,
-    localConsentNote: input.localConsentNote,
+    waterAssociation: summary.localConsent,
+    localConsentNote: summary.localContacts,
     estimateDetail: estimateToText_(estimate),
     submittedBy: input.submittedBy,
     notifyResult: isRequest ? '送信中' : '通知なし（保存のみ）',
@@ -148,7 +148,8 @@ function submitCase(form, requestInvestigation) {
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
       kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit,
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
-      iinStamp: l.iinStamp, iinName: l.iinName, iinContact: l.iinContact,
+      iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
+      localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
     };
   }));
@@ -206,7 +207,24 @@ function summarizeLots_(lots) {
     isConverted: triState('isConverted'),
     landImprovement: any('landImprovement', 'はい') ? 'はい' : any('landImprovement', '分からない') ? '分からない' : uniq('landImprovement'),
     municipality: uniq('municipality'),
+    // 地元関係者の同意（土地改良区に確認）：必要 ＞ 未確認 ＞ 不要
+    localConsent: any('localConsent', '必要') ? '必要' : any('localConsent', '未確認') ? '未確認' : uniq('localConsent'),
+    localContacts: lots.map(function (l) { return contactsToText_(l.localContacts); })
+      .filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('\n'),
   };
+}
+
+/** 連絡先の配列 → 「氏名／住所／電話」を1行ずつ並べた文字列 */
+function contactsToText_(list) {
+  return (list || []).map(function (c) { return [c.name, c.address, c.tel].join('／'); }).join('\n');
+}
+
+/** 画面から受け取った連絡先（氏名・住所・電話）を整える。空行は除き、最大 MAX_CONTACTS 件 */
+function normalizeContacts_(list) {
+  return (Array.isArray(list) ? list : [])
+    .map(function (c) { return { name: str_(c && c.name, 50), address: str_(c && c.address, 100), tel: str_(c && c.tel, 20) }; })
+    .filter(function (c) { return c.name || c.address || c.tel; })
+    .slice(0, MAX_CONTACTS);
 }
 
 // ------------------------------------------------------------
@@ -238,17 +256,12 @@ function normalizeInput_(form) {
     .filter(function (a) { return a.fileId && a.docType; })
     .slice(0, 50);
 
-  // 資料 ＝ ファイルをアップロードした種別 ＋「紙のみ（後日提出）」にチェックした種別（後者は「（紙）」を付けて記録）
+  // 資料 ＝ ファイルをアップロードした種別
   const uploaded = attachments.map(function (a) { return a.docType; });
-  const paper = (Array.isArray(f.documents) ? f.documents : [])
-    .map(function (d) { return pick_(d, FORM_OPTIONS.documents); });
   const docsOther = str_(f.documentsOther, 100);
   const documents = FORM_OPTIONS.documents
-    .filter(function (d) { return uploaded.indexOf(d) >= 0 || paper.indexOf(d) >= 0; })
-    .map(function (d) {
-      const name = d === 'その他' && docsOther ? 'その他（' + docsOther + '）' : d;
-      return uploaded.indexOf(d) >= 0 ? name : name + '（紙）';
-    });
+    .filter(function (d) { return uploaded.indexOf(d) >= 0; })
+    .map(function (d) { return d === 'その他' && docsOther ? 'その他（' + docsOther + '）' : d; });
 
   const master = getMasterList_();
   const lots = (Array.isArray(f.lots) ? f.lots : [])
@@ -260,8 +273,6 @@ function normalizeInput_(form) {
     prefecture: prefecture,
     lots: lots,
     plan: str_(f.plan, 1000),
-    waterAssociation: pick_(f.waterAssociation, FORM_OPTIONS.yesNoUnknown),
-    localConsentNote: pick_(f.waterAssociation, FORM_OPTIONS.yesNoUnknown) === 'はい' ? str_(f.localConsentNote, 300) : '',
     documents: documents,
     attachments: attachments,
     submittedBy: getUserEmail_(),
@@ -306,8 +317,10 @@ function normalizeLot_(l, prefecture, master) {
     kairyoSettlementNote: kairyoOn ? str_(l.kairyoSettlementNote, 200) : '',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
     iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
-    iinName: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? str_(l.iinName, 100) : '',
-    iinContact: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? str_(l.iinContact, 100) : '',
+    iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],
+    // 地元関係者の同意（土地改良区へ確認。「必要」のときだけ氏名・住所・電話を保存）
+    localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
+    localContacts: kairyoOn && pick_(l.localConsent, FORM_OPTIONS.localConsent) === '必要' ? normalizeContacts_(l.localContacts) : [],
   };
 }
 

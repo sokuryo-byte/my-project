@@ -64,17 +64,11 @@
 
     <!-- ===================== STEP 3 計画 ===================== -->
     <section>
-      <h2><span class="step">STEP 3</span>計画・関係者</h2>
+      <h2><span class="step">STEP 3</span>計画</h2>
       <div class="field">
         <label for="plan">今後の転用計画<span class="req hidden" id="planReq">必須</span></label>
         <textarea id="plan" rows="3" maxlength="1000" placeholder="例）自己用住宅の建築、月極駐車場として貸したい、売却予定 など"></textarea>
         <p class="help">現況が農地の場合は必須</p>
-      </div>
-      <div class="field">
-        <span class="lbl">地元関係者の同意（押印）が必要か</span>
-        <p class="help">自治会長・水利組合・農事組合・地元の委員や理事など、事前の説明や同意書への押印が必要な方がいるか。</p>
-        <div class="choices" id="waterAssociationChoices"></div>
-        <input type="text" id="localConsentNote" class="hidden" maxlength="300" placeholder="分かれば相手をご記入ください（例：○○自治会長、○○水利組合）" aria-label="同意が必要な相手">
       </div>
     </section>
 
@@ -82,7 +76,7 @@
     <section>
       <h2><span class="step">STEP 4</span>資料</h2>
       <div class="field">
-        <p class="help" id="uploadHelp">各枠へドラッグまたはクリックで添付してください。データがなく紙でお持ちの資料は「紙のみ（後日提出）」にチェックしてください。</p>
+        <p class="help" id="uploadHelp">お手元にデータがあれば、各枠へドラッグまたはクリックで添付してください。</p>
         <div class="docs" id="docs"></div>
       </div>
     </section>

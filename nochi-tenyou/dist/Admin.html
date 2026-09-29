@@ -42,6 +42,12 @@
   .callbox .script { margin: 0; padding: 6px 10px; background: var(--surface); border-radius: 4px; border: 1px dashed var(--line); line-height: 1.7; }
   .callbox .script p { margin: 0; }
   .callbox .step1 { display: grid; gap: 8px; }
+  .contacts { display: grid; gap: 6px; }
+  .contact-rows { display: grid; gap: 6px; }
+  .contact-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr) 32px; gap: 6px; align-items: center; }
+  .contact-del { height: 32px; width: 32px; border: 1px solid var(--line); background: var(--surface); border-radius: 5px; cursor: pointer; color: var(--muted); }
+  .contacts .linkbtn { justify-self: start; }
+  @media (max-width: 560px) { .contact-row { grid-template-columns: minmax(0, 1fr) 32px; } .contact-row input { grid-column: 1; } .contact-row .contact-del { grid-column: 2; grid-row: 1; } }
   .callbox .step2 { display: grid; gap: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
   .row.row-addr { grid-template-columns: minmax(140px, 1fr) minmax(0, 2.4fr); }
   @media (max-width: 560px) { .row.row-addr { grid-template-columns: minmax(0, 1fr); } }
@@ -417,7 +423,8 @@
          boolText(l.isNoshin), l.landUse, boolText(l.isConverted), l.landImprovement,
          [l.kairyoName, l.kairyoTel, l.kairyoBenefit && '受益地:' + l.kairyoBenefit,
           l.kairyoSettlement && '決済金:' + l.kairyoSettlement + (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''),
-          l.iinStamp === '必要' && '委員押印:必要（' + [l.iinName, l.iinContact].filter(String).join('・') + '）']
+          l.iinStamp === '必要' && '委員押印:必要' + (l.iinContacts ? '\n' + l.iinContacts : ''),
+          l.localConsent && '地元同意:' + l.localConsent + (l.localContacts ? '\n' + l.localContacts : '')]
            .filter(function (x) { return x; }).join('\n')].forEach(function (v, i) {
           tr.appendChild(el('td', i === 1 || i === 9 ? { 'class': 'loc', style: 'white-space:pre-line' } : {}, v === '' || v === undefined ? '―' : v));
         });
@@ -433,7 +440,7 @@
     [
       ['受付日時', c.receivedAt], ['入力者', c.submittedBy], ['依頼種別', c.requestFlag === true ? '見積調査依頼' : '保存のみ'],
       ['都道府県', c.prefecture], ['面積合計', c.area === '' ? '―' : c.area + ' ㎡'],
-      ['今後の転用計画', c.plan], ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(String).join('：')],
+      ['今後の転用計画', c.plan], ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(String).join('\n')],
       ['資料', c.documents], ['概算見積', yen(c.estimate)], ['見積内訳', c.estimateDetail],
       ['Chat通知', c.notifyResult], ['最終更新', c.updatedAt]
     ].forEach(function (kv) {
