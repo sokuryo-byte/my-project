@@ -816,9 +816,10 @@
   /** 都市計画税を課していない市町村では、課税明細書による区域の目安が使えない旨を出す */
   function updateTaxNote(card) {
     var city = lotInput(card, 'municipality').value.trim();
-    var list = state.noCityPlanningTax[$('prefecture').value] || [];
+    var map = state.noCityPlanningTax[$('prefecture').value] || {};
     var note = card.querySelector('.tax-note');
-    note.textContent = list.indexOf(city) >= 0 ? '※ ' + city + 'は都市計画税を課していないため、課税明細書では区域を判断できません。都市計画図でご確認ください。' : '';
+    note.textContent = Object.prototype.hasOwnProperty.call(map, city)
+      ? '※ ' + city + 'は都市計画税を課していないため' + map[city] + '、課税明細書では区域を判断できません。都市計画図でご確認ください。' : '';
     note.classList.toggle('hidden', !note.textContent);
   }
 
