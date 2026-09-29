@@ -70,7 +70,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
     }
     if (l.jogaiKanou || l.hojoKuiki || l.jogaiJisseki || l.jogaiUketsuke) {
       lines.push('　　農振除外の見込み：' + (l.jogaiKanou || '-') + '／ほ場整備等 ' + (l.hojoKuiki || '-') + (l.hojo8nen ? '（8年' + l.hojo8nen + '）' : '') +
-        '／近隣の除外実績 ' + (l.jogaiJisseki || '-') + (l.jogaiUketsuke ? '／受付期間 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''));
+        '／近隣の除外実績 ' + (l.jogaiJisseki || '-') + (l.jogaiUketsuke ? '／受付 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''));
     }
     if (l.tenyoUketsuke) lines.push('　　農地転用の受付：' + l.tenyoUketsuke);
     if (l.drainConsent || l.drainAdjacent) {

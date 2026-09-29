@@ -260,6 +260,23 @@ function rangeText_(a, b) {
   return a || b ? (a || '') + '～' + (b || '') : '';
 }
 
+/** 農地転用の受付：「毎月1日～10日」「毎月5日締切」「締切 2026/10/15」 */
+function tenyoUketsukeText_(l) {
+  const mode = pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes);
+  const day = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n : 0; };
+  if (mode === '締切日を指定') return dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
+  if (mode === '毎月の締切日') return day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
+  return monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+}
+
+/** 農振除外の受付：「年2回（5月・11月）」 */
+function jogaiUketsukeText_(kaisu, jiki) {
+  const n = Number(kaisu);
+  const k = n >= 1 && n <= 12 && Math.floor(n) === n ? '年' + n + '回' : '';
+  const j = str_(jiki, 100);
+  return k && j ? k + '（' + j + '）' : k || j;
+}
+
 /** 毎月の受付期間「毎月1日～10日」（1〜31以外は無視） */
 function monthlyText_(from, to) {
   const d = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n + '日' : ''; };
@@ -398,10 +415,8 @@ function normalizeLot_(l, prefecture, master) {
     hojoKuiki: jogaiOn ? pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) : '',
     hojo8nen: jogaiOn && pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) === '区域内' ? pick_(l.hojo8nen, FORM_OPTIONS.hojo8nen) : '',
     jogaiJisseki: jogaiOn ? pick_(l.jogaiJisseki, FORM_OPTIONS.jogaiJisseki) : '',
-    jogaiUketsuke: jogaiOn ? rangeText_(dateText_(l.jogaiUkeFrom), dateText_(l.jogaiUkeTo)) : '',
-    tenyoUketsuke: !(permitZone || jogaiOn) ? ''
-      : pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes) === '締切日' ? (dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '')
-      : monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo),
+    jogaiUketsuke: jogaiOn ? jogaiUketsukeText_(l.jogaiKaisu, l.jogaiJiki) : '',
+    tenyoUketsuke: permitZone || jogaiOn ? tenyoUketsukeText_(l) : '',
     jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',

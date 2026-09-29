@@ -158,7 +158,7 @@ function calculateEstimate_(input) {
     if (l.hojo8nen === '未経過') {
       notes.push(lotName(l, i) + '：土地改良事業の完了から8年を経過していないため、農振除外の要件を満たしません。');
     }
-    if (l.jogaiUketsuke) notes.push(lotName(l, i) + '：農振除外の受付期間（次回）' + l.jogaiUketsuke + '。');
+    if (l.jogaiUketsuke) notes.push(lotName(l, i) + '：農振除外の受付 ' + l.jogaiUketsuke + '。');
     if (l.tenyoUketsuke) notes.push(lotName(l, i) + '：農地転用の受付 ' + l.tenyoUketsuke + '。');
     if (l.jogaiKanou === '難しい') {
       notes.push(lotName(l, i) + '：農業委員会より農振除外は難しいとの回答があります' + (l.jogaiNote ? '（' + l.jogaiNote + '）' : '') + '。');

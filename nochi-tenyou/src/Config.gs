@@ -366,7 +366,7 @@ const FORM_OPTIONS = {
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（市街化調整区域の物件のみ。分家住宅は排水先の確認を行う）
-  tenyoUkeModes: ['毎月', '締切日'],                      // 農地転用の受付：毎月○日～○日／特定の締切日
+  tenyoUkeModes: ['毎月の期間', '毎月の締切日', '締切日を指定'], // 農地転用の受付：毎月○日～○日／毎月○日締切／特定の日
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
   noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
   hojoKuiki: ['区域内', '区域外', '未確認'],               // ほ場整備などの土地改良事業の区域か
@@ -462,7 +462,7 @@ const LOT_COLUMNS = [
   { key: 'hojoKuiki', header: 'ほ場整備等の事業区域' },
   { key: 'hojo8nen', header: '事業完了から8年' },
   { key: 'jogaiJisseki', header: '近隣の除外実績' },
-  { key: 'jogaiUketsuke', header: '除外の受付期間（次回）' },
+  { key: 'jogaiUketsuke', header: '除外の受付（年何回・時期）' },
   { key: 'tenyoUketsuke', header: '農地転用の受付期間' },
   { key: 'jogaiNote', header: '除外の指摘事項' },
   { key: 'drainAdjacent', header: '隣接の水路' },

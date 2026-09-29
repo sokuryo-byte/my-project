@@ -381,8 +381,9 @@
       hojoKuiki: getRadio(card, 'hojoKuiki'),
       hojo8nen: getRadio(card, 'hojo8nen'),
       jogaiJisseki: getRadio(card, 'jogaiJisseki'),
-      jogaiUkeFrom: lotInput(card, 'jogaiUkeFrom').value,
-      jogaiUkeTo: lotInput(card, 'jogaiUkeTo').value,
+      jogaiKaisu: lotInput(card, 'jogaiKaisu').value,
+      jogaiJiki: lotInput(card, 'jogaiJiki').value,
+      tenyoUkeDay: lotInput(card, 'tenyoUkeDay').value,
       tenyoUkeMode: getRadio(card, 'tenyoUkeMode'),
       tenyoUkeDate: lotInput(card, 'tenyoUkeDate').value,
       tenyoUkeFrom: lotInput(card, 'tenyoUkeFrom').value,
@@ -470,20 +471,26 @@
     monthly.appendChild(el('span', {}, '日 ～'));
     monthly.appendChild(el('input', { type: 'number', min: '1', max: '31', inputmode: 'numeric', id: id('tenyoUkeTo'), 'data-f': 'tenyoUkeTo', 'aria-label': '受付締切日' }));
     monthly.appendChild(el('span', {}, '日'));
+    var monthlyDay = el('span', { 'class': 'inline-inputs uke-day hidden' });
+    monthlyDay.appendChild(el('span', {}, '毎月'));
+    monthlyDay.appendChild(el('input', { type: 'number', min: '1', max: '31', inputmode: 'numeric', id: id('tenyoUkeDay'), 'data-f': 'tenyoUkeDay', 'aria-label': '毎月の締切日' }));
+    monthlyDay.appendChild(el('span', {}, '日締切'));
+    tu.appendChild(monthlyDay);
     var deadline = el('span', { 'class': 'inline-inputs uke-date hidden' });
     deadline.appendChild(el('input', { type: 'date', id: id('tenyoUkeDate'), 'data-f': 'tenyoUkeDate', 'aria-label': '受付締切日' }));
     tu.appendChild(deadline);
     var tuf = field('農地転用の受付', monthly.children[1], null, false, tu);
     var ju = el('div', { 'class': 'inline-inputs' });
-    ju.appendChild(el('input', { type: 'date', id: id('jogaiUkeFrom'), 'data-f': 'jogaiUkeFrom', 'aria-label': '除外の受付開始日' }));
-    ju.appendChild(el('span', {}, '～'));
-    ju.appendChild(el('input', { type: 'date', id: id('jogaiUkeTo'), 'data-f': 'jogaiUkeTo', 'aria-label': '除外の受付締切日' }));
-    var juf = field('農振除外の受付期間（次回）', ju.firstChild, null, false, ju);
+    ju.appendChild(el('span', {}, '年'));
+    ju.appendChild(el('input', { type: 'number', min: '1', max: '12', inputmode: 'numeric', id: id('jogaiKaisu'), 'data-f': 'jogaiKaisu', 'aria-label': '年間の受付回数' }));
+    ju.appendChild(el('span', {}, '回　時期'));
+    var jiki = el('input', { type: 'text', id: id('jogaiJiki'), maxlength: '100', placeholder: '例）5月・11月（各月末締切）', 'data-f': 'jogaiJiki', 'aria-label': '受付時期' });
+    jiki.style.flex = '1'; jiki.style.minWidth = '12em';
+    ju.appendChild(jiki);
+    var juf = field('農振除外の受付', ju.children[1], null, false, ju);
     juf.classList.add('jogai-uke', 'hidden');
-    var ur = el('div', { 'class': 'row' });
-    ur.appendChild(tuf);
-    ur.appendChild(juf);
-    ub.appendChild(ur);
+    ub.appendChild(tuf);   // 選択肢と入力欄が横に長いので、それぞれ全幅で縦に並べる
+    ub.appendChild(juf);
     s1.appendChild(ub);
     s1.appendChild(el('p', { 'class': 'caution stop-msg hidden' },
       '※ 見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。'));
@@ -674,16 +681,17 @@
       '「ほ場整備などの土地改良事業の区域に入っていますでしょうか。」',
       '　→ 入っている場合：「事業の完了から8年以上たっていますでしょうか。あわせて、事業を行った土地改良区の名称とお電話番号を教えてください。」（②の欄に記入）',
       '「また、近くで過去に除外が認められた土地はございますでしょうか。」',
-      '「除外の申出の次の受付期間も教えてください。」',
+      '「除外の申出の受付は年に何回で、いつでしょうか。」',
       '→ 結論は審議次第と言われたら：「もちろん、結論は審議でのご判断と承知しています。事業区域かどうかや、これまでの除外の状況だけでも教えていただけると、準備がしやすくなります。」'
     ]);
     card.querySelector('.hojo8-field').classList.toggle('hidden', getRadio(card, 'hojoKuiki') !== '区域内');
     // 受付期間の欄と、指摘事項の見出し（「難しい」を選んだときは理由を書く欄として示す）
     card.querySelector('.uketsuke-block').classList.toggle('hidden', !(permit || jogai));
     card.querySelector('.jogai-uke').classList.toggle('hidden', !jogai);
-    var byDate = getRadio(card, 'tenyoUkeMode') === '締切日';
-    card.querySelector('.uke-monthly').classList.toggle('hidden', byDate);
-    card.querySelector('.uke-date').classList.toggle('hidden', !byDate);
+    var mode = getRadio(card, 'tenyoUkeMode') || '毎月の期間';
+    card.querySelector('.uke-monthly').classList.toggle('hidden', mode !== '毎月の期間');
+    card.querySelector('.uke-day').classList.toggle('hidden', mode !== '毎月の締切日');
+    card.querySelector('.uke-date').classList.toggle('hidden', mode !== '締切日を指定');
     card.querySelector('.kanou-note label').textContent = getRadio(card, 'tenyoKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
     card.querySelector('.jogai-note label').textContent = getRadio(card, 'jogaiKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
     var hojoIn = jogai && getRadio(card, 'hojoKuiki') === '区域内';
@@ -724,7 +732,12 @@
     var jogaiStop = jogai && (getRadio(card, 'jogaiKanou') === '難しい' || getRadio(card, 'hojo8nen') === '未経過');
     var stop = jogaiStop || (permit && getRadio(card, 'tenyoKanou') === '難しい');
     if (jogaiStop) card.querySelector('.kanou-block').classList.add('hidden'); // 除外が見込めなければ転用の見込みも聞かない
-    card.querySelector('.stop-msg').classList.toggle('hidden', !stop);
+    var stopMsg = card.querySelector('.stop-msg');
+    stopMsg.textContent = !stop ? ''
+      : jogai && getRadio(card, 'hojo8nen') === '未経過' ? '※ 事業完了から8年を経過していないため、農振除外の要件を満たしません。以降の確認は不要です（行政班が内容を確認します）。'
+      : jogai && getRadio(card, 'jogaiKanou') === '難しい' ? '※ 農振除外の見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。'
+      : '※ 転用の見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。';
+    stopMsg.classList.toggle('hidden', !stop);
     ['.script-main', '.main-checks'].forEach(function (s) { card.querySelector(s).classList.toggle('hidden', stop); });
     if (stop) {
       card.querySelector('[data-contacts=iinContacts]').classList.add('hidden');

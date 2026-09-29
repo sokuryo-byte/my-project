@@ -369,7 +369,7 @@ const FORM_OPTIONS = {
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（市街化調整区域の物件のみ。分家住宅は排水先の確認を行う）
-  tenyoUkeModes: ['毎月', '締切日'],                      // 農地転用の受付：毎月○日～○日／特定の締切日
+  tenyoUkeModes: ['毎月の期間', '毎月の締切日', '締切日を指定'], // 農地転用の受付：毎月○日～○日／毎月○日締切／特定の日
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
   noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
   hojoKuiki: ['区域内', '区域外', '未確認'],               // ほ場整備などの土地改良事業の区域か
@@ -465,7 +465,7 @@ const LOT_COLUMNS = [
   { key: 'hojoKuiki', header: 'ほ場整備等の事業区域' },
   { key: 'hojo8nen', header: '事業完了から8年' },
   { key: 'jogaiJisseki', header: '近隣の除外実績' },
-  { key: 'jogaiUketsuke', header: '除外の受付期間（次回）' },
+  { key: 'jogaiUketsuke', header: '除外の受付（年何回・時期）' },
   { key: 'tenyoUketsuke', header: '農地転用の受付期間' },
   { key: 'jogaiNote', header: '除外の指摘事項' },
   { key: 'drainAdjacent', header: '隣接の水路' },
@@ -906,6 +906,23 @@ function rangeText_(a, b) {
   return a || b ? (a || '') + '～' + (b || '') : '';
 }
 
+/** 農地転用の受付：「毎月1日～10日」「毎月5日締切」「締切 2026/10/15」 */
+function tenyoUketsukeText_(l) {
+  const mode = pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes);
+  const day = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n : 0; };
+  if (mode === '締切日を指定') return dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
+  if (mode === '毎月の締切日') return day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
+  return monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+}
+
+/** 農振除外の受付：「年2回（5月・11月）」 */
+function jogaiUketsukeText_(kaisu, jiki) {
+  const n = Number(kaisu);
+  const k = n >= 1 && n <= 12 && Math.floor(n) === n ? '年' + n + '回' : '';
+  const j = str_(jiki, 100);
+  return k && j ? k + '（' + j + '）' : k || j;
+}
+
 /** 毎月の受付期間「毎月1日～10日」（1〜31以外は無視） */
 function monthlyText_(from, to) {
   const d = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n + '日' : ''; };
@@ -1044,10 +1061,8 @@ function normalizeLot_(l, prefecture, master) {
     hojoKuiki: jogaiOn ? pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) : '',
     hojo8nen: jogaiOn && pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) === '区域内' ? pick_(l.hojo8nen, FORM_OPTIONS.hojo8nen) : '',
     jogaiJisseki: jogaiOn ? pick_(l.jogaiJisseki, FORM_OPTIONS.jogaiJisseki) : '',
-    jogaiUketsuke: jogaiOn ? rangeText_(dateText_(l.jogaiUkeFrom), dateText_(l.jogaiUkeTo)) : '',
-    tenyoUketsuke: !(permitZone || jogaiOn) ? ''
-      : pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes) === '締切日' ? (dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '')
-      : monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo),
+    jogaiUketsuke: jogaiOn ? jogaiUketsukeText_(l.jogaiKaisu, l.jogaiJiki) : '',
+    tenyoUketsuke: permitZone || jogaiOn ? tenyoUketsukeText_(l) : '',
     jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
@@ -1489,7 +1504,7 @@ function calculateEstimate_(input) {
     if (l.hojo8nen === '未経過') {
       notes.push(lotName(l, i) + '：土地改良事業の完了から8年を経過していないため、農振除外の要件を満たしません。');
     }
-    if (l.jogaiUketsuke) notes.push(lotName(l, i) + '：農振除外の受付期間（次回）' + l.jogaiUketsuke + '。');
+    if (l.jogaiUketsuke) notes.push(lotName(l, i) + '：農振除外の受付 ' + l.jogaiUketsuke + '。');
     if (l.tenyoUketsuke) notes.push(lotName(l, i) + '：農地転用の受付 ' + l.tenyoUketsuke + '。');
     if (l.jogaiKanou === '難しい') {
       notes.push(lotName(l, i) + '：農業委員会より農振除外は難しいとの回答があります' + (l.jogaiNote ? '（' + l.jogaiNote + '）' : '') + '。');
@@ -1852,7 +1867,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
     }
     if (l.jogaiKanou || l.hojoKuiki || l.jogaiJisseki || l.jogaiUketsuke) {
       lines.push('　　農振除外の見込み：' + (l.jogaiKanou || '-') + '／ほ場整備等 ' + (l.hojoKuiki || '-') + (l.hojo8nen ? '（8年' + l.hojo8nen + '）' : '') +
-        '／近隣の除外実績 ' + (l.jogaiJisseki || '-') + (l.jogaiUketsuke ? '／受付期間 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''));
+        '／近隣の除外実績 ' + (l.jogaiJisseki || '-') + (l.jogaiUketsuke ? '／受付 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''));
     }
     if (l.tenyoUketsuke) lines.push('　　農地転用の受付：' + l.tenyoUketsuke);
     if (l.drainConsent || l.drainAdjacent) {
