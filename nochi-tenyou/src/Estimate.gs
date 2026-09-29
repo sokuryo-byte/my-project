@@ -190,6 +190,14 @@ function calculateEstimate_(input) {
 
   const total = items.reduce(function (sum, it) { return sum + it.amount; }, 0);
   notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
+  // 最後に：過去の転用届出・許可の履歴がある物件（新たな手続きが不要な場合がある）
+  lots.forEach(function (l, i) {
+    if (l.tenyoRireki !== 'あり') return;
+    const kind = l.zone === '市街化区域' ? '転用届出の受理' : l.zone === '分からない' ? '転用届出の受理または転用許可' : '転用許可';
+    const detail = [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・');
+    notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
+      '。新たな手続きが不要な場合があります。');
+  });
   return { ok: true, total: total, items: items, notes: notes };
 }
 

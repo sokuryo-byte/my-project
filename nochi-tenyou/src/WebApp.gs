@@ -180,7 +180,9 @@ function submitCase(form, requestInvestigation) {
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote, kairyoFee: l.kairyoFee,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
-      prefecture: l.prefecture, purpose: l.purpose, tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
+      prefecture: l.prefecture, purpose: l.purpose,
+      tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
+      tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
@@ -394,7 +396,9 @@ function normalizeLot_(l, prefecture, master) {
   const jogaiOn = pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
     ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
   const purpose = pick_(l.zone, FORM_OPTIONS.zones) === '市街化調整区域' ? pick_(l.purpose, FORM_OPTIONS.purposes) : '';
-  const drainOn = purpose === '分家住宅';                                        // 分家住宅は排水先を確認
+  const drainOn = purpose === '分家住宅';
+  const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
+  const rirekiOn = convOn && pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) === 'あり';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
 
@@ -435,6 +439,11 @@ function normalizeLot_(l, prefecture, master) {
     localContacts: kairyoOn && pick_(l.localConsent, FORM_OPTIONS.localConsent) === '必要' ? normalizeContacts_(l.localContacts) : [],
     // 転用の見込み（許可が必要な区域で農業委員会に確認）
     purpose: purpose,
+    // 転用済みの物件：過去の届出受理・許可の履歴（「あり」のときだけ年月日・番号・内容）
+    tenyoRireki: convOn ? pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) : '',
+    rirekiDate: rirekiOn ? dateText_(l.rirekiDate) : '',
+    rirekiNo: rirekiOn ? str_(l.rirekiNo, 50) : '',
+    rirekiNote: rirekiOn ? str_(l.rirekiNote, 200) : '',
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
     noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',

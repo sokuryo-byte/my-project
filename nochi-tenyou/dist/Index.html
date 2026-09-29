@@ -639,6 +639,10 @@
       localConsent: getRadio(card, 'localConsent'),
       localContacts: getContacts(card, 'localContacts'),
       purpose: getRadio(card, 'purpose'),
+      tenyoRireki: getRadio(card, 'tenyoRireki'),
+      rirekiDate: lotInput(card, 'rirekiDate').value,
+      rirekiNo: lotInput(card, 'rirekiNo').value,
+      rirekiNote: lotInput(card, 'rirekiNote').value,
       tenyoKanou: getRadio(card, 'tenyoKanou'),
       noutiKubun: getRadio(card, 'noutiKubun'),
       kanouNote: lotInput(card, 'kanouNote').value,
@@ -683,6 +687,20 @@
     // ① 農業委員会（土地改良区・地元委員の押印）
     var s1 = el('div', { 'class': 'step1' });
     s1.appendChild(el('div', { 'class': 'step-h nogyo-h' }));
+    // 転用済みの物件：過去の転用届出（市街化）・転用許可（調整区域など）の履歴を最初に確認
+    var rb = el('div', { 'class': 'rireki-block hidden', style: 'display:grid;gap:8px' });
+    rb.appendChild(el('div', { 'class': 'script script-rireki' }));
+    var rireki = el('div', { 'class': 'choices' });
+    renderChoices(rireki, id('tenyoRireki'), o.tenyoRireki);
+    rb.appendChild(radioField('過去の転用届出・許可の履歴', rireki));
+    var rd = el('div', { 'class': 'row rireki-detail hidden' });
+    rd.appendChild(field('受理・許可年月日', el('input', { type: 'date', id: id('rirekiDate'), 'data-f': 'rirekiDate' })));
+    rd.appendChild(field('受理・許可番号', el('input', { type: 'text', id: id('rirekiNo'), maxlength: '50', placeholder: '例）○○指令第123号', 'data-f': 'rirekiNo' })));
+    rb.appendChild(rd);
+    var rn = field('内容（転用目的・面積など）', el('input', { type: 'text', id: id('rirekiNote'), maxlength: '200', placeholder: '例）5条許可・駐車場', 'data-f': 'rirekiNote' }));
+    rn.classList.add('rireki-note', 'hidden');
+    rb.appendChild(rn);
+    s1.appendChild(rb);
     // 青地の場合：農振除外の見込み（転用の見込みより先に聞く。位置関係は農振図で分かるので聞かない）
     var jb = el('div', { 'class': 'jogai-block hidden', style: 'display:grid;gap:8px' });
     jb.appendChild(el('div', { 'class': 'script script-jogai' }));
@@ -942,13 +960,26 @@
     var purpose = zone === '市街化調整区域' ? getRadio(card, 'purpose') : '';
     var purposeText = purpose && purpose !== 'その他' ? purpose : '住宅等';
     var noshin = getRadio(card, 'isNoshin');
+    // 転用済み（「はい」）なら、最初に過去の届出・許可の履歴を確認する
+    var rirekiOn = getRadio(card, 'isConverted') === 'はい';
+    var kindText = zone === '市街化区域' ? '農地転用の届出（農地法第4条・第5条）の受理'
+      : zone === '分からない' || !zone ? '農地転用の届出の受理、または転用許可' : '農地転用の許可（農地法第4条・第5条）';
+    var dateText = zone === '市街化区域' ? '受理年月日と受理番号' : zone === '分からない' || !zone ? '受理（許可）年月日と番号' : '許可年月日と許可番号（指令番号）';
+    card.querySelector('.rireki-block').classList.toggle('hidden', !rirekiOn);
+    card.querySelector('.rireki-detail').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
+    card.querySelector('.rireki-note').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
+    scriptLines(card.querySelector('.script-rireki'), [
+      '【最初に：過去の転用の履歴】（既に転用済みの土地）',
+      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の土地について、現在は農地以外に使われているのですが、過去に' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」',
+      '→ 履歴がある場合：「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」'
+    ]);
     var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
     card.querySelector('.kanou-block').classList.toggle('hidden', !permit);
     // 転用の見込み：意見ではなく事実（農地区分など）を聞く。前置きは短く、逃げられたときだけ切り返す
     var n = 0;
     var q = function (t) { n++; return '「' + (n === 2 ? 'また、' : '') + t + '」'; };
-    var kanouLines = ['【' + (jogai ? '続けて' : '最初に') + '：転用の見込み】'];
-    if (!jogai) kanouLines.push('「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地で、' + purposeText + 'への転用を検討しています。申請の準備を進める前に、何点か確認させてください。」');
+    var kanouLines = ['【' + (jogai || rirekiOn ? '続けて' : '最初に') + '：転用の見込み】'];
+    if (!jogai && !rirekiOn) kanouLines.push('「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地で、' + purposeText + 'への転用を検討しています。申請の準備を進める前に、何点か確認させてください。」');
     if (!jogai && !noshin) kanouLines.push(q('農用地区域（青地）でしょうか、白地でしょうか。'));
     kanouLines.push(q('農地区分は、甲種・第1種・第2種・第3種のどれにあたりますでしょうか。'));
     kanouLines.push(q('農地転用の申請の受付期間（毎月何日から何日まで）も教えてください。'));
@@ -958,8 +989,9 @@
     // 青地（農用地区域）の場合：除外の見込み（事業区域・8年・近隣実績・受付時期という事実を聞く）
     card.querySelector('.jogai-block').classList.toggle('hidden', !jogai);
     scriptLines(card.querySelector('.script-jogai'), [
-      '【最初に：農振除外の見込み】' + (noshin === '分からない' ? '（青地と分かった場合）' : ''),
-      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地で' + purposeText + 'への転用を考えており、農振除外の申出を検討しています。申請の準備を進める前に、何点か確認させてください。」',
+      '【' + (rirekiOn ? '続けて' : '最初に') + '：農振除外の見込み】' + (noshin === '分からない' ? '（青地と分かった場合）' : ''),
+      rirekiOn ? '「続けて、農振除外についても何点か確認させてください。」'
+        : '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地で' + purposeText + 'への転用を考えており、農振除外の申出を検討しています。申請の準備を進める前に、何点か確認させてください。」',
       '「ほ場整備などの土地改良事業の区域に入っていますでしょうか。」',
       '　→ 入っている場合：「事業の完了から8年以上たっていますでしょうか。あわせて、事業を行った土地改良区の名称とお電話番号を教えてください。」（②の欄に記入）',
       '「また、近くで過去に除外が認められた土地はございますでしょうか。」',
@@ -980,7 +1012,7 @@
     var hojoOut = jogai && getRadio(card, 'hojoKuiki') === '区域外';
     if (hojoIn && !getRadio(card, 'landImprovement')) setRadio(card, 'landImprovement', 'はい'); // ほ場整備の区域内＝土地改良区にかかっている
     scriptLines(card.querySelector('.script-main'), [
-      permit || jogai ? '【続けて：土地改良区と地元委員】' : '「お世話になっております。（会社名）の（お名前）と申します。農地転用の件でお伺いします。」',
+      permit || jogai || rirekiOn ? '【続けて：土地改良区と地元委員】' : '「お世話になっております。（会社名）の（お名前）と申します。農地転用の件でお伺いします。」',
       hojoIn ? '（ア）ほ場整備の区域内のため、土地改良区にかかっています（名称・電話番号を聞いていなければ確認）。'
         : hojoOut ? '（ア）「ほ場整備の区域外とのことですが、用排水などで土地改良区の区域にかかっておりますでしょうか。」'
         : '（ア）「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」',

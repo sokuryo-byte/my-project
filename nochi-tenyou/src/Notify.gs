@@ -64,6 +64,10 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       lines.push('　　農業委員等の押印：必要');
       (l.iinContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
     }
+    if (l.tenyoRireki) {
+      lines.push('　　過去の転用届出・許可の履歴：' + l.tenyoRireki +
+        (l.tenyoRireki === 'あり' ? '（' + [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・') + '）' : ''));
+    }
     if (l.tenyoKanou || l.noutiKubun) {
       lines.push('　　転用の見込み（農業委員会）：' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') +
         (l.kanouNote ? '／' + l.kanouNote : ''));

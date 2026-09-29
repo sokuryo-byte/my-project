@@ -366,6 +366,7 @@ const FORM_OPTIONS = {
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
   settlementUnits: ['総額', '㎡あたり', 'haあたり'],        // 決済金の単位（多くは㎡単価・ha単価）
+  tenyoRireki: ['あり', 'なし', '未確認'],                  // 転用済みの物件：過去の転用届出（市街化）・転用許可（調整区域等）の履歴
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
@@ -479,6 +480,10 @@ const LOT_COLUMNS = [
   { key: 'drainLocalConsent', header: '排水の地元承諾' },
   { key: 'drainContacts', header: '排水の地元承諾が必要な方（氏名／住所／電話）' },
   { key: 'prefecture', header: '都道府県' },
+  { key: 'tenyoRireki', header: '過去の転用届出・許可の履歴' },
+  { key: 'rirekiDate', header: '受理・許可年月日' },
+  { key: 'rirekiNo', header: '受理・許可番号' },
+  { key: 'rirekiNote', header: '履歴の内容（転用目的など）' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
