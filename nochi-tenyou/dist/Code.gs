@@ -1314,7 +1314,7 @@ function getWebhookUrl_() {
 function postToChat_(text) {
   const url = getWebhookUrl_();
   if (!url) {
-    return { ok: false, message: 'Webhook URLが未設定です（Config.gs の CHAT_WEBHOOK_URL）' };
+    return { ok: false, message: 'Webhook URLが未設定です（管理画面の設定タブで登録）' };
   }
   try {
     const res = UrlFetchApp.fetch(url, {
@@ -1441,13 +1441,113 @@ function updateCaseByAdmin(caseId, patch) {
 function isAdmin_() {
   const email = getUserEmail_().toLowerCase();
   if (!email) return false;
-  const fromProps = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS');
-  const list = (fromProps ? fromProps.split(',') : ADMIN_EMAILS)
-    .map(function (s) { return String(s).trim().toLowerCase(); })
-    .filter(String);
-  return list.indexOf(email) >= 0;
+  return getAdminEmails_().indexOf(email) >= 0;
 }
 
 function requireAdmin_() {
   if (!isAdmin_()) throw new Error('この操作を行う権限がありません。');
+}
+
+// ------------------------------------------------------------
+// 設定タブ（見積金額・管理者・Chat 通知）
+// ------------------------------------------------------------
+
+/** 設定タブの表示内容 */
+function getAdminSettings() {
+  requireAdmin_();
+  const fees = getFeeSettings_();
+  const props = PropertiesService.getScriptProperties();
+  return {
+    fees: DEFAULT_FEES.map(function (d) {
+      return { key: d.key, label: fees[d.key].label, amount: fees[d.key].amount, note: d.note };
+    }),
+    adminEmails: getAdminEmails_(),
+    adminEmailsFromProps: !!props.getProperty('ADMIN_EMAILS'),
+    webhookUrl: getWebhookUrl_(),
+    spreadsheetUrl: getSpreadsheet_().getUrl(),
+    folderUrl: getRootFolder_().getUrl(),
+  };
+}
+
+/**
+ * 見積の項目名・金額を「見積設定」シートに保存する（無い行は追加してから保存）。
+ * @param {Array<{key:string, label:string, amount:(string|number)}>} rows
+ */
+function saveFeeSettings(rows) {
+  requireAdmin_();
+  const known = DEFAULT_FEES.map(function (d) { return d.key; });
+  const clean = (rows || []).map(function (r) {
+    const key = String(r.key);
+    if (known.indexOf(key) < 0) throw new Error('不明な項目です：' + key);
+    const label = String(r.label || '').trim().slice(0, 100);
+    if (!label) throw new Error('項目名が空欄の行があります。');
+    const s = String(r.amount).replace(/[,，¥円\s]/g, '');
+    const amount = Number(s);
+    if (s === '' || isNaN(amount) || amount < 0) throw new Error('「' + label + '」の金額は0以上の数値で入力してください。');
+    return { key: key, label: label, amount: Math.round(amount) };
+  });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const ss = getSpreadsheet_();
+    const sheet = getOrCreateSheet_(ss, SHEET_NAMES.FEES);
+    ensureHeaders_(sheet, FEE_HEADERS);
+    addMissingFeeRows_(sheet);
+    const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues()
+      .map(function (r) { return String(r[0]).trim(); });
+    clean.forEach(function (r) {
+      const i = keys.indexOf(r.key);
+      if (i >= 0) sheet.getRange(i + 2, 2, 1, 2).setValues([[r.label, r.amount]]);
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  return getAdminSettings();
+}
+
+/**
+ * 管理者を保存する（1行1件またはカンマ区切り）。自分を外す変更は受け付けない（締め出し防止）。
+ * @param {string} text
+ */
+function saveAdminEmails(text) {
+  requireAdmin_();
+  const list = String(text || '').split(/[\s,，、]+/)
+    .map(function (s) { return s.trim().toLowerCase(); })
+    .filter(String)
+    .filter(function (s, i, a) { return a.indexOf(s) === i; });
+  const bad = list.filter(function (s) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s); });
+  if (bad.length) throw new Error('メールアドレスの形式が正しくありません：' + bad.join('、'));
+  const me = getUserEmail_().toLowerCase();
+  if (list.indexOf(me) < 0) throw new Error('ご自身（' + me + '）を管理者から外すことはできません。');
+  PropertiesService.getScriptProperties().setProperty('ADMIN_EMAILS', list.join(','));
+  return getAdminSettings();
+}
+
+/**
+ * Google Chat の Webhook URL を保存する（空欄で通知停止）。
+ * @param {string} url
+ */
+function saveWebhookUrl(url) {
+  requireAdmin_();
+  const u = String(url || '').trim();
+  if (u && u.indexOf('https://chat.googleapis.com/') !== 0) {
+    throw new Error('Google Chat の Webhook URL（https://chat.googleapis.com/ で始まるもの）を入力してください。');
+  }
+  PropertiesService.getScriptProperties().setProperty('CHAT_WEBHOOK_URL', u);
+  return getAdminSettings();
+}
+
+/** 保存済みの Webhook にテスト通知を送る */
+function sendTestNotification() {
+  requireAdmin_();
+  return postToChat_('【テスト】農地転用 見積・調査支援システムからの通知テストです（' + getUserEmail_() + '）。');
+}
+
+/** 管理者の一覧（スクリプトプロパティ ADMIN_EMAILS が優先、無ければ Config.gs） */
+function getAdminEmails_() {
+  const fromProps = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS');
+  return (fromProps ? fromProps.split(',') : ADMIN_EMAILS)
+    .map(function (s) { return String(s).trim().toLowerCase(); })
+    .filter(String);
 }

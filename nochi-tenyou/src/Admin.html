@@ -34,15 +34,35 @@
     dl.kv dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
     .empty { color: var(--muted); padding: 24px; text-align: center; }
     .saved { color: var(--accent); font-size: .85rem; }
+    .saved.err { color: var(--danger); }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+    .tab { border: 1px solid transparent; border-bottom: none; background: none; padding: 8px 18px; font-size: .9rem; font-weight: 700; color: var(--muted); cursor: pointer; border-radius: 6px 6px 0 0; margin-bottom: -1px; }
+    .tab[aria-selected=true] { background: var(--surface); border-color: var(--line); color: var(--accent); }
+    .settings { display: grid; gap: 16px; max-width: 900px; }
+    table.fees td { white-space: normal; vertical-align: middle; }
+    table.fees input[type=text] { width: 100%; }
+    table.fees td.lbl-cell { width: 46%; min-width: 20em; }
+    table.fees td.amt { width: 8em; min-width: 7em; }
+    .settings .btns { align-items: center; }
+    table.fees td.amt input { text-align: right; }
+    table.fees td.cond { font-size: .78rem; color: var(--muted); min-width: 14em; }
+    table.fees tbody tr { cursor: default; }
+    table.fees tbody tr:hover { background: none; }
   </style>
 </head>
 <body>
 <div class="admin">
   <header>
     <h1>農地転用 案件管理（行政班）</h1>
-    <p class="lead">依頼フォームから届いた案件の一覧です。案件を選ぶと右側に詳細が出ます。対応状況・担当者・正式見積・メモはここで更新できます。</p>
     <p class="user" id="userInfo"></p>
   </header>
+
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab" role="tab" id="tabCases" aria-selected="true">案件一覧</button>
+    <button type="button" class="tab" role="tab" id="tabSettings" aria-selected="false">設定</button>
+  </div>
+
+  <div id="casesView" style="display:grid;gap:16px">
 
   <div class="toolbar">
     <input type="text" id="q" placeholder="依頼者名・地番・市区町村で検索" aria-label="検索">
@@ -61,6 +81,46 @@
 
     <section class="detail" id="detail">
       <p class="empty">左の一覧から案件を選んでください。</p>
+    </section>
+  </div>
+  </div>
+
+  <!-- ===================== 設定 ===================== -->
+  <div id="settingsView" class="settings hidden">
+    <section>
+      <h2>概算見積の金額</h2>
+      <p class="help">依頼画面の概算見積に即時反映されます（税込）。適用条件の変更はシステム改修が必要です。</p>
+      <div class="list">
+        <table class="cases fees">
+          <thead><tr><th>項目名（見積に表示）</th><th class="num">金額（円）</th><th>適用条件</th></tr></thead>
+          <tbody id="feeRows"><tr><td colspan="3" class="empty">読み込み中…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="btns"><button type="button" class="primary" id="saveFees">金額を保存</button><span class="saved" id="feesMsg"></span></div>
+    </section>
+
+    <section>
+      <h2>管理者</h2>
+      <p class="help">この管理画面を利用できる方のメールアドレス（1行に1件）。ご自身は外せません。</p>
+      <textarea id="adminEmails" rows="4" spellcheck="false"></textarea>
+      <div class="btns"><button type="button" class="primary" id="saveAdmins">管理者を保存</button><span class="saved" id="adminsMsg"></span></div>
+    </section>
+
+    <section>
+      <h2>Google Chat 通知</h2>
+      <p class="help">通知先スペースの「アプリと統合 &gt; Webhook を追加」で発行した URL。空欄で通知停止。</p>
+      <input type="text" id="webhookUrl" spellcheck="false" placeholder="https://chat.googleapis.com/v1/spaces/…">
+      <div class="btns">
+        <button type="button" class="primary" id="saveWebhook">保存</button>
+        <button type="button" class="ghost" id="testWebhook">テスト送信</button>
+        <span class="saved" id="webhookMsg"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>その他</h2>
+      <p class="help">市区町村ごとの都市計画情報・農振図のリンクは、スプレッドシートの「マスタ」シートで編集します。</p>
+      <div class="btns" id="otherLinks"></div>
     </section>
   </div>
 </div>
@@ -249,6 +309,83 @@
     });
     box.appendChild(dl);
   }
+
+  // ---------------------------------------------------------
+  // 設定タブ
+  // ---------------------------------------------------------
+  var settingsLoaded = false;
+
+  function showTab(name) {
+    $('tabCases').setAttribute('aria-selected', String(name === 'cases'));
+    $('tabSettings').setAttribute('aria-selected', String(name === 'settings'));
+    $('casesView').classList.toggle('hidden', name !== 'cases');
+    $('settingsView').classList.toggle('hidden', name !== 'settings');
+    if (name === 'settings' && !settingsLoaded) loadSettings();
+  }
+
+  function flash(id, text, isErr) {
+    var m = $(id); m.textContent = text; m.classList.toggle('err', !!isErr);
+  }
+
+  /** 設定の保存（ボタンを押せなくして、結果をメッセージ欄に出す） */
+  function callSettings(btn, msgId, fn, arg) {
+    btn.disabled = true; flash(msgId, '保存中…');
+    google.script.run
+      .withSuccessHandler(function (data) { btn.disabled = false; renderSettings(data); flash(msgId, '保存しました'); })
+      .withFailureHandler(function (err) { btn.disabled = false; flash(msgId, err.message, true); })[fn](arg);
+  }
+
+  function loadSettings() {
+    google.script.run
+      .withSuccessHandler(function (data) { settingsLoaded = true; renderSettings(data); })
+      .withFailureHandler(function (err) {
+        $('feeRows').innerHTML = '';
+        var tr = el('tr'); tr.appendChild(el('td', { colspan: '3', 'class': 'empty' }, '読み込みに失敗しました：' + err.message));
+        $('feeRows').appendChild(tr);
+      })
+      .getAdminSettings();
+  }
+
+  function renderSettings(d) {
+    var tb = $('feeRows');
+    tb.innerHTML = '';
+    d.fees.forEach(function (f) {
+      var tr = el('tr', { 'data-key': f.key });
+      var tdL = el('td', { 'class': 'lbl-cell' }); var label = el('input', { type: 'text', maxlength: '100', 'data-f': 'label' }); label.value = f.label; tdL.appendChild(label);
+      var tdA = el('td', { 'class': 'amt' }); var amt = el('input', { type: 'text', inputmode: 'numeric', 'data-f': 'amount' });
+      amt.value = String(f.amount).replace(/\B(?=(\d{3})+(?!\d))/g, ','); tdA.appendChild(amt);
+      tr.appendChild(tdL); tr.appendChild(tdA); tr.appendChild(el('td', { 'class': 'cond' }, f.note));
+      tb.appendChild(tr);
+    });
+    $('adminEmails').value = d.adminEmails.join('\n');
+    $('webhookUrl').value = d.webhookUrl;
+    var links = $('otherLinks'); links.innerHTML = '';
+    links.appendChild(el('a', { href: d.spreadsheetUrl, target: '_blank', rel: 'noopener' }, 'スプレッドシートを開く'));
+    links.appendChild(el('a', { href: d.folderUrl, target: '_blank', rel: 'noopener' }, '資料フォルダを開く'));
+  }
+
+  $('tabCases').addEventListener('click', function () { showTab('cases'); });
+  $('tabSettings').addEventListener('click', function () { showTab('settings'); });
+  $('saveFees').addEventListener('click', function () {
+    var rows = Array.prototype.map.call(document.querySelectorAll('#feeRows tr[data-key]'), function (tr) {
+      return { key: tr.getAttribute('data-key'),
+        label: tr.querySelector('[data-f=label]').value, amount: tr.querySelector('[data-f=amount]').value };
+    });
+    callSettings(this, 'feesMsg', 'saveFeeSettings', rows);
+  });
+  $('saveAdmins').addEventListener('click', function () {
+    callSettings(this, 'adminsMsg', 'saveAdminEmails', $('adminEmails').value);
+  });
+  $('saveWebhook').addEventListener('click', function () {
+    callSettings(this, 'webhookMsg', 'saveWebhookUrl', $('webhookUrl').value);
+  });
+  $('testWebhook').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; flash('webhookMsg', '送信中…');
+    google.script.run
+      .withSuccessHandler(function (r) { btn.disabled = false; flash('webhookMsg', r.ok ? 'テスト通知を送信しました' : '送信に失敗しました：' + r.message, !r.ok); })
+      .withFailureHandler(function (err) { btn.disabled = false; flash('webhookMsg', err.message, true); })
+      .sendTestNotification();
+  });
 
   $('q').addEventListener('input', renderRows);
   $('requestOnly').addEventListener('change', function () { renderChips(); renderRows(); });

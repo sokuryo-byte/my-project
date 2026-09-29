@@ -20,7 +20,7 @@ function getWebhookUrl_() {
 function postToChat_(text) {
   const url = getWebhookUrl_();
   if (!url) {
-    return { ok: false, message: 'Webhook URLが未設定です（Config.gs の CHAT_WEBHOOK_URL）' };
+    return { ok: false, message: 'Webhook URLが未設定です（管理画面の設定タブで登録）' };
   }
   try {
     const res = UrlFetchApp.fetch(url, {
