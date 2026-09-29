@@ -183,6 +183,12 @@ function calculateEstimate_(input) {
   const total = items.reduce(function (sum, it) { return sum + it.amount; }, 0);
   const costTotal = items.filter(function (it) { return it.kind === 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
   notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
+  // 始末書（無断転用）の提出が必要な物件
+  lots.forEach(function (l, i) {
+    if (l.shimatsusho !== '必要') return;
+    notes.push(lotName(l, i) + '：農業委員会より始末書の提出が必要との回答があります' +
+      (l.shimatsuStamp === '必要' ? '（押印が必要' + (l.shimatsuNote ? '：' + l.shimatsuNote : '') + '）' : l.shimatsuNote ? '（' + l.shimatsuNote + '）' : '') + '。');
+  });
   // 最後に：過去の転用届出・許可の履歴がある物件（新たな手続きが不要な場合がある）
   lots.forEach(function (l, i) {
     if (l.tenyoRireki !== 'あり') return;

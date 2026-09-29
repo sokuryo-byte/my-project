@@ -522,7 +522,8 @@ const FORM_OPTIONS = {
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
   settlementUnits: ['総額', '㎡あたり', 'haあたり'],        // 決済金の単位（多くは㎡単価・ha単価）
-  tenyoRireki: ['あり', 'なし', '未確認'],                  // 転用済みの物件：過去の転用届出（市街化）・転用許可（調整区域等）の履歴
+  tenyoRireki: ['あり', 'なし', '未確認'],
+  shimatsusho: ['必要', '不要', '未確認'],                  // 無断転用の始末書（顛末書）の提出（農業委員会に確認）                  // 転用済みの物件：過去の転用届出（市街化）・転用許可（調整区域等）の履歴
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
@@ -640,6 +641,9 @@ const LOT_COLUMNS = [
   { key: 'rirekiDate', header: '受理・許可年月日' },
   { key: 'rirekiNo', header: '受理・許可番号' },
   { key: 'rirekiNote', header: '履歴の内容（転用目的など）' },
+  { key: 'shimatsusho', header: '始末書の提出' },
+  { key: 'shimatsuStamp', header: '始末書の押印' },
+  { key: 'shimatsuNote', header: '始末書の備考（押印者・印の種類など）' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
@@ -836,6 +840,12 @@ function calculateEstimate_(input) {
   const total = items.reduce(function (sum, it) { return sum + it.amount; }, 0);
   const costTotal = items.filter(function (it) { return it.kind === 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
   notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
+  // 始末書（無断転用）の提出が必要な物件
+  lots.forEach(function (l, i) {
+    if (l.shimatsusho !== '必要') return;
+    notes.push(lotName(l, i) + '：農業委員会より始末書の提出が必要との回答があります' +
+      (l.shimatsuStamp === '必要' ? '（押印が必要' + (l.shimatsuNote ? '：' + l.shimatsuNote : '') + '）' : l.shimatsuNote ? '（' + l.shimatsuNote + '）' : '') + '。');
+  });
   // 最後に：過去の転用届出・許可の履歴がある物件（新たな手続きが不要な場合がある）
   lots.forEach(function (l, i) {
     if (l.tenyoRireki !== 'あり') return;
@@ -1099,6 +1109,7 @@ function submitCase(form, requestInvestigation) {
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       prefecture: l.prefecture, purpose: l.purpose,
       tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
+      shimatsusho: l.shimatsusho, shimatsuStamp: l.shimatsuStamp, shimatsuNote: l.shimatsuNote,
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
@@ -1321,7 +1332,8 @@ function normalizeLot_(l, prefecture, master) {
   const purpose = pick_(l.zone, FORM_OPTIONS.zones) === '市街化調整区域' ? pick_(l.purpose, FORM_OPTIONS.purposes) : '';
   const drainOn = purpose === '分家住宅';
   const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
-  const rirekiOn = convOn && pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) === 'あり';                                        // 分家住宅は排水先を確認
+  const rirekiOn = convOn && pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) === 'あり';
+  const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
 
@@ -1371,6 +1383,10 @@ function normalizeLot_(l, prefecture, master) {
     rirekiDate: rirekiOn ? dateText_(l.rirekiDate) : '',
     rirekiNo: rirekiOn ? str_(l.rirekiNo, 50) : '',
     rirekiNote: rirekiOn ? str_(l.rirekiNote, 200) : '',
+    // 履歴がない（無断転用）場合：始末書の提出と押印（「必要」のときだけ押印と備考）
+    shimatsusho: convOn && !rirekiOn ? pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) : '',
+    shimatsuStamp: shimatsuOn ? pick_(l.shimatsuStamp, FORM_OPTIONS.shimatsusho) : '',
+    shimatsuNote: shimatsuOn ? str_(l.shimatsuNote, 200) : '',
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
     noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
@@ -1975,6 +1991,9 @@ function getUserEmail_() { return ''; }
       rirekiDate: lotInput(card, 'rirekiDate').value,
       rirekiNo: lotInput(card, 'rirekiNo').value,
       rirekiNote: lotInput(card, 'rirekiNote').value,
+      shimatsusho: getRadio(card, 'shimatsusho'),
+      shimatsuStamp: getRadio(card, 'shimatsuStamp'),
+      shimatsuNote: lotInput(card, 'shimatsuNote').value,
       tenyoKanou: getRadio(card, 'tenyoKanou'),
       noutiKubun: getRadio(card, 'noutiKubun'),
       kanouNote: lotInput(card, 'kanouNote').value,
@@ -2033,6 +2052,22 @@ function getUserEmail_() { return ''; }
     var rn = field('内容（転用目的・面積など）', el('input', { type: 'text', id: id('rirekiNote'), maxlength: '200', placeholder: '例）5条許可・駐車場', 'data-f': 'rirekiNote' }));
     rn.classList.add('rireki-note', 'hidden');
     rb.appendChild(rn);
+    // 履歴がない（無断転用）場合：始末書の提出と押印
+    var sb = el('div', { 'class': 'shimatsu-block hidden', style: 'display:grid;gap:8px' });
+    var sh = el('div', { 'class': 'choices' });
+    renderChoices(sh, id('shimatsusho'), o.shimatsusho);
+    var st = el('div', { 'class': 'choices' });
+    renderChoices(st, id('shimatsuStamp'), o.shimatsusho);
+    var stf = radioField('始末書の押印', st);
+    stf.classList.add('shimatsu-stamp', 'hidden');
+    var rs = el('div', { 'class': 'row' });
+    rs.appendChild(radioField('始末書（顛末書）の提出', sh));
+    rs.appendChild(stf);
+    sb.appendChild(rs);
+    var snf = field('始末書の備考', el('input', { type: 'text', id: id('shimatsuNote'), maxlength: '200', placeholder: '例）所有者・転用者の実印、印鑑証明書を添付 など', 'data-f': 'shimatsuNote' }));
+    snf.classList.add('shimatsu-note', 'hidden');
+    sb.appendChild(snf);
+    rb.appendChild(sb);
     s1.appendChild(rb);
     // 青地の場合：農振除外の見込み（転用の見込みより先に聞く。位置関係は農振図で分かるので聞かない）
     var jb = el('div', { 'class': 'jogai-block hidden', style: 'display:grid;gap:8px' });
@@ -2307,10 +2342,18 @@ function getUserEmail_() { return ''; }
     card.querySelector('.rireki-block').classList.toggle('hidden', !rirekiOn);
     card.querySelector('.rireki-detail').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
     card.querySelector('.rireki-note').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
+    var rirekiAns = getRadio(card, 'tenyoRireki');
+    var shimatsuShow = rirekiOn && rirekiAns !== 'あり';
+    card.querySelector('.shimatsu-block').classList.toggle('hidden', !shimatsuShow);
+    var shimatsuNeed = getRadio(card, 'shimatsusho') === '必要';
+    card.querySelector('.shimatsu-stamp').classList.toggle('hidden', !shimatsuNeed);
+    card.querySelector('.shimatsu-note').classList.toggle('hidden', !shimatsuNeed);
     scriptLines(card.querySelector('.script-rireki'), [
       '【最初に：過去の転用の履歴】（既に転用済みの土地）',
       '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の土地について、現在は農地以外に使われているのですが、過去に' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」',
-      '→ 履歴がある場合：「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」'
+      '→ 履歴がある場合：「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」',
+      '→ 履歴がない場合：「無断で転用している状態になるかと思いますが、手続きにあたって始末書（顛末書）の提出は必要でしょうか。」',
+      '　→ 必要な場合：「始末書には押印が必要でしょうか。必要でしたら、どなたの、どの印鑑（実印など）が必要か、印鑑証明書の添付も要るかお教えいただけますでしょうか。」'
     ]);
     var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
     card.querySelector('.kanou-block').classList.toggle('hidden', !permit);

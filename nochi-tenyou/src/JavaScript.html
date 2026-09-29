@@ -394,6 +394,9 @@
       rirekiDate: lotInput(card, 'rirekiDate').value,
       rirekiNo: lotInput(card, 'rirekiNo').value,
       rirekiNote: lotInput(card, 'rirekiNote').value,
+      shimatsusho: getRadio(card, 'shimatsusho'),
+      shimatsuStamp: getRadio(card, 'shimatsuStamp'),
+      shimatsuNote: lotInput(card, 'shimatsuNote').value,
       tenyoKanou: getRadio(card, 'tenyoKanou'),
       noutiKubun: getRadio(card, 'noutiKubun'),
       kanouNote: lotInput(card, 'kanouNote').value,
@@ -452,6 +455,22 @@
     var rn = field('内容（転用目的・面積など）', el('input', { type: 'text', id: id('rirekiNote'), maxlength: '200', placeholder: '例）5条許可・駐車場', 'data-f': 'rirekiNote' }));
     rn.classList.add('rireki-note', 'hidden');
     rb.appendChild(rn);
+    // 履歴がない（無断転用）場合：始末書の提出と押印
+    var sb = el('div', { 'class': 'shimatsu-block hidden', style: 'display:grid;gap:8px' });
+    var sh = el('div', { 'class': 'choices' });
+    renderChoices(sh, id('shimatsusho'), o.shimatsusho);
+    var st = el('div', { 'class': 'choices' });
+    renderChoices(st, id('shimatsuStamp'), o.shimatsusho);
+    var stf = radioField('始末書の押印', st);
+    stf.classList.add('shimatsu-stamp', 'hidden');
+    var rs = el('div', { 'class': 'row' });
+    rs.appendChild(radioField('始末書（顛末書）の提出', sh));
+    rs.appendChild(stf);
+    sb.appendChild(rs);
+    var snf = field('始末書の備考', el('input', { type: 'text', id: id('shimatsuNote'), maxlength: '200', placeholder: '例）所有者・転用者の実印、印鑑証明書を添付 など', 'data-f': 'shimatsuNote' }));
+    snf.classList.add('shimatsu-note', 'hidden');
+    sb.appendChild(snf);
+    rb.appendChild(sb);
     s1.appendChild(rb);
     // 青地の場合：農振除外の見込み（転用の見込みより先に聞く。位置関係は農振図で分かるので聞かない）
     var jb = el('div', { 'class': 'jogai-block hidden', style: 'display:grid;gap:8px' });
@@ -726,10 +745,18 @@
     card.querySelector('.rireki-block').classList.toggle('hidden', !rirekiOn);
     card.querySelector('.rireki-detail').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
     card.querySelector('.rireki-note').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
+    var rirekiAns = getRadio(card, 'tenyoRireki');
+    var shimatsuShow = rirekiOn && rirekiAns !== 'あり';
+    card.querySelector('.shimatsu-block').classList.toggle('hidden', !shimatsuShow);
+    var shimatsuNeed = getRadio(card, 'shimatsusho') === '必要';
+    card.querySelector('.shimatsu-stamp').classList.toggle('hidden', !shimatsuNeed);
+    card.querySelector('.shimatsu-note').classList.toggle('hidden', !shimatsuNeed);
     scriptLines(card.querySelector('.script-rireki'), [
       '【最初に：過去の転用の履歴】（既に転用済みの土地）',
       '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の土地について、現在は農地以外に使われているのですが、過去に' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」',
-      '→ 履歴がある場合：「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」'
+      '→ 履歴がある場合：「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」',
+      '→ 履歴がない場合：「無断で転用している状態になるかと思いますが、手続きにあたって始末書（顛末書）の提出は必要でしょうか。」',
+      '　→ 必要な場合：「始末書には押印が必要でしょうか。必要でしたら、どなたの、どの印鑑（実印など）が必要か、印鑑証明書の添付も要るかお教えいただけますでしょうか。」'
     ]);
     var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
     card.querySelector('.kanou-block').classList.toggle('hidden', !permit);

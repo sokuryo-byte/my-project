@@ -183,6 +183,7 @@ function submitCase(form, requestInvestigation) {
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       prefecture: l.prefecture, purpose: l.purpose,
       tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
+      shimatsusho: l.shimatsusho, shimatsuStamp: l.shimatsuStamp, shimatsuNote: l.shimatsuNote,
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
@@ -405,7 +406,8 @@ function normalizeLot_(l, prefecture, master) {
   const purpose = pick_(l.zone, FORM_OPTIONS.zones) === '市街化調整区域' ? pick_(l.purpose, FORM_OPTIONS.purposes) : '';
   const drainOn = purpose === '分家住宅';
   const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
-  const rirekiOn = convOn && pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) === 'あり';                                        // 分家住宅は排水先を確認
+  const rirekiOn = convOn && pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) === 'あり';
+  const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
 
@@ -455,6 +457,10 @@ function normalizeLot_(l, prefecture, master) {
     rirekiDate: rirekiOn ? dateText_(l.rirekiDate) : '',
     rirekiNo: rirekiOn ? str_(l.rirekiNo, 50) : '',
     rirekiNote: rirekiOn ? str_(l.rirekiNote, 200) : '',
+    // 履歴がない（無断転用）場合：始末書の提出と押印（「必要」のときだけ押印と備考）
+    shimatsusho: convOn && !rirekiOn ? pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) : '',
+    shimatsuStamp: shimatsuOn ? pick_(l.shimatsuStamp, FORM_OPTIONS.shimatsusho) : '',
+    shimatsuNote: shimatsuOn ? str_(l.shimatsuNote, 200) : '',
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
     noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',

@@ -68,6 +68,9 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       lines.push('　　過去の転用届出・許可の履歴：' + l.tenyoRireki +
         (l.tenyoRireki === 'あり' ? '（' + [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・') + '）' : ''));
     }
+    if (l.shimatsusho) {
+      lines.push('　　始末書の提出：' + l.shimatsusho + (l.shimatsuStamp ? '／押印 ' + l.shimatsuStamp : '') + (l.shimatsuNote ? '（' + l.shimatsuNote + '）' : ''));
+    }
     if (l.tenyoKanou || l.noutiKubun) {
       lines.push('　　転用の見込み（農業委員会）：' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') +
         (l.kanouNote ? '／' + l.kanouNote : ''));

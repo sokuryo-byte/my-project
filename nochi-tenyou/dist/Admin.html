@@ -441,6 +441,7 @@
           l.iinStamp === '必要' && '委員押印:必要' + (l.iinContacts ? '\n' + l.iinContacts : ''),
           l.localConsent && '地元同意:' + l.localConsent + (l.localContacts ? '\n' + l.localContacts : ''),
           l.purpose && '転用目的:' + l.purpose,
+          l.shimatsusho && '始末書:' + l.shimatsusho + (l.shimatsuStamp ? '／押印 ' + l.shimatsuStamp : '') + (l.shimatsuNote ? '（' + l.shimatsuNote + '）' : ''),
           l.tenyoRireki && '転用履歴:' + l.tenyoRireki + (l.tenyoRireki === 'あり' ? '（' + [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(function (x) { return x; }).join('・') + '）' : ''),
           (l.tenyoKanou || l.noutiKubun) && '転用の見込み:' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') + (l.kanouNote ? '／' + l.kanouNote : ''),
           (l.jogaiKanou || l.hojoKuiki || l.jogaiJisseki || l.jogaiUketsuke) && '除外の見込み:' + (l.jogaiKanou || '-') +
