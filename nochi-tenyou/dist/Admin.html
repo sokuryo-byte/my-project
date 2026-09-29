@@ -61,6 +61,7 @@
     border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; box-sizing: border-box; margin: 0;
   }
   input[type=text], input[type=tel], input[type=number], input[type=date], select { height: 40px; line-height: 1.4; }
+  textarea { resize: vertical; } /* 広げるのは縦方向だけ */
   .inline-inputs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .inline-inputs input[type=number] { width: 5.5em; text-align: right; }
   .inline-inputs input[type=date] { width: 11em; } /* テキスト欄とプルダウンの高さをそろえる */
@@ -429,6 +430,7 @@
          boolText(l.isNoshin), l.landUse, boolText(l.isConverted), l.landImprovement,
          [l.kairyoName, l.kairyoTel, l.kairyoBenefit && '受益地:' + l.kairyoBenefit, l.kairyoProcedure && '手続き:' + l.kairyoProcedure,
           l.kairyoSettlement && '決済金:' + l.kairyoSettlement + (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''),
+          l.kairyoFee && '手数料等:' + l.kairyoFee,
           l.iinStamp === '必要' && '委員押印:必要' + (l.iinContacts ? '\n' + l.iinContacts : ''),
           l.localConsent && '地元同意:' + l.localConsent + (l.localContacts ? '\n' + l.localContacts : ''),
           l.purpose && '転用目的:' + l.purpose,

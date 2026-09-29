@@ -367,7 +367,7 @@ const FORM_OPTIONS = {
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
-  localConsent: ['必要', '不要', '未確認'],
+  localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（市街化調整区域の物件のみ。分家住宅は排水先の確認を行う）
   tenyoUkeModes: ['毎月の期間', '毎月の締切日', '締切日を指定'], // 農地転用の受付：毎月○日～○日／毎月○日締切／特定の日
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
@@ -376,7 +376,7 @@ const FORM_OPTIONS = {
   hojo8nen: ['経過', '未経過', '未確認'],                  // 事業完了から8年経過したか（未経過は除外の要件を満たさない）
   jogaiJisseki: ['あり', 'なし', '未確認'],                // 近隣の除外実績
   drainAdjacent: ['ある', 'ない', '未確認'],               // 隣接に水路があるか（ない場合は側溝へ）
-  drainConsent: ['必要', '不要', '未確認'],                // 流末の農業用水への排水承諾               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
+  drainConsent: ['必要', '不要', '未確認'],                // 排水承諾の要否（農業用水などへの排水）
   chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
   landUses: ['耕作中', '休耕・荒地', '駐車場', '宅地', '資材置場', 'その他'],
   documents: ['謄本', '公図', '住宅地図', '課税明細', 'その他'],
@@ -452,7 +452,8 @@ const LOT_COLUMNS = [
   { key: 'kairyoBenefit', header: '受益地該当' },
   { key: 'kairyoProcedure', header: '地区除外の手続き' },
   { key: 'kairyoSettlement', header: '地区除外決済金' },
-  { key: 'kairyoSettlementNote', header: '決済金（金額・備考）' },
+  { key: 'kairyoSettlementNote', header: '決済金（金額）' },
+  { key: 'kairyoFee', header: '土地改良区 手数料等（決済金以外）' },
   { key: 'iinStamp', header: '農業委員・推進委員の押印' },
   { key: 'iinContacts', header: '委員（氏名／住所／電話）' },
   { key: 'localConsent', header: '地元関係者の同意（押印）' },
@@ -822,7 +823,7 @@ function submitCase(form, requestInvestigation) {
       zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
       kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
-      kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
+      kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote, kairyoFee: l.kairyoFee,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       purpose: l.purpose, tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
@@ -893,6 +894,13 @@ function summarizeLots_(lots) {
     localContacts: lots.map(function (l) { return contactsToText_(l.localContacts); })
       .filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('\n'),
   };
+}
+
+/** 金額 → 「300,000円」（数字以外は空文字） */
+function yenText_(v) {
+  const s = String(v === undefined || v === null ? '' : v).replace(/[,，円¥\s]/g, '');
+  const n = Number(s);
+  return s !== '' && !isNaN(n) && n >= 0 ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円' : '';
 }
 
 /** 'YYYY-MM-DD' → 'YYYY/MM/DD'（それ以外は空文字） */
@@ -1044,7 +1052,9 @@ function normalizeLot_(l, prefecture, master) {
     // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
     kairyoProcedure: benefitOn ? pick_(l.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
     kairyoSettlement: benefitOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
-    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? str_(l.kairyoSettlementNote, 200) : '',
+    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? yenText_(l.kairyoSettlementNote) : '',
+    // 決済金とは別の手数料など（金額・内容）
+    kairyoFee: benefitOn ? [yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／') : '',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
     iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],
@@ -1460,6 +1470,9 @@ function calculateEstimate_(input) {
       notes.push(lotName(l, i) + '：地区除外決済金は実費のため見積に含みません' +
         (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + '。');
     }
+    if (l.landImprovement === 'はい' && l.kairyoFee) {
+      notes.push(lotName(l, i) + '：土地改良区の手数料等は実費のため見積に含みません（' + l.kairyoFee + '）。');
+    }
   });
 
   // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---
@@ -1855,7 +1868,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') +
         '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +
         (l.kairyoSettlement ? '／決済金:' + l.kairyoSettlement : '') +
-        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''));
+        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : ''));
     }
     if (l.iinStamp === '必要') {
       lines.push('　　農業委員等の押印：必要');

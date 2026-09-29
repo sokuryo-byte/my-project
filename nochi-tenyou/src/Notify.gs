@@ -58,7 +58,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') +
         '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +
         (l.kairyoSettlement ? '／決済金:' + l.kairyoSettlement : '') +
-        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''));
+        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : ''));
     }
     if (l.iinStamp === '必要') {
       lines.push('　　農業委員等の押印：必要');

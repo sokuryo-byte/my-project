@@ -61,6 +61,7 @@
     border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; box-sizing: border-box; margin: 0;
   }
   input[type=text], input[type=tel], input[type=number], input[type=date], select { height: 40px; line-height: 1.4; }
+  textarea { resize: vertical; } /* 広げるのは縦方向だけ */
   .inline-inputs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .inline-inputs input[type=number] { width: 5.5em; text-align: right; }
   .inline-inputs input[type=date] { width: 11em; } /* テキスト欄とプルダウンの高さをそろえる */
@@ -175,16 +176,20 @@
           <input type="text" id="requesterName" maxlength="50" placeholder="例）山田 太郎">
           <p class="help">ご依頼者またはお客様のお名前</p>
         </div>
-        <div class="field">
-          <label for="prefecture">物件の都道府県</label>
-          <select id="prefecture"></select>
-        </div>
       </div>
     </section>
 
     <!-- ===================== STEP 2 物件（複数可） ===================== -->
     <section>
       <h2><span class="step">STEP 2</span>物件<span class="help">1筆ごとに入力・複数可</span></h2>
+
+      <div class="row">
+        <div class="field">
+          <label for="prefecture">物件の都道府県</label>
+          <select id="prefecture"></select>
+          <p class="help">※ 謄本の市町村名から他県と分かる場合は、自動で切り替わります</p>
+        </div>
+      </div>
 
       <div class="field">
         <span class="lbl">謄本から読み取る</span>
@@ -620,6 +625,8 @@
       kairyoProcedure: getRadio(card, 'kairyoProcedure'),
       kairyoSettlement: getRadio(card, 'kairyoSettlement'),
       kairyoSettlementNote: lotInput(card, 'kairyoSettlementNote').value,
+      kairyoFeeAmount: lotInput(card, 'kairyoFeeAmount').value,
+      kairyoFeeNote: lotInput(card, 'kairyoFeeNote').value,
       iinStamp: getRadio(card, 'iinStamp'),
       iinContacts: getContacts(card, 'iinContacts'),
       localConsent: getRadio(card, 'localConsent'),
@@ -779,9 +786,20 @@
     r2.appendChild(radioField('地区除外の手続き', proc, el('p', { 'class': 'help' }, '決済金がなくても手続きが必要な場合があります')));
     r2.appendChild(radioField('地区除外の決済金', settle));
     kd.appendChild(r2);
-    var sn = field('決済金の金額・備考', el('input', { type: 'text', id: id('kairyoSettlementNote'), maxlength: '200', placeholder: '例）約○○円／㎡あたり○円 など', 'data-f': 'kairyoSettlementNote' }));
+    var snBox = el('div', { 'class': 'inline-inputs' });
+    snBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('kairyoSettlementNote'), 'data-f': 'kairyoSettlementNote', style: 'width:11em;text-align:right' }));
+    snBox.appendChild(el('span', {}, '円'));
+    var sn = field('決済金の金額', snBox.firstChild, null, false, snBox);
     sn.classList.add('settle-note', 'hidden');
     kd.appendChild(sn);
+    // 決済金とは別にかかる手数料など
+    var feeBox = el('div', { 'class': 'inline-inputs' });
+    feeBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('kairyoFeeAmount'), 'data-f': 'kairyoFeeAmount', style: 'width:11em;text-align:right', 'aria-label': '手数料などの金額' }));
+    feeBox.appendChild(el('span', {}, '円'));
+    var feeNote = el('input', { type: 'text', id: id('kairyoFeeNote'), maxlength: '100', placeholder: '内容（例：事務手数料）', 'data-f': 'kairyoFeeNote', 'aria-label': '手数料などの内容' });
+    feeNote.style.flex = '1'; feeNote.style.minWidth = '12em';
+    feeBox.appendChild(feeNote);
+    kd.appendChild(field('手数料など（決済金以外）', feeBox.firstChild, null, false, feeBox));
     s2.appendChild(kd);
     var consent = el('div', { 'class': 'choices' });
     renderChoices(consent, id('localConsent'), o.localConsent);
@@ -801,7 +819,7 @@
     renderChoices(dc, id('drainConsent'), o.drainConsent);
     var r3 = el('div', { 'class': 'row' });
     r3.appendChild(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')));
-    r3.appendChild(radioField('流末の農業用水への排水承諾', dc));
+    r3.appendChild(radioField('排水承諾の要否', dc, el('p', { 'class': 'help' }, '農業用水（用排水路など）へ排水する場合など')));
     s3.appendChild(r3);
     var s3b = el('div', { 'class': 'step3b hidden', style: 'display:grid;gap:8px' });
     var r4 = el('div', { 'class': 'row' });
@@ -970,7 +988,8 @@
     scriptLines(card.querySelector('.script3a'), [
       '（農業委員会、または市の道路・下水の担当課へ）',
       '「' + where + 'で分家住宅を予定しております。排水先についてお伺いします。隣接の水路へ排水してもよろしいでしょうか。」',
-      '→ 水路がない場合：「側溝への排水になるかと思いますが、流末が農業用水にかかる場合、排水承諾の手続きは必要でしょうか。」',
+      '→ 水路がない場合：「側溝への排水になるかと思います。」',
+      '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」',
       '→ 必要な場合：「用水の管理者（水利組合・土地改良区など）の名称とご連絡先をお教えいただけますでしょうか。」'
     ]);
     scriptLines(card.querySelector('.script3b'), [
@@ -1006,6 +1025,7 @@
       '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。」',
       '「' + where + 'の土地で農地転用を予定しております。' + (kname === '土地改良区' ? '貴改良区の' : kname + 'の') + '受益地に該当しますでしょうか。」',
       '→ 該当する場合：「地区除外の手続きは必要でしょうか。また、決済金は必要でしょうか。必要な場合は、金額の目安をお教えいただけますでしょうか。」',
+      '　「決済金とは別に、手数料などはかかりますでしょうか。」',
       '「また、地元の自治会長さんや水利組合、地元の委員・理事の方など、ご説明や同意書への押印が必要な方はいらっしゃいますでしょうか。」',
       '→ いらっしゃる場合：「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
     ]);
@@ -1040,8 +1060,8 @@
    * 選択中の都道府県の市区町村：[{ full: 謄本上の表記（郡名付き）, name: 市区町村欄に入れる名前 }]
    * 組み込みの一覧（Config.gs の MUNICIPALITIES）＋「マスタ」シートの市区町村。
    */
-  function cityEntries() {
-    var pref = $('prefecture').value;
+  function cityEntries(prefOverride) {
+    var pref = prefOverride || $('prefecture').value;
     var out = [], seen = {};
     function add(full) {
       full = String(full || '').trim();
@@ -1054,13 +1074,13 @@
   }
 
   /** 文字列の先頭にある市区町村（郡名付き・なしの両方で前方一致、長い方を優先）。{ name, length } か null */
-  function cityPrefixOf(text) {
-    var pref = $('prefecture').value;
+  function cityPrefixOf(text, prefOverride) {
+    var pref = prefOverride || $('prefecture').value;
     var t = String(text || '');
     var offset = 0;
     if (t.indexOf(pref) === 0) { t = t.slice(pref.length); offset = pref.length; }
     var best = null;
-    cityEntries().forEach(function (c) {
+    cityEntries(pref).forEach(function (c) {
       [c.full, c.name].forEach(function (label) {
         if (t.indexOf(label) === 0 && (!best || label.length > best.length - offset)) best = { name: c.name, length: offset + label.length };
       });
@@ -1114,6 +1134,15 @@
       // 謄本の所在「豊田市○○町字△△」を、マスタの市区町村名との前方一致で 市区町村／町名・字 に分ける（一致しなければ全体を所在・地番欄へ）
       var place = c.address || '';
       var hit = cityPrefixOf(place);
+      if (!hit) {
+        // 選択中の都道府県で見つからず、ほかの1県だけに当てはまる市町村名なら、都道府県を切り替える（名前の一致のみ・推測なし）
+        var other = Object.keys(state.municipalities).filter(function (p) { return p !== $('prefecture').value && cityPrefixOf(place, p); });
+        if (other.length === 1) {
+          $('prefecture').value = other[0];
+          fillCityList();
+          hit = cityPrefixOf(place);
+        }
+      }
       var city = hit ? hit.name : '';
       if (hit) place = place.slice(hit.length).trim();
       var addrText = [place, c.lotNumber].filter(String).join(' ');

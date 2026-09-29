@@ -114,6 +114,9 @@ function calculateEstimate_(input) {
       notes.push(lotName(l, i) + '：地区除外決済金は実費のため見積に含みません' +
         (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + '。');
     }
+    if (l.landImprovement === 'はい' && l.kairyoFee) {
+      notes.push(lotName(l, i) + '：土地改良区の手数料等は実費のため見積に含みません（' + l.kairyoFee + '）。');
+    }
   });
 
   // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---

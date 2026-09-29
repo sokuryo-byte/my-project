@@ -176,7 +176,7 @@ function submitCase(form, requestInvestigation) {
       zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
       kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
-      kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
+      kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote, kairyoFee: l.kairyoFee,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
       purpose: l.purpose, tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
@@ -247,6 +247,13 @@ function summarizeLots_(lots) {
     localContacts: lots.map(function (l) { return contactsToText_(l.localContacts); })
       .filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('\n'),
   };
+}
+
+/** 金額 → 「300,000円」（数字以外は空文字） */
+function yenText_(v) {
+  const s = String(v === undefined || v === null ? '' : v).replace(/[,，円¥\s]/g, '');
+  const n = Number(s);
+  return s !== '' && !isNaN(n) && n >= 0 ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円' : '';
 }
 
 /** 'YYYY-MM-DD' → 'YYYY/MM/DD'（それ以外は空文字） */
@@ -398,7 +405,9 @@ function normalizeLot_(l, prefecture, master) {
     // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
     kairyoProcedure: benefitOn ? pick_(l.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
     kairyoSettlement: benefitOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
-    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? str_(l.kairyoSettlementNote, 200) : '',
+    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? yenText_(l.kairyoSettlementNote) : '',
+    // 決済金とは別の手数料など（金額・内容）
+    kairyoFee: benefitOn ? [yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／') : '',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
     iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],

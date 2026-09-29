@@ -364,7 +364,7 @@ const FORM_OPTIONS = {
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
-  localConsent: ['必要', '不要', '未確認'],
+  localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（市街化調整区域の物件のみ。分家住宅は排水先の確認を行う）
   tenyoUkeModes: ['毎月の期間', '毎月の締切日', '締切日を指定'], // 農地転用の受付：毎月○日～○日／毎月○日締切／特定の日
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
@@ -373,7 +373,7 @@ const FORM_OPTIONS = {
   hojo8nen: ['経過', '未経過', '未確認'],                  // 事業完了から8年経過したか（未経過は除外の要件を満たさない）
   jogaiJisseki: ['あり', 'なし', '未確認'],                // 近隣の除外実績
   drainAdjacent: ['ある', 'ない', '未確認'],               // 隣接に水路があるか（ない場合は側溝へ）
-  drainConsent: ['必要', '不要', '未確認'],                // 流末の農業用水への排水承諾               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
+  drainConsent: ['必要', '不要', '未確認'],                // 排水承諾の要否（農業用水などへの排水）
   chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
   landUses: ['耕作中', '休耕・荒地', '駐車場', '宅地', '資材置場', 'その他'],
   documents: ['謄本', '公図', '住宅地図', '課税明細', 'その他'],
@@ -449,7 +449,8 @@ const LOT_COLUMNS = [
   { key: 'kairyoBenefit', header: '受益地該当' },
   { key: 'kairyoProcedure', header: '地区除外の手続き' },
   { key: 'kairyoSettlement', header: '地区除外決済金' },
-  { key: 'kairyoSettlementNote', header: '決済金（金額・備考）' },
+  { key: 'kairyoSettlementNote', header: '決済金（金額）' },
+  { key: 'kairyoFee', header: '土地改良区 手数料等（決済金以外）' },
   { key: 'iinStamp', header: '農業委員・推進委員の押印' },
   { key: 'iinContacts', header: '委員（氏名／住所／電話）' },
   { key: 'localConsent', header: '地元関係者の同意（押印）' },

@@ -288,6 +288,7 @@
          boolText(l.isNoshin), l.landUse, boolText(l.isConverted), l.landImprovement,
          [l.kairyoName, l.kairyoTel, l.kairyoBenefit && '受益地:' + l.kairyoBenefit, l.kairyoProcedure && '手続き:' + l.kairyoProcedure,
           l.kairyoSettlement && '決済金:' + l.kairyoSettlement + (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : ''),
+          l.kairyoFee && '手数料等:' + l.kairyoFee,
           l.iinStamp === '必要' && '委員押印:必要' + (l.iinContacts ? '\n' + l.iinContacts : ''),
           l.localConsent && '地元同意:' + l.localConsent + (l.localContacts ? '\n' + l.localContacts : ''),
           l.purpose && '転用目的:' + l.purpose,
