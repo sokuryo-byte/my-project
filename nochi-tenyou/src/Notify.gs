@@ -41,8 +41,9 @@ function postToChat_(text) {
  * 見積調査依頼の通知文を組み立てる。
  * Chat の書式： *太字*、<URL|リンク文字>
  */
-function buildRequestMessage_(caseId, input, estimate, rowUrl) {
+function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
   const location = [input.prefecture, input.municipality, input.address].filter(String).join(' ');
+  const adminUrl = getAdminUrl_(caseId);
   const lines = [
     '*【農地転用】見積調査依頼が届きました*',
     '案件ID：' + caseId,
@@ -53,8 +54,26 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl) {
     '農振農用地：' + (input.isNoshin || '-') + '　土地改良区：' + (input.landImprovement || '-'),
     '現況利用：' + (input.landUse || '-') + '　転用済み：' + (input.isConverted || '-'),
     '概算見積金額：' + (estimate.ok ? formatYen_(estimate.total) : '算出不可'),
+    '手元資料：' + (input.documents.join('、') || 'なし'),
     '入力者：' + (input.submittedBy || '不明'),
-    '<' + rowUrl + '|スプレッドシートで案件行を開く>',
   ];
+  if (attach && attach.folderUrl) {
+    lines.push('<' + attach.folderUrl + '|アップロード資料（' + attach.count + '件）を開く>');
+  }
+  if (attach && attach.errors.length) {
+    lines.push('⚠ 資料の保存でエラー：' + attach.errors.join(' / '));
+  }
+  if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
+  lines.push('<' + rowUrl + '|スプレッドシートで案件行を開く>');
   return lines.join('\n');
+}
+
+/** 管理画面で案件を開くURL（Webアプリとしてデプロイされていない場合は空文字） */
+function getAdminUrl_(caseId) {
+  try {
+    const base = ScriptApp.getService().getUrl();
+    return base ? base + '?page=admin&id=' + caseId : '';
+  } catch (e) {
+    return '';
+  }
 }

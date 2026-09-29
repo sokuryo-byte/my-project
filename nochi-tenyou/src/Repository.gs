@@ -63,6 +63,48 @@ function updateCaseCell_(rowNumber, key, value) {
     .setValue(toCellValue_(value));
 }
 
+/** 指定行の複数セルをまとめて更新する（patch は CASE_COLUMNS の key → 値） */
+function updateCaseCells_(rowNumber, patch) {
+  Object.keys(patch).forEach(function (key) {
+    updateCaseCell_(rowNumber, key, patch[key]);
+  });
+}
+
+/** 案件IDから行番号を探す（見つからなければ 0） */
+function findCaseRow_(caseId) {
+  const sheet = getSheet_(SHEET_NAMES.CASES);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const ids = sheet.getRange(2, colIndexOf_('id'), lastRow - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (Number(ids[i][0]) === Number(caseId)) return i + 2;
+  }
+  return 0;
+}
+
+/**
+ * 案件一覧の全行を、CASE_COLUMNS の key を持つオブジェクトの配列で返す（新しい順）。
+ * 日付は画面へ渡せるよう文字列に変換する。
+ */
+function getAllCases_() {
+  const sheet = getSheet_(SHEET_NAMES.CASES);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const values = sheet.getRange(2, 1, lastRow - 1, CASE_COLUMNS.length).getValues();
+  const tz = Session.getScriptTimeZone();
+  return values
+    .filter(function (r) { return r[0] !== ''; })
+    .map(function (r) {
+      const obj = {};
+      CASE_COLUMNS.forEach(function (c, i) {
+        const v = r[i];
+        obj[c.key] = v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy/MM/dd HH:mm') : v;
+      });
+      return obj;
+    })
+    .reverse();
+}
+
 /** 次の案件IDを返す（ID列の最大値 + 1） */
 function getNextCaseId_(sheet) {
   const lastRow = sheet.getLastRow();

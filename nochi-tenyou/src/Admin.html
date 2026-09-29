@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <?!= include('Stylesheet'); ?>
+  <style>
+    .admin { max-width: 1200px; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 16px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+    .toolbar input[type=text] { max-width: 260px; }
+    .toolbar select { width: auto; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 2px 12px; font-size: .82rem; cursor: pointer; }
+    .chip[aria-pressed=true] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+    @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+    .list { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+    table.cases { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+    table.cases th, table.cases td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+    table.cases th { font-size: .75rem; color: var(--muted); font-weight: 700; }
+    table.cases td.loc { white-space: normal; min-width: 160px; }
+    table.cases tbody tr { cursor: pointer; }
+    table.cases tbody tr:hover { background: var(--bg); }
+    table.cases tbody tr.sel { background: var(--accent-soft); }
+    .num { text-align: right !important; }
+    .pill { display: inline-block; border-radius: 999px; padding: 0 8px; font-size: .75rem; font-weight: 700; border: 1px solid currentColor; }
+    .st-新規 { color: var(--danger); }
+    .st-調査中 { color: var(--warn-fg); }
+    .st-正式見積提示済, .st-受任 { color: var(--accent); }
+    .st-完了, .st-失注・取下げ { color: var(--muted); }
+    .detail { position: sticky; top: 12px; }
+    dl.kv { display: grid; grid-template-columns: 9em minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: .88rem; }
+    dl.kv dt { color: var(--muted); }
+    dl.kv dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+    .empty { color: var(--muted); padding: 24px; text-align: center; }
+    .saved { color: var(--accent); font-size: .85rem; }
+  </style>
+</head>
+<body>
+<div class="admin">
+  <header>
+    <h1>農地転用 案件管理（行政班）</h1>
+    <p class="lead">依頼フォームから届いた案件の一覧です。案件を選ぶと右側に詳細が出ます。対応状況・担当者・正式見積・メモはここで更新できます。</p>
+    <p class="user" id="userInfo"></p>
+  </header>
+
+  <div class="toolbar">
+    <input type="text" id="q" placeholder="依頼者名・地番・市区町村で検索" aria-label="検索">
+    <div class="chips" id="statusChips"></div>
+    <label style="font-weight:400;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="requestOnly" checked> 見積調査依頼のみ</label>
+    <button type="button" class="ghost" id="reload" style="padding:4px 12px">再読み込み</button>
+  </div>
+
+  <div class="layout">
+    <div class="list">
+      <table class="cases">
+        <thead><tr><th>ID</th><th>受付日時</th><th>対応状況</th><th>依頼者</th><th>所在地・地番</th><th>区域</th><th class="num">概算</th><th>担当</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="8" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </div>
+
+    <section class="detail" id="detail">
+      <p class="empty">左の一覧から案件を選んでください。</p>
+    </section>
+  </div>
+</div>
+
+<script>
+  var state = { cases: [], statuses: [], filter: '', selectedId: Number('<?= initialId ?>') || 0 };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function el(tag, attrs, text) {
+    var e = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function yen(n) {
+    return n === '' || n === null || n === undefined ? '―' : '¥' + String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function boolText(v) { return v === true ? 'はい' : v === false ? 'いいえ' : (v || '―'); }
+
+  // ---------------------------------------------------------
+  // 読み込み
+  // ---------------------------------------------------------
+  function load() {
+    google.script.run
+      .withSuccessHandler(function (data) {
+        state.cases = data.cases;
+        state.statuses = data.statuses;
+        $('userInfo').textContent = 'ログイン中：' + data.userEmail;
+        renderChips();
+        renderRows();
+        if (state.selectedId) renderDetail(state.selectedId);
+      })
+      .withFailureHandler(function (err) {
+        $('rows').innerHTML = '';
+        var tr = el('tr'); tr.appendChild(el('td', { colspan: '8', 'class': 'empty' }, '読み込みに失敗しました：' + err.message));
+        $('rows').appendChild(tr);
+      })
+      .getAdminData();
+  }
+
+  function renderChips() {
+    var box = $('statusChips');
+    box.innerHTML = '';
+    [''].concat(state.statuses).forEach(function (s) {
+      var count = state.cases.filter(function (c) { return !s || c.status === s; }).length;
+      var b = el('button', { type: 'button', 'class': 'chip', 'aria-pressed': String(state.filter === s) }, (s || 'すべて') + ' ' + count);
+      b.addEventListener('click', function () { state.filter = s; renderChips(); renderRows(); });
+      box.appendChild(b);
+    });
+  }
+
+  function visibleCases() {
+    var q = $('q').value.trim();
+    var reqOnly = $('requestOnly').checked;
+    return state.cases.filter(function (c) {
+      if (state.filter && c.status !== state.filter) return false;
+      if (reqOnly && c.requestFlag !== true) return false;
+      if (q) {
+        var hay = [c.requesterName, c.lotNumber, c.municipality, c.address, c.assignee, c.id].join(' ');
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderRows() {
+    var tbody = $('rows');
+    tbody.innerHTML = '';
+    var list = visibleCases();
+    if (!list.length) {
+      var tr0 = el('tr'); tr0.appendChild(el('td', { colspan: '8', 'class': 'empty' }, '該当する案件はありません。'));
+      tbody.appendChild(tr0);
+      return;
+    }
+    list.forEach(function (c) {
+      var tr = el('tr', { 'class': c.id === state.selectedId ? 'sel' : '' });
+      tr.appendChild(el('td', {}, c.id));
+      tr.appendChild(el('td', {}, c.receivedAt));
+      var st = el('td'); st.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―')); tr.appendChild(st);
+      tr.appendChild(el('td', {}, c.requesterName));
+      tr.appendChild(el('td', { 'class': 'loc' }, [c.municipality, c.address, c.lotNumber].filter(String).join(' ')));
+      tr.appendChild(el('td', {}, c.zone));
+      tr.appendChild(el('td', { 'class': 'num' }, yen(c.estimate)));
+      tr.appendChild(el('td', {}, c.assignee || '―'));
+      tr.addEventListener('click', function () { state.selectedId = c.id; renderRows(); renderDetail(c.id); });
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ---------------------------------------------------------
+  // 詳細・更新
+  // ---------------------------------------------------------
+  function renderDetail(id) {
+    var c = state.cases.filter(function (x) { return x.id === id; })[0];
+    var box = $('detail');
+    box.innerHTML = '';
+    if (!c) { box.appendChild(el('p', { 'class': 'empty' }, '案件ID ' + id + ' が見つかりません。')); return; }
+
+    box.appendChild(el('h2', {}, '案件ID ' + c.id + '　' + (c.requesterName || '')));
+
+    // 対応欄（編集可）
+    var form = el('div', { 'class': 'field' });
+    var row1 = el('div', { 'class': 'row' });
+    var fStatus = el('div', { 'class': 'field' });
+    fStatus.appendChild(el('label', { 'for': 'aStatus' }, '対応状況'));
+    var sel = el('select', { id: 'aStatus' });
+    state.statuses.forEach(function (s) { var o = new Option(s, s); if (s === c.status) o.selected = true; sel.appendChild(o); });
+    fStatus.appendChild(sel);
+    var fAssignee = el('div', { 'class': 'field' });
+    fAssignee.appendChild(el('label', { 'for': 'aAssignee' }, '担当者'));
+    var assignee = el('input', { type: 'text', id: 'aAssignee', maxlength: '50' }); assignee.value = c.assignee || '';
+    fAssignee.appendChild(assignee);
+    row1.appendChild(fStatus); row1.appendChild(fAssignee);
+    form.appendChild(row1);
+
+    var fEst = el('div', { 'class': 'field' });
+    fEst.appendChild(el('label', { 'for': 'aEstimate' }, '正式見積金額（円）'));
+    var est = el('input', { type: 'text', id: 'aEstimate', inputmode: 'numeric', placeholder: '概算 ' + yen(c.estimate) }); est.value = c.formalEstimate === '' ? '' : c.formalEstimate;
+    fEst.appendChild(est);
+    form.appendChild(fEst);
+
+    var fMemo = el('div', { 'class': 'field' });
+    fMemo.appendChild(el('label', { 'for': 'aMemo' }, '対応メモ'));
+    var memo = el('textarea', { id: 'aMemo', rows: '4', maxlength: '2000', placeholder: '調査結果、依頼者への連絡内容など' }); memo.value = c.adminMemo || '';
+    fMemo.appendChild(memo);
+    form.appendChild(fMemo);
+
+    var actions = el('div', { 'class': 'btns' });
+    var save = el('button', { type: 'button', 'class': 'primary' }, '更新する');
+    var msg = el('span', { 'class': 'saved' });
+    save.addEventListener('click', function () {
+      save.disabled = true; msg.textContent = '保存中…';
+      google.script.run
+        .withSuccessHandler(function (updated) {
+          save.disabled = false;
+          state.cases = state.cases.map(function (x) { return x.id === updated.id ? updated : x; });
+          renderChips(); renderRows();
+          msg.textContent = '更新しました（' + updated.updatedAt + '）';
+        })
+        .withFailureHandler(function (err) { save.disabled = false; msg.textContent = ''; alert('更新に失敗しました：' + err.message); })
+        .updateCaseByAdmin(c.id, { status: sel.value, assignee: assignee.value, formalEstimate: est.value, adminMemo: memo.value });
+    });
+    actions.appendChild(save); actions.appendChild(msg);
+    form.appendChild(actions);
+    box.appendChild(form);
+
+    // 資料
+    var links = el('div', { 'class': 'btns' });
+    if (c.folderUrl) links.appendChild(el('a', { href: c.folderUrl, target: '_blank', rel: 'noopener' }, 'アップロード資料（' + (c.fileCount || 0) + '件）を開く'));
+    box.appendChild(links);
+
+    // 依頼内容（読み取り専用）
+    var dl = el('dl', { 'class': 'kv' });
+    [
+      ['受付日時', c.receivedAt], ['入力者', c.submittedBy], ['依頼種別', c.requestFlag === true ? '見積調査依頼' : '保存のみ'],
+      ['所在地', [c.prefecture, c.municipality, c.address].filter(String).join(' ')], ['地番', c.lotNumber],
+      ['地目', c.chimoku], ['面積', c.area === '' ? '―' : c.area + ' ㎡'], ['区域区分', c.zone],
+      ['農振農用地', boolText(c.isNoshin)], ['現況利用', c.landUse], ['転用済み', boolText(c.isConverted)],
+      ['今後の転用計画', c.plan], ['土地改良区', c.landImprovement], ['水利・農事組合', c.waterAssociation],
+      ['手元の資料', c.documents], ['概算見積', yen(c.estimate)], ['見積内訳', c.estimateDetail],
+      ['Chat通知', c.notifyResult], ['最終更新', c.updatedAt]
+    ].forEach(function (kv) {
+      dl.appendChild(el('dt', {}, kv[0]));
+      dl.appendChild(el('dd', {}, kv[1] === '' || kv[1] === undefined ? '―' : kv[1]));
+    });
+    box.appendChild(dl);
+  }
+
+  $('q').addEventListener('input', renderRows);
+  $('requestOnly').addEventListener('change', function () { renderChips(); renderRows(); });
+  $('reload').addEventListener('click', load);
+  load();
+</script>
+</body>
+</html>

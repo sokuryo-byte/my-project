@@ -5,19 +5,21 @@
  *  setupSpreadsheet() は何度実行しても安全です（既存データは消しません）。
  *  ・シートが無ければ作成
  *  ・見出しが無い／足りなければ追記
- *  ・マスタが空のときだけサンプル行を投入
+ *  ・マスタ／見積設定が空のときだけ初期値を投入
+ *  ・資料保存用のドライブフォルダが未設定なら作成
  */
 
 /** スプレッドシートを開いたときにメニューを追加する */
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('農地転用システム')
-    .addItem('初期セットアップ（シート作成）', 'setupSpreadsheet')
+    .addItem('初期セットアップ（シート・フォルダ作成）', 'setupSpreadsheet')
     .addItem('Google Chat 通知テスト', 'testChatNotification')
+    .addItem('未送信の一時ファイルを削除（7日以上前）', 'cleanupPendingUploads')
     .addToUi();
 }
 
-/** 案件一覧シート・マスタシートを作成／整備する */
+/** 各シートとドライブフォルダを作成／整備する */
 function setupSpreadsheet() {
   const ss = getSpreadsheet_();
 
@@ -36,7 +38,35 @@ function setupSpreadsheet() {
   masterSheet.setColumnWidth(2, 140);
   masterSheet.setColumnWidths(3, 2, 320);
 
-  notifyUser_('初期セットアップが完了しました。');
+  // --- 見積設定 ---
+  const feeSheet = getOrCreateSheet_(ss, SHEET_NAMES.FEES);
+  ensureHeaders_(feeSheet, FEE_HEADERS);
+  addMissingFeeRows_(feeSheet);
+
+  // --- ドライブフォルダ ---
+  const root = getRootFolder_();
+
+  notifyUser_('初期セットアップが完了しました。\n資料フォルダ：' + root.getUrl() +
+    '\n※行政班のメンバーにこのフォルダを共有してください。');
+}
+
+/** 見積設定シートに、まだ無い項目だけを追記する（既存の金額は上書きしない） */
+function addMissingFeeRows_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const existing = lastRow >= 2
+    ? sheet.getRange(2, 1, lastRow - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); })
+    : [];
+  const rows = DEFAULT_FEES
+    .filter(function (d) { return existing.indexOf(d.key) < 0; })
+    .map(function (d) { return [d.key, d.label, d.amount, d.note]; });
+  if (rows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  }
+  sheet.getRange(2, 3, Math.max(sheet.getLastRow() - 1, 1), 1).setNumberFormat('#,##0');
+  sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), 1).setBackground('#eeeeee'); // キー列はグレー
+  sheet.setColumnWidth(1, 200);
+  sheet.setColumnWidth(2, 380);
+  sheet.setColumnWidth(4, 420);
 }
 
 /** シートを取得し、無ければ作成する */
@@ -61,20 +91,24 @@ function ensureHeaders_(sheet, headers) {
   sheet.setFrozenRows(1);
 }
 
-/** 案件一覧の表示形式（日時・金額・チェックボックス）を設定する */
+/** 案件一覧の表示形式（日時・金額）を設定する */
 function formatCaseSheet_(sheet) {
   const maxRows = sheet.getMaxRows();
   if (maxRows < 2) return;
-  sheet.getRange(2, colIndexOf_('receivedAt'), maxRows - 1, 1).setNumberFormat('yyyy/mm/dd hh:mm');
-  sheet.getRange(2, colIndexOf_('area'), maxRows - 1, 1).setNumberFormat('#,##0.00');
-  sheet.getRange(2, colIndexOf_('estimate'), maxRows - 1, 1).setNumberFormat('¥#,##0');
+  const n = maxRows - 1;
+  sheet.getRange(2, colIndexOf_('receivedAt'), n, 1).setNumberFormat('yyyy/mm/dd hh:mm');
+  sheet.getRange(2, colIndexOf_('updatedAt'), n, 1).setNumberFormat('yyyy/mm/dd hh:mm');
+  sheet.getRange(2, colIndexOf_('area'), n, 1).setNumberFormat('#,##0.00');
+  sheet.getRange(2, colIndexOf_('estimate'), n, 1).setNumberFormat('¥#,##0');
+  sheet.getRange(2, colIndexOf_('formalEstimate'), n, 1).setNumberFormat('¥#,##0');
   sheet.setColumnWidth(colIndexOf_('estimateDetail'), 320);
   sheet.setColumnWidth(colIndexOf_('plan'), 240);
+  sheet.setColumnWidth(colIndexOf_('adminMemo'), 280);
 }
 
 /**
  * マスタのサンプル行（愛知・岐阜・三重）。
- * URLは各自治体のページを確認のうえ、シート上で直接入力してください。
+ * URLは各自治体のページを確認のうえ、シート上で直接入力してください（参照用リンクとして表示するだけです）。
  */
 function getSampleMasterRows_() {
   const list = {
