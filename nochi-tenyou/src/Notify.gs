@@ -63,7 +63,10 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       lines.push('　　農業委員等の押印：必要');
       (l.iinContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
     }
-    if (l.tenyoKanou) lines.push('　　転用の見込み（農業委員会）：' + l.tenyoKanou);
+    if (l.tenyoKanou || l.noutiKubun) {
+      lines.push('　　転用の見込み（農業委員会）：' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') +
+        (l.kanouNote ? '／' + l.kanouNote : ''));
+    }
     if (l.drainConsent || l.drainAdjacent) {
       lines.push('　　排水：隣接水路 ' + (l.drainAdjacent || '-') + '／排水承諾 ' + (l.drainConsent || '-') +
         (l.drainName ? '／' + l.drainName + (l.drainTel ? '（' + l.drainTel + '）' : '') : '') +

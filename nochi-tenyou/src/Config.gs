@@ -331,6 +331,7 @@ const FORM_OPTIONS = {
   localConsent: ['必要', '不要', '未確認'],
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（分家住宅は排水先の確認を行う）
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
+  noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
   drainAdjacent: ['ある', 'ない', '未確認'],               // 隣接に水路があるか（ない場合は側溝へ）
   drainConsent: ['必要', '不要', '未確認'],                // 流末の農業用水への排水承諾               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
   chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
@@ -413,6 +414,8 @@ const LOT_COLUMNS = [
   { key: 'localConsent', header: '地元関係者の同意（押印）' },
   { key: 'localContacts', header: '同意が必要な方（氏名／住所／電話）' },
   { key: 'tenyoKanou', header: '転用の見込み（農業委員会）' },
+  { key: 'noutiKubun', header: '農地区分（農業委員会）' },
+  { key: 'kanouNote', header: '転用が難しい理由・指摘事項' },
   { key: 'drainAdjacent', header: '隣接の水路' },
   { key: 'drainConsent', header: '排水承諾' },
   { key: 'drainName', header: '用水（管理者）名' },

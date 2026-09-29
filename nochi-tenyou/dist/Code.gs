@@ -334,6 +334,7 @@ const FORM_OPTIONS = {
   localConsent: ['必要', '不要', '未確認'],
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（分家住宅は排水先の確認を行う）
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
+  noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
   drainAdjacent: ['ある', 'ない', '未確認'],               // 隣接に水路があるか（ない場合は側溝へ）
   drainConsent: ['必要', '不要', '未確認'],                // 流末の農業用水への排水承諾               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
   chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
@@ -416,6 +417,8 @@ const LOT_COLUMNS = [
   { key: 'localConsent', header: '地元関係者の同意（押印）' },
   { key: 'localContacts', header: '同意が必要な方（氏名／住所／電話）' },
   { key: 'tenyoKanou', header: '転用の見込み（農業委員会）' },
+  { key: 'noutiKubun', header: '農地区分（農業委員会）' },
+  { key: 'kanouNote', header: '転用が難しい理由・指摘事項' },
   { key: 'drainAdjacent', header: '隣接の水路' },
   { key: 'drainConsent', header: '排水承諾' },
   { key: 'drainName', header: '用水（管理者）名' },
@@ -772,7 +775,8 @@ function submitCase(form, requestInvestigation) {
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
-      tenyoKanou: l.tenyoKanou, drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
+      tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
+      drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
       drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
       drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
@@ -918,6 +922,7 @@ function normalizeLot_(l, prefecture, master) {
   if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
   const split = splitLotNumber_(place);
   const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
+  const permitZone = PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
   const drainOn = l.bunke === true;                                             // 転用目的が分家住宅
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
@@ -953,7 +958,9 @@ function normalizeLot_(l, prefecture, master) {
     localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
     localContacts: kairyoOn && pick_(l.localConsent, FORM_OPTIONS.localConsent) === '必要' ? normalizeContacts_(l.localContacts) : [],
     // 転用の見込み（許可が必要な区域で農業委員会に確認）
-    tenyoKanou: PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0 ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
+    tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
+    noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
+    kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
     drainConsent: drainOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
@@ -1376,7 +1383,12 @@ function calculateEstimate_(input) {
     });
   }
   lots.forEach(function (l, i) {
-    if (l.tenyoKanou === '難しい') notes.push(lotName(l, i) + '：農業委員会より転用は難しいとの回答があります。');
+    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') {
+      notes.push(lotName(l, i) + '：' + l.noutiKubun + '農地は原則として転用が認められません（例外要件に該当する場合を除く）。');
+    }
+    if (l.tenyoKanou === '難しい') {
+      notes.push(lotName(l, i) + '：農業委員会より転用は難しいとの回答があります' + (l.kanouNote ? '（' + l.kanouNote + '）' : '') + '。');
+    }
   });
 
   // --- 5. 現況是正・事後手続き 加算（許可の区域のみ。届出では始末書等は不要） ---
@@ -1725,7 +1737,10 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
       lines.push('　　農業委員等の押印：必要');
       (l.iinContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
     }
-    if (l.tenyoKanou) lines.push('　　転用の見込み（農業委員会）：' + l.tenyoKanou);
+    if (l.tenyoKanou || l.noutiKubun) {
+      lines.push('　　転用の見込み（農業委員会）：' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') +
+        (l.kanouNote ? '／' + l.kanouNote : ''));
+    }
     if (l.drainConsent || l.drainAdjacent) {
       lines.push('　　排水：隣接水路 ' + (l.drainAdjacent || '-') + '／排水承諾 ' + (l.drainConsent || '-') +
         (l.drainName ? '／' + l.drainName + (l.drainTel ? '（' + l.drainTel + '）' : '') : '') +

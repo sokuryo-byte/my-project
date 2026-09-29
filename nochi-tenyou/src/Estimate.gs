@@ -140,7 +140,12 @@ function calculateEstimate_(input) {
     });
   }
   lots.forEach(function (l, i) {
-    if (l.tenyoKanou === '難しい') notes.push(lotName(l, i) + '：農業委員会より転用は難しいとの回答があります。');
+    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') {
+      notes.push(lotName(l, i) + '：' + l.noutiKubun + '農地は原則として転用が認められません（例外要件に該当する場合を除く）。');
+    }
+    if (l.tenyoKanou === '難しい') {
+      notes.push(lotName(l, i) + '：農業委員会より転用は難しいとの回答があります' + (l.kanouNote ? '（' + l.kanouNote + '）' : '') + '。');
+    }
   });
 
   // --- 5. 現況是正・事後手続き 加算（許可の区域のみ。届出では始末書等は不要） ---

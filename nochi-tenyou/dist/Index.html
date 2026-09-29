@@ -610,6 +610,8 @@
       localConsent: getRadio(card, 'localConsent'),
       localContacts: getContacts(card, 'localContacts'),
       tenyoKanou: getRadio(card, 'tenyoKanou'),
+      noutiKubun: getRadio(card, 'noutiKubun'),
+      kanouNote: lotInput(card, 'kanouNote').value,
       drainAdjacent: getRadio(card, 'drainAdjacent'),
       drainConsent: getRadio(card, 'drainConsent'),
       drainName: lotInput(card, 'drainName').value,
@@ -639,7 +641,20 @@
     // ① 農業委員会（土地改良区・地元委員の押印）
     var s1 = el('div', { 'class': 'step1' });
     s1.appendChild(el('div', { 'class': 'step-h nogyo-h' }));
-    s1.appendChild(el('div', { 'class': 'script' }));
+    // 最初に：転用の見込み（許可が必要な区域のとき）
+    var kb = el('div', { 'class': 'kanou-block hidden', style: 'display:grid;gap:8px' });
+    kb.appendChild(el('div', { 'class': 'script script-kanou' }));
+    var kubun = el('div', { 'class': 'choices' });
+    renderChoices(kubun, id('noutiKubun'), o.noutiKubun);
+    var kanou = el('div', { 'class': 'choices' });
+    renderChoices(kanou, id('tenyoKanou'), o.tenyoKanou);
+    var rk = el('div', { 'class': 'row' });
+    rk.appendChild(radioField('農地区分', kubun));
+    rk.appendChild(radioField('転用の見込み', kanou));
+    kb.appendChild(rk);
+    kb.appendChild(field('難しい理由・指摘事項', el('input', { type: 'text', id: id('kanouNote'), maxlength: '300', placeholder: '例）土地改良事業実施済み／事前相談が必要（担当：○○様） など', 'data-f': 'kanouNote' })));
+    s1.appendChild(kb);
+    s1.appendChild(el('div', { 'class': 'script script-main' }));
     var iin = el('div', { 'class': 'choices' });
     renderChoices(iin, id('iinStamp'), o.iinStamp);
     var r0 = el('div', { 'class': 'row' });
@@ -647,11 +662,6 @@
     r0.appendChild(radioField('地元の農業委員・推進委員の押印', iin));
     s1.appendChild(r0);
     s1.appendChild(contactList('iinContacts', '押印が必要な委員', '例）山田 一郎（農業委員）'));
-    var kanou = el('div', { 'class': 'choices' });
-    renderChoices(kanou, id('tenyoKanou'), o.tenyoKanou);
-    var kanouField = radioField('転用の見込み', kanou, el('p', { 'class': 'help' }, '農地区分など、転用の可能性がある農地か'));
-    kanouField.classList.add('kanou-field', 'hidden');
-    s1.appendChild(kanouField);
     box.appendChild(s1);
     // ② 土地改良区（「はい」のときだけ表示）
     var s2 = el('div', { 'class': 'step2 hidden' });
@@ -795,22 +805,30 @@
     } else {
       h.appendChild(el('span', { 'class': 'muted' }, city ? city + 'の農業委員会の電話番号は未登録です（市町村の代表番号からお問い合わせください）' : '市区町村を入力すると電話番号を表示します'));
     }
-    scriptLines(card.querySelector('.step1 .script'), [
-      '「お世話になっております。（会社名）の（お名前）と申します。農地転用の件でお伺いします。」',
+    var zone = getRadio(card, 'zone');
+    var permit = ['市街化調整区域', '非線引き区域', '都市計画区域外'].indexOf(zone) >= 0;
+    var purpose = radioVal('purpose');
+    var purposeText = purpose && purpose !== 'その他' ? purpose : '住宅等';
+    card.querySelector('.kanou-block').classList.toggle('hidden', !permit);
+    // 「審査しないと分からない」と答えを避けられないよう、意見ではなく事実を聞き、意図を先に断る
+    scriptLines(card.querySelector('.script-kanou'), [
+      '【最初に：そもそも転用を検討してよい土地か】',
+      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地について、' + purposeText + 'への転用（農地法の許可）を検討しており、申請前の下調べでお電話いたしました。」',
+      '「許可が下りるかどうかをお聞きするものではございません。結論は審査でご判断いただくものと承知しております。申請を検討してよい土地かどうか、事実関係を確認させてください。」',
+      '「1点目、農用地区域（青地）に含まれていますでしょうか。また、農地区分は甲種・第1種・第2種・第3種のどれにあたりますでしょうか。」',
+      '「2点目、土地改良事業（区画整理など）を実施済み、または実施中・計画中の区域ではございませんでしょうか。」',
+      '「3点目、集団的な優良農地（おおむね10ヘクタール以上のまとまり）に含まれておりませんでしょうか。」',
+      '「4点目、これまでの事前相談や申請の中で、この場所で' + purposeText + 'への転用が難しくなりそうな点（周辺の営農への影響、進入路、用排水など）がございましたら、差し支えない範囲で教えてください。」',
+      '→「審査しないと分からない」と言われたら：「はい、結論は審査次第と承知しております。そのうえで、原則として転用が認められない区分に当たるかどうかと、事前相談でよく指摘される点がないかだけ、お聞きしたいのですが。」',
+      '→ それでも回答が得られない場合：「では、事前相談はどちらの窓口で、どのように予約すればよろしいでしょうか。ご担当の方のお名前もお教えいただけますか。」'
+    ]);
+    scriptLines(card.querySelector('.script-main'), [
+      permit ? '【続けて：土地改良区と地元委員】' : '「お世話になっております。（会社名）の（お名前）と申します。農地転用の件でお伺いします。」',
       '「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」',
       '→ かかっている場合：「土地改良区の名称と、お電話番号をお教えいただけますでしょうか。」',
       '「また、申請にあたり地元の農業委員さんや農地利用最適化推進委員さんの押印は必要でしょうか。」',
       '→ 必要な場合：「委員さんのお名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
     ]);
-    var zone = getRadio(card, 'zone');
-    var permit = ['市街化調整区域', '非線引き区域', '都市計画区域外'].indexOf(zone) >= 0;
-    var purpose = radioVal('purpose');
-    var purposeText = purpose && purpose !== 'その他' ? purpose : '住宅等';
-    if (permit) {
-      var sc = card.querySelector('.step1 .script');
-      sc.appendChild(el('p', {}, '「' + zone + 'の農地で、' + purposeText + 'への転用を検討しております。転用の可能性がある農地かどうか（農地区分など）、お伺いできますでしょうか。」'));
-    }
-    card.querySelector('.kanou-field').classList.toggle('hidden', !permit);
     card.querySelector('[data-contacts=iinContacts]').classList.toggle('hidden', getRadio(card, 'iinStamp') !== '必要');
     // ③ 排水先（分家住宅）
     var bunke = purpose === '分家住宅';

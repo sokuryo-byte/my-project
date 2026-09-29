@@ -178,7 +178,8 @@ function submitCase(form, requestInvestigation) {
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
-      tenyoKanou: l.tenyoKanou, drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
+      tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
+      drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
       drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
       drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
@@ -324,6 +325,7 @@ function normalizeLot_(l, prefecture, master) {
   if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
   const split = splitLotNumber_(place);
   const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
+  const permitZone = PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
   const drainOn = l.bunke === true;                                             // 転用目的が分家住宅
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
@@ -359,7 +361,9 @@ function normalizeLot_(l, prefecture, master) {
     localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
     localContacts: kairyoOn && pick_(l.localConsent, FORM_OPTIONS.localConsent) === '必要' ? normalizeContacts_(l.localContacts) : [],
     // 転用の見込み（許可が必要な区域で農業委員会に確認）
-    tenyoKanou: PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0 ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
+    tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
+    noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
+    kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
     drainConsent: drainOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
