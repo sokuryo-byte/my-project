@@ -63,7 +63,8 @@ function ocrToText_(file) {
  */
 function parseTohonText_(rawText) {
   const text = normalizeTohonText_(rawText);
-  const sections = text.split(/表\s*題\s*部/).slice(1);
+  const chunks = text.split(/表\s*題\s*部/);
+  const sections = chunks.slice(1);
   if (!sections.length) sections.push(text);
 
   const chimokuPattern = TOHON_CHIMOKU_WORDS.join('|');
@@ -71,7 +72,7 @@ function parseTohonText_(rawText) {
   const rowRe = new RegExp('(\\d+番(?:\\d+)?)\\s+(' + chimokuPattern + ')\\s+(\\d[\\d,]*)(?:\\s*[:.]?\\s*(\\d{2}))?(?=\\s|$)', 'g');
 
   const lots = [];
-  sections.forEach(function (sec) {
+  sections.forEach(function (sec, idx) {
     // 登記情報提供サービス等の罫線の表（┃ │）で書かれた謄本は、表の構造から読む
     const table = parseTohonTable_(sec);
     if (table) {
@@ -79,9 +80,13 @@ function parseTohonText_(rawText) {
       if (!dup0) lots.push(table);
       return;
     }
-    // 所在：最後に出てくる「所在」行（行政区画変更などで書き換わっている場合に最新を採る）
+    // 紙の全部事項証明書は、各ページ上部に「現在の」所在・地番が印字されている（例：愛知県常滑市港町5丁目10）。
+    // 下線（抹消）は文字認識で判別できないため、地番変更・所在変更があっても正しい値が取れるこの印字を最優先で使う。
+    const header = idx < chunks.length - 1 || chunks.length > 1 ? tohonPageHeader_(chunks[idx]) : null;
+
+    // 所在：最後に出てくる「所在」行。文字認識で「所 在「」「在「」「所 在|」のように崩れることがある
     let address = '';
-    const addrRe = /所\s*在\s+([^\n]+)/g;
+    const addrRe = /(?:所\s*在|(?:^|\n)\s*在)\s*[|｜「│:]?\s*([^\n]+)/g;
     let m;
     while ((m = addrRe.exec(sec)) !== null) {
       const v = cleanTohonAddress_(m[1]);
@@ -92,13 +97,18 @@ function parseTohonText_(rawText) {
     let row = null;
     rowRe.lastIndex = 0;
     while ((m = rowRe.exec(sec)) !== null) row = m;
-    if (!row && !address) return;
+    if (header) {
+      address = header.address;
+      // 行の地番が印字の地番と一致するときだけ、その行の地目・地積を使う（変更前の行の値を入れないため）
+      if (row && row[1] !== header.lotNumber) row = null;
+    }
+    if (!row && !address && !header) return;
 
-    const chimokuRaw = row ? row[2] : '';
+    const chimokuRaw = row ? row[2] : (header ? tohonSingleChimoku_(sec) : '');
     const area = row ? row[3].replace(/,/g, '') + (row[4] ? '.' + row[4] : '') : '';
     const lot = {
       address: address,
-      lotNumber: row ? row[1] : '',
+      lotNumber: header ? header.lotNumber : row ? row[1] : '',
       chimoku: FORM_OPTIONS.chimoku.indexOf(chimokuRaw) >= 0 ? chimokuRaw : (chimokuRaw ? 'その他' : ''),
       chimokuRaw: chimokuRaw,
       area: area,
@@ -107,6 +117,33 @@ function parseTohonText_(rawText) {
     if (!dup) lots.push(lot);
   });
   return lots;
+}
+
+/**
+ * 紙の全部事項証明書のページ上部の印字「愛知県常滑市港町5丁目10」「常滑市港町5丁目22-1」から、現在の所在・地番を取り出す。
+ * 表題部の直前（前のかたまりの最後）にある、市町村名を含み数字で終わる行（「番」「地」を含まない）を対象にする。
+ * 権利部の住所（「…173番地」など）は「番」を含むので対象外。
+ */
+function tohonPageHeader_(chunk) {
+  const lines = String(chunk || '').split('\n').map(function (l) { return l.trim(); }).filter(String);
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 8); i--) {
+    const t = lines[i].replace(/\s+/g, '');
+    if (/[番地]/.test(t)) continue;
+    const m = t.match(/^(?:愛知県|岐阜県|三重県)?(.+?[市町村].*?)(\d+)(?:[-－‐ー](\d+))?$/);
+    if (m && /[市郡町村]/.test(m[1])) {
+      return { address: m[1], lotNumber: m[2] + '番' + (m[3] || '') };
+    }
+  }
+  return null;
+}
+
+/** 表題部に地目の語が1種類だけ出てくる場合はそれを返す（複数あれば判断しない＝空欄） */
+function tohonSingleChimoku_(sec) {
+  const body = String(sec).split(/権\s*利\s*部/)[0];
+  const found = TOHON_CHIMOKU_WORDS.filter(function (w) {
+    return new RegExp('(?:^|\\n)\\s*' + w + '\\s*(?:\\n|$)').test(body);
+  });
+  return found.length === 1 ? found[0] : '';
 }
 
 /**

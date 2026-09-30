@@ -109,7 +109,7 @@ const DEFAULT_FEES = [
     note: '都市計画区域外の場合に加算（金額は仮に非線引き区域と同額）' },
   { key: 'ADD_NOSHIN', label: '農振除外申出', amount: 290000,
     note: '農振農用地「はい」の場合に加算（料金表 4006）' },
-  { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 35000,
+  { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 40000,
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
   { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）', amount: 18000,
     note: '土地改良区に確認した地元関係者の同意（押印）が「必要」「未確認」、または土地改良区が「分からない」物件がある場合に加算' },
@@ -137,6 +137,14 @@ const PERMIT_ZONES = ['市街化調整区域', '非線引き区域', '都市計�
  * 「見積設定」シートの項目名・金額を DEFAULT_FEES の値で1回だけ上書きします（それ以降はシートでの変更が優先）。
  */
 const FEE_TABLE_VERSION = '2026-01';
+
+/**
+ * 料金の個別修正。キーに版を付け、未適用の版だけ「見積設定」シートの該当項目を DEFAULT_FEES の値で上書きする
+ * （ほかの項目のシート上の変更は残す）。
+ */
+const FEE_PATCHES = {
+  '2026-02': ['ADD_LAND_IMPROVEMENT'], // 土地改良区除外申請 35,000 → 40,000
+};
 
 /**
  * 所在・地番欄の末尾から地番を切り出す正規表現（1=町名・字、2=地番）。
@@ -369,6 +377,7 @@ const FORM_OPTIONS = {
   kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
   kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
   settlementUnits: ['総額', '㎡あたり', 'haあたり'],        // 決済金の単位（多くは㎡単価・ha単価）
+  kairyoFeeUnits: ['1申請あたり', '1筆あたり'],             // 土地改良区の手数料等：1申請につき／1筆ごと
   tenyoRireki: ['あり', 'なし', '未確認'],
   shimatsusho: ['必要', '不要', '未確認'],                  // 無断転用の始末書（顛末書）の提出（農業委員会に確認）                  // 転用済みの物件：過去の転用届出（市街化）・転用許可（調整区域等）の履歴
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
@@ -723,6 +732,7 @@ function ensureSetup_() {
  */
 function runMigrations_() {
   const props = PropertiesService.getScriptProperties();
+  runFeePatches_(props);
   if (props.getProperty('FEE_TABLE_VERSION') === FEE_TABLE_VERSION) return;
   const lock = LockService.getScriptLock();
   lock.waitLock(30 * 1000);
@@ -738,6 +748,32 @@ function runMigrations_() {
       });
       props.setProperty('FEE_TABLE_VERSION', FEE_TABLE_VERSION);
     }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 料金の個別修正（FEE_PATCHES）のうち、まだ適用していない版を適用する */
+function runFeePatches_(props) {
+  const done = String(props.getProperty('FEE_PATCHES_DONE') || '').split(',').filter(String);
+  const todo = Object.keys(FEE_PATCHES).filter(function (v) { return done.indexOf(v) < 0; });
+  if (!todo.length) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30 * 1000);
+  try {
+    const sheet = getOrCreateSheet_(getSpreadsheet_(), SHEET_NAMES.FEES);
+    ensureHeaders_(sheet, FEE_HEADERS);
+    addMissingFeeRows_(sheet);
+    const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
+    todo.forEach(function (v) {
+      FEE_PATCHES[v].forEach(function (key) {
+        const d = DEFAULT_FEES.filter(function (f) { return f.key === key; })[0];
+        const i = keys.indexOf(key);
+        if (d && i >= 0) sheet.getRange(i + 2, 2, 1, 3).setValues([[d.label, d.amount, d.note]]);
+      });
+      done.push(v);
+    });
+    props.setProperty('FEE_PATCHES_DONE', done.join(','));
   } finally {
     lock.releaseLock();
   }
@@ -1101,11 +1137,14 @@ function normalizeLot_(l, prefecture, master) {
     kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要'
       ? settlementText_(l.kairyoSettlementNote, pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits), areaText === '' ? null : Number(areaText)) : '',
     // 決済金とは別の手数料など（金額・内容）
-    kairyoFee: benefitOn ? [yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／') : '',
+    kairyoFee: benefitOn && yenText_(l.kairyoFeeAmount)
+      ? [(pick_(l.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり') + ' ' + yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／')
+      : '',
     // 見積（実費）の計算用の数値
     settlementAmount: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? numOrZero_(l.kairyoSettlementNote) : 0,
     settlementUnit: pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits) || '総額',
     kairyoFeeAmount: benefitOn ? numOrZero_(l.kairyoFeeAmount) : 0,
+    kairyoFeeUnit: pick_(l.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
     iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],
@@ -1617,6 +1656,11 @@ function calculateEstimate_(input) {
   return { ok: true, total: total, feeTotal: total - costTotal, costTotal: costTotal, items: items, notes: notes };
 }
 
+/** 物件の呼び名（物件1（123番1）） */
+function lotName_(l, i) {
+  return '物件' + (i + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+}
+
 /** 見積の行を「実費」にする */
 function cost(it) {
   it.kind = 'cost';
@@ -1625,35 +1669,41 @@ function cost(it) {
 
 /**
  * 実費を見積に加える。
- *  ・地区除外決済金：同じ土地改良区（名称が同じ）の受益地の物件をまとめ、単価 × 申請地の面積合計で計算（総額の場合はそのまま）
- *  ・土地改良区の手数料等：土地改良区ごとに1回
+ *  ・地区除外決済金：筆ごとに、その筆の単価 × その筆の面積（総額の場合はそのまま）
+ *  ・土地改良区の手数料等：土地改良区ごとに、1申請あたりなら1回、1筆あたりなら受益地の筆数分
  *  ・用水の手数料（排水承諾）：用水ごとに1回
  */
 function addActualCosts_(lots, items, notes) {
   const groups = {};
-  lots.forEach(function (l) {
+  lots.forEach(function (l, i) {
     if (l.landImprovement !== 'はい' || l.kairyoBenefit !== '該当する') return;
-    const key = l.kairyoName || '土地改良区';
-    const g = groups[key] = groups[key] || { name: key, area: 0, noArea: false, amount: 0, unit: '', fee: 0 };
-    if (l.area > 0) g.area += l.area; else g.noArea = true;
-    if (!g.amount && l.settlementAmount > 0) { g.amount = l.settlementAmount; g.unit = l.settlementUnit; }
-    if (!g.fee && l.kairyoFeeAmount > 0) g.fee = l.kairyoFeeAmount;
+    const name = l.kairyoName || '土地改良区';
+    // 決済金（筆ごと）
+    if (l.settlementAmount > 0) {
+      const lotLabel = '物件' + (i + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+      if (l.settlementUnit === '総額') {
+        items.push(cost({ label: '地区除外決済金 ' + lotLabel, amount: Math.round(l.settlementAmount) }));
+      } else if (l.area > 0) {
+        const total = l.settlementUnit === '㎡あたり' ? l.settlementAmount * l.area : l.settlementAmount * l.area / 10000;
+        items.push(cost({ label: '地区除外決済金 ' + lotLabel + '：' + (l.settlementUnit === '㎡あたり' ? '1㎡' : '1ha') + 'あたり' +
+          formatYen_(l.settlementAmount) + ' × ' + l.area + '㎡', amount: Math.round(total) }));
+      } else {
+        notes.push(lotName_(l, i) + '：面積が未入力のため、地区除外決済金を計算できません。');
+      }
+    }
+    // 手数料等（改良区ごと）
+    const g = groups[name] = groups[name] || { name: name, count: 0, fee: 0, unit: '' };
+    g.count++;
+    if (!g.fee && l.kairyoFeeAmount > 0) { g.fee = l.kairyoFeeAmount; g.unit = l.kairyoFeeUnit; }
   });
   Object.keys(groups).forEach(function (k) {
     const g = groups[k];
-    if (g.amount > 0) {
-      if (g.unit === '総額') {
-        items.push(cost({ label: '地区除外決済金（' + g.name + '）', amount: Math.round(g.amount) }));
-      } else if (g.area > 0) {
-        const total = g.unit === '㎡あたり' ? g.amount * g.area : g.amount * g.area / 10000;
-        items.push(cost({ label: '地区除外決済金（' + g.name + '：' + (g.unit === '㎡あたり' ? '1㎡' : '1ha') + 'あたり' +
-          formatYen_(g.amount) + ' × 面積合計' + g.area + '㎡）', amount: Math.round(total) }));
-        if (g.noArea) notes.push('面積が未入力の物件があるため、地区除外決済金は入力済みの面積で計算しています。');
-      } else {
-        notes.push('面積が未入力のため、地区除外決済金（' + g.name + '）を計算できません。');
-      }
+    if (!(g.fee > 0)) return;
+    if (g.unit === '1筆あたり') {
+      items.push(cost({ label: '土地改良区 手数料等（' + g.name + '：1筆あたり' + formatYen_(g.fee) + ' × ' + g.count + '筆）', amount: Math.round(g.fee * g.count) }));
+    } else {
+      items.push(cost({ label: '土地改良区 手数料等（' + g.name + '：1申請あたり）', amount: Math.round(g.fee) }));
     }
-    if (g.fee > 0) items.push(cost({ label: '土地改良区 手数料等（' + g.name + '）', amount: Math.round(g.fee) }));
   });
   const drains = {};
   lots.forEach(function (l) {
@@ -1876,7 +1926,8 @@ function ocrToText_(file) {
  */
 function parseTohonText_(rawText) {
   const text = normalizeTohonText_(rawText);
-  const sections = text.split(/表\s*題\s*部/).slice(1);
+  const chunks = text.split(/表\s*題\s*部/);
+  const sections = chunks.slice(1);
   if (!sections.length) sections.push(text);
 
   const chimokuPattern = TOHON_CHIMOKU_WORDS.join('|');
@@ -1884,7 +1935,7 @@ function parseTohonText_(rawText) {
   const rowRe = new RegExp('(\\d+番(?:\\d+)?)\\s+(' + chimokuPattern + ')\\s+(\\d[\\d,]*)(?:\\s*[:.]?\\s*(\\d{2}))?(?=\\s|$)', 'g');
 
   const lots = [];
-  sections.forEach(function (sec) {
+  sections.forEach(function (sec, idx) {
     // 登記情報提供サービス等の罫線の表（┃ │）で書かれた謄本は、表の構造から読む
     const table = parseTohonTable_(sec);
     if (table) {
@@ -1892,9 +1943,13 @@ function parseTohonText_(rawText) {
       if (!dup0) lots.push(table);
       return;
     }
-    // 所在：最後に出てくる「所在」行（行政区画変更などで書き換わっている場合に最新を採る）
+    // 紙の全部事項証明書は、各ページ上部に「現在の」所在・地番が印字されている（例：愛知県常滑市港町5丁目10）。
+    // 下線（抹消）は文字認識で判別できないため、地番変更・所在変更があっても正しい値が取れるこの印字を最優先で使う。
+    const header = idx < chunks.length - 1 || chunks.length > 1 ? tohonPageHeader_(chunks[idx]) : null;
+
+    // 所在：最後に出てくる「所在」行。文字認識で「所 在「」「在「」「所 在|」のように崩れることがある
     let address = '';
-    const addrRe = /所\s*在\s+([^\n]+)/g;
+    const addrRe = /(?:所\s*在|(?:^|\n)\s*在)\s*[|｜「│:]?\s*([^\n]+)/g;
     let m;
     while ((m = addrRe.exec(sec)) !== null) {
       const v = cleanTohonAddress_(m[1]);
@@ -1905,13 +1960,18 @@ function parseTohonText_(rawText) {
     let row = null;
     rowRe.lastIndex = 0;
     while ((m = rowRe.exec(sec)) !== null) row = m;
-    if (!row && !address) return;
+    if (header) {
+      address = header.address;
+      // 行の地番が印字の地番と一致するときだけ、その行の地目・地積を使う（変更前の行の値を入れないため）
+      if (row && row[1] !== header.lotNumber) row = null;
+    }
+    if (!row && !address && !header) return;
 
-    const chimokuRaw = row ? row[2] : '';
+    const chimokuRaw = row ? row[2] : (header ? tohonSingleChimoku_(sec) : '');
     const area = row ? row[3].replace(/,/g, '') + (row[4] ? '.' + row[4] : '') : '';
     const lot = {
       address: address,
-      lotNumber: row ? row[1] : '',
+      lotNumber: header ? header.lotNumber : row ? row[1] : '',
       chimoku: FORM_OPTIONS.chimoku.indexOf(chimokuRaw) >= 0 ? chimokuRaw : (chimokuRaw ? 'その他' : ''),
       chimokuRaw: chimokuRaw,
       area: area,
@@ -1920,6 +1980,33 @@ function parseTohonText_(rawText) {
     if (!dup) lots.push(lot);
   });
   return lots;
+}
+
+/**
+ * 紙の全部事項証明書のページ上部の印字「愛知県常滑市港町5丁目10」「常滑市港町5丁目22-1」から、現在の所在・地番を取り出す。
+ * 表題部の直前（前のかたまりの最後）にある、市町村名を含み数字で終わる行（「番」「地」を含まない）を対象にする。
+ * 権利部の住所（「…173番地」など）は「番」を含むので対象外。
+ */
+function tohonPageHeader_(chunk) {
+  const lines = String(chunk || '').split('\n').map(function (l) { return l.trim(); }).filter(String);
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 8); i--) {
+    const t = lines[i].replace(/\s+/g, '');
+    if (/[番地]/.test(t)) continue;
+    const m = t.match(/^(?:愛知県|岐阜県|三重県)?(.+?[市町村].*?)(\d+)(?:[-－‐ー](\d+))?$/);
+    if (m && /[市郡町村]/.test(m[1])) {
+      return { address: m[1], lotNumber: m[2] + '番' + (m[3] || '') };
+    }
+  }
+  return null;
+}
+
+/** 表題部に地目の語が1種類だけ出てくる場合はそれを返す（複数あれば判断しない＝空欄） */
+function tohonSingleChimoku_(sec) {
+  const body = String(sec).split(/権\s*利\s*部/)[0];
+  const found = TOHON_CHIMOKU_WORDS.filter(function (w) {
+    return new RegExp('(?:^|\\n)\\s*' + w + '\\s*(?:\\n|$)').test(body);
+  });
+  return found.length === 1 ? found[0] : '';
 }
 
 /**

@@ -200,6 +200,11 @@ function calculateEstimate_(input) {
   return { ok: true, total: total, feeTotal: total - costTotal, costTotal: costTotal, items: items, notes: notes };
 }
 
+/** 物件の呼び名（物件1（123番1）） */
+function lotName_(l, i) {
+  return '物件' + (i + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+}
+
 /** 見積の行を「実費」にする */
 function cost(it) {
   it.kind = 'cost';
@@ -208,35 +213,41 @@ function cost(it) {
 
 /**
  * 実費を見積に加える。
- *  ・地区除外決済金：同じ土地改良区（名称が同じ）の受益地の物件をまとめ、単価 × 申請地の面積合計で計算（総額の場合はそのまま）
- *  ・土地改良区の手数料等：土地改良区ごとに1回
+ *  ・地区除外決済金：筆ごとに、その筆の単価 × その筆の面積（総額の場合はそのまま）
+ *  ・土地改良区の手数料等：土地改良区ごとに、1申請あたりなら1回、1筆あたりなら受益地の筆数分
  *  ・用水の手数料（排水承諾）：用水ごとに1回
  */
 function addActualCosts_(lots, items, notes) {
   const groups = {};
-  lots.forEach(function (l) {
+  lots.forEach(function (l, i) {
     if (l.landImprovement !== 'はい' || l.kairyoBenefit !== '該当する') return;
-    const key = l.kairyoName || '土地改良区';
-    const g = groups[key] = groups[key] || { name: key, area: 0, noArea: false, amount: 0, unit: '', fee: 0 };
-    if (l.area > 0) g.area += l.area; else g.noArea = true;
-    if (!g.amount && l.settlementAmount > 0) { g.amount = l.settlementAmount; g.unit = l.settlementUnit; }
-    if (!g.fee && l.kairyoFeeAmount > 0) g.fee = l.kairyoFeeAmount;
+    const name = l.kairyoName || '土地改良区';
+    // 決済金（筆ごと）
+    if (l.settlementAmount > 0) {
+      const lotLabel = '物件' + (i + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+      if (l.settlementUnit === '総額') {
+        items.push(cost({ label: '地区除外決済金 ' + lotLabel, amount: Math.round(l.settlementAmount) }));
+      } else if (l.area > 0) {
+        const total = l.settlementUnit === '㎡あたり' ? l.settlementAmount * l.area : l.settlementAmount * l.area / 10000;
+        items.push(cost({ label: '地区除外決済金 ' + lotLabel + '：' + (l.settlementUnit === '㎡あたり' ? '1㎡' : '1ha') + 'あたり' +
+          formatYen_(l.settlementAmount) + ' × ' + l.area + '㎡', amount: Math.round(total) }));
+      } else {
+        notes.push(lotName_(l, i) + '：面積が未入力のため、地区除外決済金を計算できません。');
+      }
+    }
+    // 手数料等（改良区ごと）
+    const g = groups[name] = groups[name] || { name: name, count: 0, fee: 0, unit: '' };
+    g.count++;
+    if (!g.fee && l.kairyoFeeAmount > 0) { g.fee = l.kairyoFeeAmount; g.unit = l.kairyoFeeUnit; }
   });
   Object.keys(groups).forEach(function (k) {
     const g = groups[k];
-    if (g.amount > 0) {
-      if (g.unit === '総額') {
-        items.push(cost({ label: '地区除外決済金（' + g.name + '）', amount: Math.round(g.amount) }));
-      } else if (g.area > 0) {
-        const total = g.unit === '㎡あたり' ? g.amount * g.area : g.amount * g.area / 10000;
-        items.push(cost({ label: '地区除外決済金（' + g.name + '：' + (g.unit === '㎡あたり' ? '1㎡' : '1ha') + 'あたり' +
-          formatYen_(g.amount) + ' × 面積合計' + g.area + '㎡）', amount: Math.round(total) }));
-        if (g.noArea) notes.push('面積が未入力の物件があるため、地区除外決済金は入力済みの面積で計算しています。');
-      } else {
-        notes.push('面積が未入力のため、地区除外決済金（' + g.name + '）を計算できません。');
-      }
+    if (!(g.fee > 0)) return;
+    if (g.unit === '1筆あたり') {
+      items.push(cost({ label: '土地改良区 手数料等（' + g.name + '：1筆あたり' + formatYen_(g.fee) + ' × ' + g.count + '筆）', amount: Math.round(g.fee * g.count) }));
+    } else {
+      items.push(cost({ label: '土地改良区 手数料等（' + g.name + '：1申請あたり）', amount: Math.round(g.fee) }));
     }
-    if (g.fee > 0) items.push(cost({ label: '土地改良区 手数料等（' + g.name + '）', amount: Math.round(g.fee) }));
   });
   const drains = {};
   lots.forEach(function (l) {

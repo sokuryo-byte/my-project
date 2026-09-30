@@ -61,6 +61,7 @@ function ensureSetup_() {
  */
 function runMigrations_() {
   const props = PropertiesService.getScriptProperties();
+  runFeePatches_(props);
   if (props.getProperty('FEE_TABLE_VERSION') === FEE_TABLE_VERSION) return;
   const lock = LockService.getScriptLock();
   lock.waitLock(30 * 1000);
@@ -76,6 +77,32 @@ function runMigrations_() {
       });
       props.setProperty('FEE_TABLE_VERSION', FEE_TABLE_VERSION);
     }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 料金の個別修正（FEE_PATCHES）のうち、まだ適用していない版を適用する */
+function runFeePatches_(props) {
+  const done = String(props.getProperty('FEE_PATCHES_DONE') || '').split(',').filter(String);
+  const todo = Object.keys(FEE_PATCHES).filter(function (v) { return done.indexOf(v) < 0; });
+  if (!todo.length) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30 * 1000);
+  try {
+    const sheet = getOrCreateSheet_(getSpreadsheet_(), SHEET_NAMES.FEES);
+    ensureHeaders_(sheet, FEE_HEADERS);
+    addMissingFeeRows_(sheet);
+    const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
+    todo.forEach(function (v) {
+      FEE_PATCHES[v].forEach(function (key) {
+        const d = DEFAULT_FEES.filter(function (f) { return f.key === key; })[0];
+        const i = keys.indexOf(key);
+        if (d && i >= 0) sheet.getRange(i + 2, 2, 1, 3).setValues([[d.label, d.amount, d.note]]);
+      });
+      done.push(v);
+    });
+    props.setProperty('FEE_PATCHES_DONE', done.join(','));
   } finally {
     lock.releaseLock();
   }
@@ -439,11 +466,14 @@ function normalizeLot_(l, prefecture, master) {
     kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要'
       ? settlementText_(l.kairyoSettlementNote, pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits), areaText === '' ? null : Number(areaText)) : '',
     // 決済金とは別の手数料など（金額・内容）
-    kairyoFee: benefitOn ? [yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／') : '',
+    kairyoFee: benefitOn && yenText_(l.kairyoFeeAmount)
+      ? [(pick_(l.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり') + ' ' + yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／')
+      : '',
     // 見積（実費）の計算用の数値
     settlementAmount: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? numOrZero_(l.kairyoSettlementNote) : 0,
     settlementUnit: pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits) || '総額',
     kairyoFeeAmount: benefitOn ? numOrZero_(l.kairyoFeeAmount) : 0,
+    kairyoFeeUnit: pick_(l.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
     iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],

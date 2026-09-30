@@ -113,7 +113,6 @@
         else if (e.target.name === radioName(lot, 'isNoshin')) lot.removeAttribute('data-noshin-auto'); // 人が選んだ値は以後触らない
       }
       if (lot) { updateCallBox(lot); updateConvertedWarn(lot); }         // 選択に合わせて電話確認・注意表示を更新
-      if (lot && ['area', 'kairyoName'].indexOf(e.target.getAttribute('data-f')) >= 0) qsa('.lot').forEach(updateCallBox); // 決済金の面積合計
     }
     updatePlanRequired();
     schedulePreview();
@@ -202,6 +201,20 @@
     var city = el('input', { type: 'text', id: id('municipality'), maxlength: '50', placeholder: '例）豊田市', list: 'cityList', 'data-f': 'municipality' });
     var onPlaceChange = function () { updateLotLinks(card); updateCallBox(card); updateTaxNote(card); };
     city.addEventListener('input', function () { autoPrefecture(card); onPlaceChange(); });
+    // 候補（datalist）は入力中の文字で絞られるため、欄をクリックしたら一度空にして全候補を出す（何も選ばなければ元に戻す）
+    city.addEventListener('focus', function () {
+      if (!city.value) return;
+      city.setAttribute('data-prev', city.value);
+      city.placeholder = city.value;
+      city.value = '';
+    });
+    city.addEventListener('blur', function () {
+      var prev = city.getAttribute('data-prev');
+      city.removeAttribute('data-prev');
+      city.placeholder = '例）豊田市';
+      if (!city.value && prev) { city.value = prev; }
+      autoPrefecture(card); onPlaceChange();
+    });
     pref.addEventListener('change', onPlaceChange);
     var address = el('input', { type: 'text', id: id('address'), maxlength: '200', placeholder: '例）○○町字△△ 123番1', 'data-f': 'address' });
     address.addEventListener('input', function () { updateCallBox(card); });
@@ -295,6 +308,15 @@
       setRadio(card, 'landImprovement', inherit.landImprovement);
       lotInput(card, 'kairyoName').value = inherit.kairyoName || '';   // 近くの土地は同じ土地改良区のことが多い
       lotInput(card, 'kairyoTel').value = inherit.kairyoTel || '';
+      // 同じ土地改良区なら、受益地・手続き・決済金（単価）・手数料も同じことが多いので引き継ぐ（筆ごとに変更可）
+      setRadio(card, 'kairyoBenefit', inherit.kairyoBenefit);
+      setRadio(card, 'kairyoProcedure', inherit.kairyoProcedure);
+      setRadio(card, 'kairyoSettlement', inherit.kairyoSettlement);
+      lotInput(card, 'kairyoSettlementNote').value = inherit.kairyoSettlementNote || '';
+      if (inherit.kairyoSettlementUnit) lotInput(card, 'kairyoSettlementUnit').value = inherit.kairyoSettlementUnit;
+      lotInput(card, 'kairyoFeeAmount').value = inherit.kairyoFeeAmount || '';
+      if (inherit.kairyoFeeUnit) lotInput(card, 'kairyoFeeUnit').value = inherit.kairyoFeeUnit;
+      lotInput(card, 'kairyoFeeNote').value = inherit.kairyoFeeNote || '';
       setRadio(card, 'iinStamp', inherit.iinStamp);                    // 地元委員も同じ地区なら同じ
       setContacts(card, 'iinContacts', inherit.iinContacts);
       setRadio(card, 'localConsent', inherit.localConsent);            // 同じ地区なら地元関係者も同じことが多い
@@ -384,6 +406,7 @@
       kairyoSettlementNote: lotInput(card, 'kairyoSettlementNote').value,
       kairyoSettlementUnit: lotInput(card, 'kairyoSettlementUnit').value,
       kairyoFeeAmount: lotInput(card, 'kairyoFeeAmount').value,
+      kairyoFeeUnit: lotInput(card, 'kairyoFeeUnit').value,
       kairyoFeeNote: lotInput(card, 'kairyoFeeNote').value,
       iinStamp: getRadio(card, 'iinStamp'),
       iinContacts: getContacts(card, 'iinContacts'),
@@ -597,6 +620,9 @@
     var feeBox = el('div', { 'class': 'inline-inputs' });
     feeBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('kairyoFeeAmount'), 'data-f': 'kairyoFeeAmount', style: 'width:11em;text-align:right', 'aria-label': '手数料などの金額' }));
     feeBox.appendChild(el('span', {}, '円'));
+    var feeUnit = el('select', { id: id('kairyoFeeUnit'), 'data-f': 'kairyoFeeUnit', 'aria-label': '手数料の単位', style: 'width:auto' });
+    o.kairyoFeeUnits.forEach(function (u) { feeUnit.appendChild(new Option(u, u)); });
+    feeBox.appendChild(feeUnit);
     var feeNote = el('input', { type: 'text', id: id('kairyoFeeNote'), maxlength: '100', placeholder: '内容（例：事務手数料）', 'data-f': 'kairyoFeeNote', 'aria-label': '手数料などの内容' });
     feeNote.style.flex = '1'; feeNote.style.minWidth = '12em';
     feeBox.appendChild(feeNote);
@@ -852,10 +878,10 @@
     // 単価のときは面積から概算の総額を表示
     var sAmt = Number(lotInput(card, 'kairyoSettlementNote').value);
     var sUnit = lotInput(card, 'kairyoSettlementUnit').value;
-    var sArea = kairyoAreaTotal(lotInput(card, 'kairyoName').value.trim() || '土地改良区');
+    var sArea = Number(String(lotInput(card, 'area').value).replace(/[,，]/g, '')); // 決済金は筆ごと（その筆の面積）
     var calc = card.querySelector('.settle-calc');
     calc.textContent = sAmt > 0 && sUnit !== '総額' && sArea > 0
-      ? '→ 申請地の面積合計 ' + sArea + '㎡で約' + String(Math.round(sUnit === '㎡あたり' ? sAmt * sArea : sAmt * sArea / 10000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円'
+      ? '→ この筆 ' + sArea + '㎡で約' + String(Math.round(sUnit === '㎡あたり' ? sAmt * sArea : sAmt * sArea / 10000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円'
       : (sUnit !== '総額' && !(sArea > 0) ? '※ 面積を入力すると概算の総額を表示します' : '');
     var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
     telLink(card.querySelector('.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
@@ -886,16 +912,6 @@
     var w = card.querySelector('.conv-warn');
     w.textContent = msg;
     w.classList.toggle('hidden', !msg);
-  }
-
-  /** 同じ土地改良区（名称）で受益地に該当する物件の面積（登記地積）の合計 */
-  function kairyoAreaTotal(name) {
-    return qsa('.lot').reduce(function (sum, c) {
-      if (getRadio(c, 'landImprovement') !== 'はい' || getRadio(c, 'kairyoBenefit') !== '該当する') return sum;
-      if ((lotInput(c, 'kairyoName').value.trim() || '土地改良区') !== name) return sum;
-      var a = Number(String(lotInput(c, 'area').value).replace(/[,，]/g, ''));
-      return sum + (a > 0 ? a : 0);
-    }, 0);
   }
 
   // ---------------------------------------------------------
