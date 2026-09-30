@@ -102,6 +102,7 @@ function runFeePatches_(props) {
       });
       done.push(v);
     });
+    sheet.getRange(1, 3).setValue(FEE_HEADERS[2]); // 見出し（報酬は税抜）を最新に
     props.setProperty('FEE_PATCHES_DONE', done.join(','));
   } finally {
     lock.releaseLock();

@@ -57,7 +57,7 @@ const OUT = path.join(__dirname, 'out');
 
   // 見積：調整区域(許可) + 分からない(届出で仮計算) + 農振除外
   await p.waitForTimeout(800);
-  assert.strictEqual(await p.textContent('#estimateTotal'), '¥610,000'); // 235,000 + 58,000 + 290,000 + 調査実費 25,000 + 2,000
+  assert.strictEqual(await p.textContent('#estimateTotal'), '¥679,300'); // 報酬(235,000+58,000+300,000)+消費税10% 59,300 + 調査実費 25,000+2,000
 
   // 現況が農地なのに転用計画が空 → 送信できない
   await p.click('#requestBtn');

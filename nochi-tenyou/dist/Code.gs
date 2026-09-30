@@ -89,7 +89,7 @@ const CASE_STATUSES = ['新規', '調査中', '正式見積提示済', '受任',
  * zone を持つ項目は基本報酬、それ以外は加算です。
  */
 const DEFAULT_FEES = [
-  // 金額は「2026基本料金改定案」行政書士シートの報酬（コード）に合わせています
+  // 金額（税抜）は「2026基本料金改定案」行政書士シートに合わせています（備考欄に値があればそれを最新として採用、なければ報酬欄）
   { key: 'BASE_SHIGAIKA', zone: '市街化区域', label: '農地転用 第4条/第5条届出（市街化区域）', amount: 58000,
     note: '市街化区域、または区域が「分からない」場合に適用（料金表 4101/4102）' },
   { key: 'BASE_CHOSEI', zone: '市街化調整区域', label: '農地法第5条許可申請（市街化調整区域）', amount: 235000,
@@ -107,15 +107,15 @@ const DEFAULT_FEES = [
     note: '非線引き区域の場合に加算' },
   { key: 'SURVEY_KUIKIGAI', surveyZone: '都市計画区域外', label: '調査実費（都市計画区域外）', amount: 15000,
     note: '都市計画区域外の場合に加算（金額は仮に非線引き区域と同額）' },
-  { key: 'ADD_NOSHIN', label: '農振除外申出', amount: 290000,
+  { key: 'ADD_NOSHIN', label: '農振除外申出', amount: 300000,
     note: '農振農用地「はい」の場合に加算（料金表 4006）' },
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 40000,
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
-  { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）', amount: 18000,
+  { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）', amount: 20000,
     note: '土地改良区に確認した地元関係者の同意（押印）が「必要」「未確認」、または土地改良区が「分からない」物件がある場合に加算' },
-  { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 290000,
+  { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 300000,
     note: '転用目的が「分家住宅」で、市街化調整区域の物件がある場合に加算（料金表 4001。開発許可（29条）となる場合は 4002）' },
-  { key: 'ADD_DRAINAGE', label: '排水承諾手続', amount: 35000,
+  { key: 'ADD_DRAINAGE', label: '排水承諾手続', amount: 40000,
     note: '転用目的が「分家住宅」で、排水承諾が「必要」「未確認」（未回答を含む）の物件がある場合に加算（料金表 4203）' },
   { key: 'ADD_GENKYO', label: '現況証明（非農地証明）願出', amount: 120000,
     note: '市街化区域外で、既に宅地など農地以外として利用されている（現況が宅地・駐車場・資材置場、または転用済み「はい」）物件がある場合に加算（料金表 4100）' },
@@ -144,7 +144,11 @@ const FEE_TABLE_VERSION = '2026-01';
  */
 const FEE_PATCHES = {
   '2026-02': ['ADD_LAND_IMPROVEMENT'], // 土地改良区除外申請 35,000 → 40,000
+  '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
 };
+
+/** 報酬にかける消費税率（実費にはかけない） */
+const TAX_RATE = 0.10;
 
 /**
  * 所在・地番欄の末尾から地番を切り出す正規表現（1=町名・字、2=地番）。
@@ -509,7 +513,7 @@ const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo'
 const MASTER_HEADERS = ['都道府県', '市区町村', '都市計画情報URL', '農振図URL', '備考', '農業委員会 電話番号'];
 
 /** 見積設定シートの列（見出し） */
-const FEE_HEADERS = ['キー（変更しない）', '項目名（見積に表示）', '金額（円・税込）', '適用条件（説明）'];
+const FEE_HEADERS = ['キー（変更しない）', '項目名（見積に表示）', '金額（円・報酬は税抜）', '適用条件（説明）'];
 
 
 // ===== Setup.gs =====
@@ -773,6 +777,7 @@ function runFeePatches_(props) {
       });
       done.push(v);
     });
+    sheet.getRange(1, 3).setValue(FEE_HEADERS[2]); // 見出し（報酬は税抜）を最新に
     props.setProperty('FEE_PATCHES_DONE', done.join(','));
   } finally {
     lock.releaseLock();
@@ -1636,8 +1641,11 @@ function calculateEstimate_(input) {
   // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
   addActualCosts_(lots, items, notes);
 
-  const total = items.reduce(function (sum, it) { return sum + it.amount; }, 0);
+  // 報酬（税抜）＋消費税＋実費（非課税）
   const costTotal = items.filter(function (it) { return it.kind === 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
+  const feeSubtotal = items.filter(function (it) { return it.kind !== 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
+  const tax = Math.floor(feeSubtotal * TAX_RATE);
+  const total = feeSubtotal + tax + costTotal;
   notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
   // 始末書（無断転用）の提出が必要な物件
   lots.forEach(function (l, i) {
@@ -1653,7 +1661,8 @@ function calculateEstimate_(input) {
     notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
       '。新たな手続きが不要な場合があります。');
   });
-  return { ok: true, total: total, feeTotal: total - costTotal, costTotal: costTotal, items: items, notes: notes };
+  return { ok: true, total: total, feeSubtotal: feeSubtotal, tax: tax, taxRate: TAX_RATE, feeTotal: feeSubtotal + tax,
+    costTotal: costTotal, items: items, notes: notes };
 }
 
 /** 物件の呼び名（物件1（123番1）） */
@@ -1723,7 +1732,8 @@ function estimateToText_(estimate) {
   const costs = estimate.items.filter(function (it) { return it.kind === 'cost'; });
   return ['【報酬】'].concat(fees.map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); }))
     .concat(costs.length ? ['【実費】'].concat(costs.map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); })) : [])
-    .concat(['報酬 ' + formatYen_(estimate.feeTotal) + '／実費 ' + formatYen_(estimate.costTotal) + '／合計 ' + formatYen_(estimate.total)])
+    .concat(['報酬 ' + formatYen_(estimate.feeSubtotal) + '＋消費税 ' + formatYen_(estimate.tax) + '＝' + formatYen_(estimate.feeTotal) +
+      '／実費 ' + formatYen_(estimate.costTotal) + '／合計 ' + formatYen_(estimate.total)])
     .concat(estimate.notes.map(function (n) { return '※' + n; }))
     .join('\n');
 }

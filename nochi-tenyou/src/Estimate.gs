@@ -180,8 +180,11 @@ function calculateEstimate_(input) {
   // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
   addActualCosts_(lots, items, notes);
 
-  const total = items.reduce(function (sum, it) { return sum + it.amount; }, 0);
+  // 報酬（税抜）＋消費税＋実費（非課税）
   const costTotal = items.filter(function (it) { return it.kind === 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
+  const feeSubtotal = items.filter(function (it) { return it.kind !== 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
+  const tax = Math.floor(feeSubtotal * TAX_RATE);
+  const total = feeSubtotal + tax + costTotal;
   notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
   // 始末書（無断転用）の提出が必要な物件
   lots.forEach(function (l, i) {
@@ -197,7 +200,8 @@ function calculateEstimate_(input) {
     notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
       '。新たな手続きが不要な場合があります。');
   });
-  return { ok: true, total: total, feeTotal: total - costTotal, costTotal: costTotal, items: items, notes: notes };
+  return { ok: true, total: total, feeSubtotal: feeSubtotal, tax: tax, taxRate: TAX_RATE, feeTotal: feeSubtotal + tax,
+    costTotal: costTotal, items: items, notes: notes };
 }
 
 /** 物件の呼び名（物件1（123番1）） */
@@ -267,7 +271,8 @@ function estimateToText_(estimate) {
   const costs = estimate.items.filter(function (it) { return it.kind === 'cost'; });
   return ['【報酬】'].concat(fees.map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); }))
     .concat(costs.length ? ['【実費】'].concat(costs.map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); })) : [])
-    .concat(['報酬 ' + formatYen_(estimate.feeTotal) + '／実費 ' + formatYen_(estimate.costTotal) + '／合計 ' + formatYen_(estimate.total)])
+    .concat(['報酬 ' + formatYen_(estimate.feeSubtotal) + '＋消費税 ' + formatYen_(estimate.tax) + '＝' + formatYen_(estimate.feeTotal) +
+      '／実費 ' + formatYen_(estimate.costTotal) + '／合計 ' + formatYen_(estimate.total)])
     .concat(estimate.notes.map(function (n) { return '※' + n; }))
     .join('\n');
 }

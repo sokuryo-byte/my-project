@@ -1337,7 +1337,11 @@
     var costs = items.filter(function (it) { return it.kind === 'cost'; });
     if (fees.length) row('報酬', null, 'group');
     fees.forEach(function (it) { row(it.label, it.amount); });
-    if (est.ok && costs.length) row('報酬 小計', est.feeTotal, 'sub');
+    if (est.ok) {
+      row('報酬 小計（税抜）', est.feeSubtotal, 'sub');
+      row('消費税（' + Math.round((est.taxRate || 0) * 100) + '%）', est.tax, 'sub');
+      row('報酬 計（税込）', est.feeTotal, 'sub');
+    }
     if (costs.length) row('実費', null, 'group');
     costs.forEach(function (it) { row(it.label, it.amount); });
     if (est.ok && costs.length) row('実費 小計', est.costTotal, 'sub');
