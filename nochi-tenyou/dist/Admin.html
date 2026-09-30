@@ -213,7 +213,7 @@
     .flow li.now { color: var(--fg); font-weight: 700; }
     .flow.lost li { opacity: .5; }
 
-    .dbody { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+    .dbody { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
     .main { display: grid; gap: 12px; min-width: 0; }
     .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; display: grid; gap: 8px; }
     .panel > h3 { margin: 0; font-size: .85rem; color: var(--muted); letter-spacing: .04em; }
@@ -244,8 +244,25 @@
 
     .side { display: grid; gap: 12px; align-content: start; }
     .side .field { gap: 4px; }
-    .side .row { grid-template-columns: 1fr 1fr; }
+    .side .row { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; }
     .breakdown-text { font-size: .8rem; white-space: pre-line; margin: 0; }
+    /* 概算見積の内訳（表） */
+    .est { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px 24px; align-items: start; }
+    table.est-t { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+    table.est-t td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table.est-t td.y { text-align: right; white-space: nowrap; width: 7em; }
+    table.est-t tr.grp td { font-size: .75rem; font-weight: 700; color: var(--accent); border-bottom: 2px solid var(--accent-soft); padding-top: 10px; }
+    table.est-t tr.sub td { color: var(--muted); font-size: .8rem; }
+    table.est-t tr.sum td { font-weight: 700; font-size: .95rem; border-bottom: none; border-top: 2px solid var(--fg); }
+    .est-notes { margin: 0; padding: 0 0 0 1.1em; font-size: .8rem; color: var(--muted); display: grid; gap: 4px; }
+    @media (max-width: 1000px) { .est { grid-template-columns: minmax(0, 1fr); } }
+    /* 正式見積：PDFをドラッグ */
+    .pdf-drop { border: 2px dashed var(--line); border-radius: 8px; padding: 16px 10px; text-align: center; font-size: .85rem; color: var(--muted); cursor: pointer; background: var(--bg); }
+    .pdf-drop:hover, .pdf-drop.over { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+    .pdf-drop b { display: block; color: var(--fg); font-size: .9rem; margin-bottom: 2px; }
+    .pdf-done { font-size: .82rem; display: grid; gap: 2px; background: var(--accent-soft); border-radius: 6px; padding: 8px 10px; }
+    .pdf-confirm { display: grid; gap: 8px; }
+    .pdf-confirm .fname { font-size: .85rem; font-weight: 700; overflow-wrap: anywhere; }
     .side-links { display: grid; gap: 4px; font-size: .85rem; }
     a.tel { color: var(--accent); font-weight: 700; text-decoration: underline; white-space: nowrap; }
     .danger-link { justify-self: start; background: none; border: 1px solid var(--danger); color: var(--danger); border-radius: 6px; padding: 4px 12px; font-size: .8rem; cursor: pointer; margin-top: 4px; }
@@ -296,7 +313,7 @@
 
   <div id="casesView" class="md">
     <aside class="master" aria-label="案件リスト">
-      <input type="text" id="q" placeholder="依頼者名・地番・市区町村・担当で検索" aria-label="検索">
+      <input type="text" id="q" placeholder="受付番号・依頼者名・地番・市区町村・担当で検索" aria-label="検索">
       <div class="chips" id="statusChips"></div>
       <div class="master-opts">
         <label><input type="checkbox" id="requestOnly" checked> 見積調査依頼のみ</label>
@@ -404,7 +421,7 @@
       if (state.filter && c.status !== state.filter) return false;
       if (reqOnly && c.requestFlag !== true) return false;
       if (q) {
-        var hay = [c.requesterName, c.lotNumber, c.municipality, c.address, c.assignee, c.id].join(' ');
+        var hay = [c.requesterName, c.lotNumber, c.municipality, c.address, c.assignee, c.caseNo, c.id].join(' ');
         if (hay.indexOf(q) < 0) return false;
       }
       return true;
@@ -419,7 +436,7 @@
     list.forEach(function (c) {
       var card = el('button', { type: 'button', 'class': 'case-card st-' + c.status + (c.id === state.selectedId ? ' sel' : '') });
       var l1 = el('div', { 'class': 'l1' });
-      l1.appendChild(el('span', {}, '#' + c.id + '　' + (c.receivedAt || '')));
+      l1.appendChild(el('span', {}, (c.caseNo || '#' + c.id) + '　' + String(c.receivedAt || '').slice(5)));
       l1.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―'));
       card.appendChild(l1);
       card.appendChild(el('div', { 'class': 'l2' }, c.requesterName || '（依頼者名なし）'));
@@ -528,6 +545,106 @@
     return card;
   }
 
+  /**
+   * 見積内訳の文字（estimateToText_ の形式）を表にする。
+   * 【報酬】【実費】の見出し、「・項目：¥金額」、「報酬 ¥…＋消費税 ¥…＝¥…／実費 ¥…／合計 ¥…」、「※注記」
+   */
+  function buildEstimatePanel(text) {
+    var p = panel('概算見積の内訳（依頼時の自動計算）');
+    var lines = String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); });
+    if (!lines.length) { p.appendChild(el('p', { 'class': 'help' }, '内訳はありません。')); return p; }
+    var t = el('table', { 'class': 'est-t' });
+    var notes = [];
+    var row = function (cls, label, amount) {
+      var tr = el('tr', cls ? { 'class': cls } : {});
+      tr.appendChild(el('td', {}, label));
+      tr.appendChild(el('td', { 'class': 'y' }, amount || ''));
+      t.appendChild(tr);
+    };
+    lines.forEach(function (l) {
+      var m;
+      if (/^【.+】$/.test(l)) { row('grp', l.replace(/[【】]/g, ''), ''); return; }
+      if (l.charAt(0) === '※') { notes.push(l.slice(1)); return; }
+      if ((m = l.match(/^報酬 (¥[\d,]+)＋消費税 (¥[\d,]+)＝(¥[\d,]+)／実費 (¥[\d,]+)／合計 (¥[\d,]+)$/))) {
+        row('grp', '集計', '');
+        row('sub', '報酬（税抜）', m[1]); row('sub', '消費税', m[2]); row('sub', '報酬（税込）', m[3]); row('sub', '実費', m[4]);
+        row('sum', '合計', m[5]);
+        return;
+      }
+      if ((m = l.match(/^・(.+)：(¥[\d,]+)$/))) { row('', m[1], m[2]); return; }
+      notes.push(l);
+    });
+    var box = el('div', { 'class': 'est' });
+    box.appendChild(t);
+    if (notes.length) {
+      var ul = el('ul', { 'class': 'est-notes' });
+      notes.forEach(function (n) { ul.appendChild(el('li', {}, n)); });
+      box.appendChild(ul);
+    }
+    p.appendChild(box);
+    return p;
+  }
+
+  /** 正式見積の提示：見積書PDFをドラッグ → 金額・メール送信を確認 → 提示 */
+  function buildFormalPanel(c) {
+    var p = panel('正式見積の提示');
+    if (c.estimatePdfUrl) {
+      var done = el('div', { 'class': 'pdf-done' });
+      done.appendChild(el('span', {}, '提示済み：' + (c.estimatePdfAt || '')));
+      if (has(c.formalEstimate)) done.appendChild(el('span', {}, '正式見積 ' + yen(c.formalEstimate)));
+      done.appendChild(el('a', { href: c.estimatePdfUrl, target: '_blank', rel: 'noopener' }, '見積書PDFを開く'));
+      if (c.reportResult) done.appendChild(el('span', { 'class': 'help' }, '報告：' + c.reportResult));
+      p.appendChild(done);
+    }
+    var input = el('input', { type: 'file', accept: 'application/pdf', 'class': 'hidden' });
+    var drop = el('div', { 'class': 'pdf-drop', role: 'button', tabindex: '0' });
+    drop.appendChild(el('b', {}, c.estimatePdfUrl ? '差し替える見積書PDFをドラッグ' : '見積書PDFをここにドラッグ'));
+    drop.appendChild(document.createTextNode('またはクリックして選択'));
+    var confirmBox = el('div', { 'class': 'pdf-confirm hidden' });
+    p.appendChild(drop); p.appendChild(input); p.appendChild(confirmBox);
+
+    var pick = function (file) {
+      if (!file) return;
+      if (file.type !== 'application/pdf') { alert('PDFを選んでください。'); return; }
+      confirmBox.innerHTML = '';
+      confirmBox.appendChild(el('span', { 'class': 'fname' }, '📄 ' + file.name));
+      var amt = el('input', { type: 'text', id: 'fAmount', inputmode: 'numeric', placeholder: '概算 ' + yen(c.estimate) });
+      amt.value = has(c.formalEstimate) ? c.formalEstimate : '';
+      confirmBox.appendChild(field('正式見積金額（円・任意）', amt));
+      confirmBox.appendChild(el('p', { 'class': 'help', style: 'margin:0' }, '提示すると、PDFを案件フォルダに保存し、対応状況を「正式見積提示済」にして、行政班の Chat スペースに通知します。'));
+      var btns = el('div', { 'class': 'btns', style: 'align-items:center' });
+      var go = el('button', { type: 'button', 'class': 'primary' }, '正式見積を提示する');
+      var cancel = el('button', { type: 'button', 'class': 'ghost' }, 'やめる');
+      btns.appendChild(go); btns.appendChild(cancel);
+      confirmBox.appendChild(btns);
+      confirmBox.classList.remove('hidden');
+      drop.classList.add('hidden');
+      cancel.addEventListener('click', function () { confirmBox.classList.add('hidden'); drop.classList.remove('hidden'); });
+      go.addEventListener('click', function () {
+        go.disabled = true; cancel.disabled = true; go.textContent = '送信中…';
+        var reader = new FileReader();
+        reader.onload = function () {
+          google.script.run
+            .withSuccessHandler(function (updated) {
+              state.cases = state.cases.map(function (x) { return x.id === updated.id ? updated : x; });
+              renderChips(); renderRows(); renderDetail(updated.id);
+            })
+            .withFailureHandler(function (err) { go.disabled = false; cancel.disabled = false; go.textContent = '正式見積を提示する'; alert('提示に失敗しました：' + err.message); })
+            .submitFormalEstimate(c.id, { name: file.name, mimeType: file.type, data: String(reader.result).split(',')[1] || '' },
+              { amount: amt.value });
+        };
+        reader.readAsDataURL(file);
+      });
+    };
+    drop.addEventListener('click', function () { input.click(); });
+    drop.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+    input.addEventListener('change', function () { pick(input.files[0]); input.value = ''; });
+    ['dragenter', 'dragover'].forEach(function (t) { drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+    ['dragleave', 'drop'].forEach(function (t) { drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+    drop.addEventListener('drop', function (e) { pick(e.dataTransfer.files[0]); });
+    return p;
+  }
+
   function panel(title) {
     var p = el('section', { 'class': 'panel' });
     if (title) p.appendChild(el('h3', {}, title));
@@ -553,7 +670,7 @@
     var top = el('div', { 'class': 'dhead-top' });
     top.appendChild(el('h2', {}, c.requesterName || '（依頼者名なし）'));
     top.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―'));
-    top.appendChild(el('span', { 'class': 'meta' }, '案件ID ' + c.id + '　受付 ' + (c.receivedAt || '―') + '　入力者 ' + (c.submittedBy || '―') +
+    top.appendChild(el('span', { 'class': 'meta' }, '受付番号 ' + (c.caseNo || c.id) + '　受付 ' + (c.receivedAt || '―') + '　入力者 ' + (c.submittedBy || '―') +
       '　' + (c.requestFlag === true ? '見積調査依頼' : '保存のみ')));
     var amt = el('div', { 'class': 'amt' });
     var formal = has(c.formalEstimate);
@@ -598,9 +715,13 @@
     ov.appendChild(g);
     main.appendChild(ov);
 
+    main.appendChild(buildEstimatePanel(c.estimateDetail));
+
     // ---- 物件ごと：基本情報 → 電話確認の結果（確認した順） ----
     lots.forEach(function (l) { main.appendChild(buildLotCard(l)); });
     if (!lots.length) main.appendChild(el('p', { 'class': 'empty' }, '物件明細がありません。'));
+
+    side.appendChild(buildFormalPanel(c));
 
     // ---- 右：対応（編集） ----
     var act = panel('行政班の対応');
@@ -644,13 +765,10 @@
     links.appendChild(ll);
     side.appendChild(links);
 
-    var bd = panel('概算見積の内訳');
-    bd.appendChild(el('p', { 'class': 'breakdown-text' }, c.estimateDetail || '―'));
-    side.appendChild(bd);
 
     var del = el('button', { type: 'button', 'class': 'danger-link' }, 'この案件を削除');
     del.addEventListener('click', function () {
-      var label = '案件ID ' + c.id + '（' + (c.requesterName || '依頼者名なし') + '）';
+      var label = '受付番号 ' + (c.caseNo || c.id) + '（' + (c.requesterName || '依頼者名なし') + '）';
       if (!confirm(label + ' を削除します。\n\n案件一覧・物件明細から消え、スプレッドシートの「削除した案件」シートに控えが残ります。資料フォルダは残ります。\nよろしいですか？')) return;
       del.disabled = true; del.textContent = '削除中…';
       google.script.run
@@ -754,6 +872,7 @@
       .sendTestNotification();
   });
 
+  ['dragover', 'drop'].forEach(function (t) { window.addEventListener(t, function (e) { e.preventDefault(); }); });
   $('q').addEventListener('input', renderRows);
   $('requestOnly').addEventListener('change', function () { renderChips(); renderRows(); });
   $('reload').addEventListener('click', load);

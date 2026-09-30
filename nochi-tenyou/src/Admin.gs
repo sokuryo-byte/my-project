@@ -71,6 +71,57 @@ function deleteCaseByAdmin(caseId) {
   return { id: id, lots: r.lots };
 }
 
+/**
+ * 正式見積の提示：見積書PDFを案件フォルダに保存し、対応状況を「正式見積提示済」にして、
+ * 行政班の Chat スペースへ通知する（メールは送らない）。
+ * @param {number} caseId
+ * @param {{name:string, mimeType:string, data:string}} file data は Base64
+ * @param {{amount:string}} opts
+ * @return {Object} 更新後の案件
+ */
+function submitFormalEstimate(caseId, file, opts) {
+  requireAdmin_();
+  const o = opts || {};
+  if (String(file && file.mimeType) !== 'application/pdf') throw new Error('見積書はPDFを選んでください。');
+  const bytes = Utilities.base64Decode(String(file.data || ''));
+  if (bytes.length > MAX_UPLOAD_MB * 1024 * 1024) throw new Error('ファイルサイズが上限（' + MAX_UPLOAD_MB + 'MB）を超えています。');
+  const amountText = String(o.amount === undefined ? '' : o.amount).replace(/[,，¥円\s]/g, '');
+  if (amountText !== '' && (isNaN(Number(amountText)) || Number(amountText) < 0)) throw new Error('正式見積金額は数値で入力してください。');
+
+  const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+  if (!c) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+
+  // 1) 保存
+  const cf = getCaseFolder_(c);
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+  const name = sanitizeFileName_('正式見積_' + (c.caseNo || c.id) + '_' + Utilities.formatDate(now, tz, 'yyyyMMdd') + '.pdf');
+  const pdf = cf.folder.createFile(Utilities.newBlob(bytes, 'application/pdf', name));
+  pdf.setDescription('提示者：' + getUserEmail_() + '（元のファイル名：' + sanitizeFileName_(file.name) + '）');
+
+  const values = { estimatePdfUrl: pdf.getUrl(), estimatePdfAt: now, updatedAt: now };
+  if (amountText !== '') values.formalEstimate = Number(amountText);
+  if (['新規', '調査中'].indexOf(c.status) >= 0 || !c.status) values.status = '正式見積提示済';
+  if (cf.created) values.folderUrl = cf.folder.getUrl();
+  const merged = Object.assign({}, c, values);
+
+  // 2) 行政班の Chat スペースへ通知
+  const chat = postToChat_(buildEstimateMessage_(merged, pdf.getUrl()));
+  values.reportResult = [Utilities.formatDate(now, tz, 'yyyy/MM/dd HH:mm'), 'Chat：' + (chat.ok ? '送信済み' : '失敗（' + chat.message + '）')]
+    .filter(String).join('／');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    updateCaseCells_(row, values);
+  } finally {
+    lock.releaseLock();
+  }
+  return getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+}
+
 /** 管理者かどうか（スクリプトプロパティ ADMIN_EMAILS が優先） */
 function isAdmin_() {
   const email = getUserEmail_().toLowerCase();

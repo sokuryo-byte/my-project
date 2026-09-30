@@ -42,7 +42,8 @@ function appendCase_(record) {
     const sheet = getSheet_(SHEET_NAMES.CASES);
     if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; })); // 列を追加した後の初回
     const id = getNextCaseId_(sheet);
-    const data = Object.assign({}, record, { id: id });
+    const caseNo = getNextCaseNo_(sheet, record.receivedAt || new Date());
+    const data = Object.assign({}, record, { id: id, caseNo: caseNo });
 
     const row = CASE_COLUMNS.map(function (c) {
       return toCellValue_(data[c.key]);
@@ -51,7 +52,7 @@ function appendCase_(record) {
     SpreadsheetApp.flush();
 
     const rowNumber = sheet.getLastRow();
-    return { id: id, row: rowNumber, url: buildRowUrl_(sheet, rowNumber) };
+    return { id: id, caseNo: caseNo, row: rowNumber, url: buildRowUrl_(sheet, rowNumber) };
   } finally {
     lock.releaseLock();
   }
@@ -184,6 +185,45 @@ function getAllCases_() {
       return obj;
     })
     .reverse();
+}
+
+/**
+ * 受付番号を返す：受付日（yyMMdd）-その日の連番2桁。例）260930-01
+ * 削除した案件の番号も使わない。
+ */
+function getNextCaseNo_(sheet, date) {
+  const prefix = Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyMMdd') + '-';
+  const nos = caseNoColumn_(sheet, 0).concat(caseNoColumn_(getSpreadsheet_().getSheetByName(SHEET_NAMES.DELETED_CASES), 2));
+  const max = nos.reduce(function (m, v) {
+    const s = String(v);
+    return s.indexOf(prefix) === 0 ? Math.max(m, Number(s.slice(prefix.length)) || 0) : m;
+  }, 0);
+  return prefix + ('0' + (max + 1)).slice(-2);
+}
+
+/** シートの受付番号の列の値（offset：削除した案件シートは先頭に2列多い） */
+function caseNoColumn_(sheet, offset) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const col = offset + colIndexOf_('caseNo');
+  if (sheet.getLastColumn() < col) return [];
+  return sheet.getRange(2, col, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; });
+}
+
+/** 受付番号の無い既存の案件に、受付日時から受付番号を付ける（受付番号の導入前の案件用。1回だけ） */
+function fillCaseNos_() {
+  const sheet = getSheet_(SHEET_NAMES.CASES);
+  ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const idCol = colIndexOf_('id'), recCol = colIndexOf_('receivedAt'), noCol = colIndexOf_('caseNo');
+  const rows = sheet.getRange(2, 1, lastRow - 1, CASE_COLUMNS.length).getValues()
+    .map(function (r, i) { return { row: i + 2, id: Number(r[idCol - 1]), at: r[recCol - 1], no: r[noCol - 1] }; })
+    .filter(function (x) { return x.id && !x.no && x.at instanceof Date; })
+    .sort(function (a, b) { return a.id - b.id; });
+  rows.forEach(function (x) {
+    sheet.getRange(x.row, noCol).setValue(getNextCaseNo_(sheet, x.at));
+  });
+  return rows.length;
 }
 
 /** 次の案件IDを返す（ID列の最大値 + 1） */

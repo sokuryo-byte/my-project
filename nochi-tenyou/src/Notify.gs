@@ -41,11 +41,11 @@ function postToChat_(text) {
  * 見積調査依頼の通知文を組み立てる。
  * Chat の書式： *太字*、<URL|リンク文字>
  */
-function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
+function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
   const adminUrl = getAdminUrl_(caseId);
   const lines = [
     '*【農地転用】見積調査依頼が届きました*',
-    '案件ID：' + caseId,
+    '受付番号：' + (caseNo || caseId),
     '依頼者名：' + (input.requesterName || '（未入力）') + (input.trust ? '（信託手続きに付随）' : ''),
     '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
   ];
@@ -104,6 +104,20 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
   }
   if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
   lines.push('<' + rowUrl + '|スプレッドシートで案件行を開く>');
+  return lines.join('\n');
+}
+
+/** 正式見積を提示したときの Chat 通知文 */
+function buildEstimateMessage_(c, pdfUrl) {
+  const adminUrl = getAdminUrl_(c.id);
+  const lines = [
+    '*【農地転用】正式見積を提示しました*',
+    '受付番号：' + (c.caseNo || c.id) + '　依頼者名：' + (c.requesterName || '（未入力）'),
+    '所在：' + [c.address, c.lotNumber].filter(String).join(' '),
+    c.formalEstimate !== '' && c.formalEstimate !== undefined ? '正式見積：' + formatYen_(c.formalEstimate) : '',
+    '見積書：<' + pdfUrl + '|PDFを開く>',
+  ].filter(String);
+  if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
   return lines.join('\n');
 }
 

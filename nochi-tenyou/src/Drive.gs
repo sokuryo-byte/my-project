@@ -4,7 +4,7 @@
  * ============================================================
  *  流れ：
  *   1) 画面でファイルをドラッグ → すぐに「_受付中（未送信）」フォルダへアップロード
- *   2) 送信時に、案件ごとのフォルダ（例：0042_豊田市_123番1）へ移動し、ファイル名に資料種別を付ける
+ *   2) 送信時に、案件ごとのフォルダ（例：260930-01_豊田市_123番1）へ移動し、ファイル名に資料種別を付ける
  *   3) 送信されずに残った一時ファイルは、メニューから一括削除できる
  *  ファイルはWebアプリをデプロイしたアカウントのドライブに保存されます。
  */
@@ -74,13 +74,13 @@ function trashPendingFile_(fileId) {
 
 /**
  * 案件フォルダを作り、一時フォルダのファイルを移動する。
- * @param {number} caseId
+ * @param {string} caseNo 受付番号
  * @param {Object} input normalizeInput_() の結果
  * @return {{folderUrl:string, count:number, errors:string[]}}
  */
-function attachFilesToCase_(caseId, input) {
+function attachFilesToCase_(caseNo, input) {
   const first = input.lots[0] || { municipality: '', address: '', lotNumber: '' };
-  const folderName = [('0000' + caseId).slice(-4), first.municipality || first.address.slice(0, 20),
+  const folderName = [caseNo, first.municipality || first.address.slice(0, 20),
     first.lotNumber + (input.lots.length > 1 ? '他' + (input.lots.length - 1) + '筆' : '')]
     .filter(String).join('_');
   const folder = getRootFolder_().createFolder(sanitizeFileName_(folderName));
@@ -98,6 +98,16 @@ function attachFilesToCase_(caseId, input) {
     count++;
   });
   return { folderUrl: folder.getUrl(), count: count, errors: errors };
+}
+
+/** 案件の資料フォルダ（URLから取得。無ければ作る） */
+function getCaseFolder_(c) {
+  const m = String(c.folderUrl || '').match(/folders\/([\w-]+)/);
+  if (m) {
+    try { return { folder: DriveApp.getFolderById(m[1]), created: false }; } catch (e) { /* 削除済みなど → 作り直す */ }
+  }
+  const name = [c.caseNo || c.id, c.municipality, c.requesterName].filter(String).join('_');
+  return { folder: getRootFolder_().createFolder(sanitizeFileName_(name)), created: true };
 }
 
 /** 7日以上前に一時フォルダへアップロードされ、送信されなかったファイルを削除する（メニューから実行） */

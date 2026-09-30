@@ -454,6 +454,10 @@ const CASE_COLUMNS = [
   { key: 'localConsentNote', header: '同意が必要な方（氏名／住所／電話）' },
   { key: 'purpose', header: '転用目的' },
   { key: 'trust', header: '信託手続きに付随' },
+  { key: 'caseNo', header: '受付番号' },                 // 受付日（yyMMdd）-その日の連番。例）260930-01
+  { key: 'estimatePdfUrl', header: '正式見積PDF' },
+  { key: 'estimatePdfAt', header: '正式見積の提示日時' },
+  { key: 'reportResult', header: '正式見積の報告結果' },
 ];
 
 /**
@@ -747,6 +751,15 @@ function ensureSetup_() {
 function runMigrations_() {
   const props = PropertiesService.getScriptProperties();
   runFeePatches_(props);
+  if (props.getProperty('CASE_NO_DONE') !== '1') {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30 * 1000);
+    try {
+      if (props.getProperty('CASE_NO_DONE') !== '1') { fillCaseNos_(); props.setProperty('CASE_NO_DONE', '1'); }
+    } finally {
+      lock.releaseLock();
+    }
+  }
   if (props.getProperty('FEE_TABLE_VERSION') === FEE_TABLE_VERSION) return;
   const lock = LockService.getScriptLock();
   lock.waitLock(30 * 1000);
@@ -911,7 +924,7 @@ function submitCase(form, requestInvestigation) {
   // 2) 資料フォルダの作成とファイル移動（失敗しても案件は残す）
   let attach = { folderUrl: '', count: 0, errors: [] };
   try {
-    attach = attachFilesToCase_(saved.id, input);
+    attach = attachFilesToCase_(saved.caseNo, input);
     updateCaseCells_(saved.row, { folderUrl: attach.folderUrl, fileCount: attach.count });
   } catch (e) {
     attach.errors.push('資料フォルダの作成に失敗：' + (e && e.message || e));
@@ -920,12 +933,13 @@ function submitCase(form, requestInvestigation) {
   // 3) 通知（依頼の場合のみ）→ 結果をシートに書き戻す
   let notify = { ok: false, message: '通知なし（保存のみ）' };
   if (isRequest) {
-    notify = postToChat_(buildRequestMessage_(saved.id, input, estimate, saved.url, attach));
+    notify = postToChat_(buildRequestMessage_(saved.id, input, estimate, saved.url, attach, saved.caseNo));
     updateCaseCell_(saved.row, 'notifyResult', notify.ok ? '送信済み' : '失敗：' + notify.message);
   }
 
   return {
     id: saved.id,
+    caseNo: saved.caseNo,
     estimate: estimate,
     notified: notify.ok,
     notifyMessage: notify.message,
@@ -1312,7 +1326,8 @@ function appendCase_(record) {
     const sheet = getSheet_(SHEET_NAMES.CASES);
     if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; })); // 列を追加した後の初回
     const id = getNextCaseId_(sheet);
-    const data = Object.assign({}, record, { id: id });
+    const caseNo = getNextCaseNo_(sheet, record.receivedAt || new Date());
+    const data = Object.assign({}, record, { id: id, caseNo: caseNo });
 
     const row = CASE_COLUMNS.map(function (c) {
       return toCellValue_(data[c.key]);
@@ -1321,7 +1336,7 @@ function appendCase_(record) {
     SpreadsheetApp.flush();
 
     const rowNumber = sheet.getLastRow();
-    return { id: id, row: rowNumber, url: buildRowUrl_(sheet, rowNumber) };
+    return { id: id, caseNo: caseNo, row: rowNumber, url: buildRowUrl_(sheet, rowNumber) };
   } finally {
     lock.releaseLock();
   }
@@ -1454,6 +1469,45 @@ function getAllCases_() {
       return obj;
     })
     .reverse();
+}
+
+/**
+ * 受付番号を返す：受付日（yyMMdd）-その日の連番2桁。例）260930-01
+ * 削除した案件の番号も使わない。
+ */
+function getNextCaseNo_(sheet, date) {
+  const prefix = Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyMMdd') + '-';
+  const nos = caseNoColumn_(sheet, 0).concat(caseNoColumn_(getSpreadsheet_().getSheetByName(SHEET_NAMES.DELETED_CASES), 2));
+  const max = nos.reduce(function (m, v) {
+    const s = String(v);
+    return s.indexOf(prefix) === 0 ? Math.max(m, Number(s.slice(prefix.length)) || 0) : m;
+  }, 0);
+  return prefix + ('0' + (max + 1)).slice(-2);
+}
+
+/** シートの受付番号の列の値（offset：削除した案件シートは先頭に2列多い） */
+function caseNoColumn_(sheet, offset) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const col = offset + colIndexOf_('caseNo');
+  if (sheet.getLastColumn() < col) return [];
+  return sheet.getRange(2, col, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; });
+}
+
+/** 受付番号の無い既存の案件に、受付日時から受付番号を付ける（受付番号の導入前の案件用。1回だけ） */
+function fillCaseNos_() {
+  const sheet = getSheet_(SHEET_NAMES.CASES);
+  ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const idCol = colIndexOf_('id'), recCol = colIndexOf_('receivedAt'), noCol = colIndexOf_('caseNo');
+  const rows = sheet.getRange(2, 1, lastRow - 1, CASE_COLUMNS.length).getValues()
+    .map(function (r, i) { return { row: i + 2, id: Number(r[idCol - 1]), at: r[recCol - 1], no: r[noCol - 1] }; })
+    .filter(function (x) { return x.id && !x.no && x.at instanceof Date; })
+    .sort(function (a, b) { return a.id - b.id; });
+  rows.forEach(function (x) {
+    sheet.getRange(x.row, noCol).setValue(getNextCaseNo_(sheet, x.at));
+  });
+  return rows.length;
 }
 
 /** 次の案件IDを返す（ID列の最大値 + 1） */
@@ -1816,7 +1870,7 @@ function formatYen_(amount) {
  * ============================================================
  *  流れ：
  *   1) 画面でファイルをドラッグ → すぐに「_受付中（未送信）」フォルダへアップロード
- *   2) 送信時に、案件ごとのフォルダ（例：0042_豊田市_123番1）へ移動し、ファイル名に資料種別を付ける
+ *   2) 送信時に、案件ごとのフォルダ（例：260930-01_豊田市_123番1）へ移動し、ファイル名に資料種別を付ける
  *   3) 送信されずに残った一時ファイルは、メニューから一括削除できる
  *  ファイルはWebアプリをデプロイしたアカウントのドライブに保存されます。
  */
@@ -1886,13 +1940,13 @@ function trashPendingFile_(fileId) {
 
 /**
  * 案件フォルダを作り、一時フォルダのファイルを移動する。
- * @param {number} caseId
+ * @param {string} caseNo 受付番号
  * @param {Object} input normalizeInput_() の結果
  * @return {{folderUrl:string, count:number, errors:string[]}}
  */
-function attachFilesToCase_(caseId, input) {
+function attachFilesToCase_(caseNo, input) {
   const first = input.lots[0] || { municipality: '', address: '', lotNumber: '' };
-  const folderName = [('0000' + caseId).slice(-4), first.municipality || first.address.slice(0, 20),
+  const folderName = [caseNo, first.municipality || first.address.slice(0, 20),
     first.lotNumber + (input.lots.length > 1 ? '他' + (input.lots.length - 1) + '筆' : '')]
     .filter(String).join('_');
   const folder = getRootFolder_().createFolder(sanitizeFileName_(folderName));
@@ -1910,6 +1964,16 @@ function attachFilesToCase_(caseId, input) {
     count++;
   });
   return { folderUrl: folder.getUrl(), count: count, errors: errors };
+}
+
+/** 案件の資料フォルダ（URLから取得。無ければ作る） */
+function getCaseFolder_(c) {
+  const m = String(c.folderUrl || '').match(/folders\/([\w-]+)/);
+  if (m) {
+    try { return { folder: DriveApp.getFolderById(m[1]), created: false }; } catch (e) { /* 削除済みなど → 作り直す */ }
+  }
+  const name = [c.caseNo || c.id, c.municipality, c.requesterName].filter(String).join('_');
+  return { folder: getRootFolder_().createFolder(sanitizeFileName_(name)), created: true };
 }
 
 /** 7日以上前に一時フォルダへアップロードされ、送信されなかったファイルを削除する（メニューから実行） */
@@ -2195,11 +2259,11 @@ function postToChat_(text) {
  * 見積調査依頼の通知文を組み立てる。
  * Chat の書式： *太字*、<URL|リンク文字>
  */
-function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
+function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
   const adminUrl = getAdminUrl_(caseId);
   const lines = [
     '*【農地転用】見積調査依頼が届きました*',
-    '案件ID：' + caseId,
+    '受付番号：' + (caseNo || caseId),
     '依頼者名：' + (input.requesterName || '（未入力）') + (input.trust ? '（信託手続きに付随）' : ''),
     '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
   ];
@@ -2258,6 +2322,20 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
   }
   if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
   lines.push('<' + rowUrl + '|スプレッドシートで案件行を開く>');
+  return lines.join('\n');
+}
+
+/** 正式見積を提示したときの Chat 通知文 */
+function buildEstimateMessage_(c, pdfUrl) {
+  const adminUrl = getAdminUrl_(c.id);
+  const lines = [
+    '*【農地転用】正式見積を提示しました*',
+    '受付番号：' + (c.caseNo || c.id) + '　依頼者名：' + (c.requesterName || '（未入力）'),
+    '所在：' + [c.address, c.lotNumber].filter(String).join(' '),
+    c.formalEstimate !== '' && c.formalEstimate !== undefined ? '正式見積：' + formatYen_(c.formalEstimate) : '',
+    '見積書：<' + pdfUrl + '|PDFを開く>',
+  ].filter(String);
+  if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
   return lines.join('\n');
 }
 
@@ -2344,6 +2422,57 @@ function deleteCaseByAdmin(caseId) {
   if (!id) throw new Error('案件IDが不正です。');
   const r = deleteCase_(id, getUserEmail_());
   return { id: id, lots: r.lots };
+}
+
+/**
+ * 正式見積の提示：見積書PDFを案件フォルダに保存し、対応状況を「正式見積提示済」にして、
+ * 行政班の Chat スペースへ通知する（メールは送らない）。
+ * @param {number} caseId
+ * @param {{name:string, mimeType:string, data:string}} file data は Base64
+ * @param {{amount:string}} opts
+ * @return {Object} 更新後の案件
+ */
+function submitFormalEstimate(caseId, file, opts) {
+  requireAdmin_();
+  const o = opts || {};
+  if (String(file && file.mimeType) !== 'application/pdf') throw new Error('見積書はPDFを選んでください。');
+  const bytes = Utilities.base64Decode(String(file.data || ''));
+  if (bytes.length > MAX_UPLOAD_MB * 1024 * 1024) throw new Error('ファイルサイズが上限（' + MAX_UPLOAD_MB + 'MB）を超えています。');
+  const amountText = String(o.amount === undefined ? '' : o.amount).replace(/[,，¥円\s]/g, '');
+  if (amountText !== '' && (isNaN(Number(amountText)) || Number(amountText) < 0)) throw new Error('正式見積金額は数値で入力してください。');
+
+  const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+  if (!c) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+
+  // 1) 保存
+  const cf = getCaseFolder_(c);
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+  const name = sanitizeFileName_('正式見積_' + (c.caseNo || c.id) + '_' + Utilities.formatDate(now, tz, 'yyyyMMdd') + '.pdf');
+  const pdf = cf.folder.createFile(Utilities.newBlob(bytes, 'application/pdf', name));
+  pdf.setDescription('提示者：' + getUserEmail_() + '（元のファイル名：' + sanitizeFileName_(file.name) + '）');
+
+  const values = { estimatePdfUrl: pdf.getUrl(), estimatePdfAt: now, updatedAt: now };
+  if (amountText !== '') values.formalEstimate = Number(amountText);
+  if (['新規', '調査中'].indexOf(c.status) >= 0 || !c.status) values.status = '正式見積提示済';
+  if (cf.created) values.folderUrl = cf.folder.getUrl();
+  const merged = Object.assign({}, c, values);
+
+  // 2) 行政班の Chat スペースへ通知
+  const chat = postToChat_(buildEstimateMessage_(merged, pdf.getUrl()));
+  values.reportResult = [Utilities.formatDate(now, tz, 'yyyy/MM/dd HH:mm'), 'Chat：' + (chat.ok ? '送信済み' : '失敗（' + chat.message + '）')]
+    .filter(String).join('／');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    updateCaseCells_(row, values);
+  } finally {
+    lock.releaseLock();
+  }
+  return getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
 }
 
 /** 管理者かどうか（スクリプトプロパティ ADMIN_EMAILS が優先） */

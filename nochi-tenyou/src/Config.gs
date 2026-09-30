@@ -451,6 +451,10 @@ const CASE_COLUMNS = [
   { key: 'localConsentNote', header: '同意が必要な方（氏名／住所／電話）' },
   { key: 'purpose', header: '転用目的' },
   { key: 'trust', header: '信託手続きに付随' },
+  { key: 'caseNo', header: '受付番号' },                 // 受付日（yyMMdd）-その日の連番。例）260930-01
+  { key: 'estimatePdfUrl', header: '正式見積PDF' },
+  { key: 'estimatePdfAt', header: '正式見積の提示日時' },
+  { key: 'reportResult', header: '正式見積の報告結果' },
 ];
 
 /**

@@ -64,6 +64,15 @@ function ensureSetup_() {
 function runMigrations_() {
   const props = PropertiesService.getScriptProperties();
   runFeePatches_(props);
+  if (props.getProperty('CASE_NO_DONE') !== '1') {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30 * 1000);
+    try {
+      if (props.getProperty('CASE_NO_DONE') !== '1') { fillCaseNos_(); props.setProperty('CASE_NO_DONE', '1'); }
+    } finally {
+      lock.releaseLock();
+    }
+  }
   if (props.getProperty('FEE_TABLE_VERSION') === FEE_TABLE_VERSION) return;
   const lock = LockService.getScriptLock();
   lock.waitLock(30 * 1000);
@@ -228,7 +237,7 @@ function submitCase(form, requestInvestigation) {
   // 2) 資料フォルダの作成とファイル移動（失敗しても案件は残す）
   let attach = { folderUrl: '', count: 0, errors: [] };
   try {
-    attach = attachFilesToCase_(saved.id, input);
+    attach = attachFilesToCase_(saved.caseNo, input);
     updateCaseCells_(saved.row, { folderUrl: attach.folderUrl, fileCount: attach.count });
   } catch (e) {
     attach.errors.push('資料フォルダの作成に失敗：' + (e && e.message || e));
@@ -237,12 +246,13 @@ function submitCase(form, requestInvestigation) {
   // 3) 通知（依頼の場合のみ）→ 結果をシートに書き戻す
   let notify = { ok: false, message: '通知なし（保存のみ）' };
   if (isRequest) {
-    notify = postToChat_(buildRequestMessage_(saved.id, input, estimate, saved.url, attach));
+    notify = postToChat_(buildRequestMessage_(saved.id, input, estimate, saved.url, attach, saved.caseNo));
     updateCaseCell_(saved.row, 'notifyResult', notify.ok ? '送信済み' : '失敗：' + notify.message);
   }
 
   return {
     id: saved.id,
+    caseNo: saved.caseNo,
     estimate: estimate,
     notified: notify.ok,
     notifyMessage: notify.message,

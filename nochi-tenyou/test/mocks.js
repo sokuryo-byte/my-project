@@ -54,7 +54,11 @@ var Session = { getActiveUser: () => ({ getEmail: () => 'tanaka@example.co.jp' }
 var Utilities = {
   base64Decode: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
   newBlob: (bytes, mime, name) => ({ bytes: bytes, mime: mime, name: name }),
-  formatDate: (d) => d.toISOString().slice(0, 16).replace('T', ' '),
+  formatDate: (d, tz, fmt) => {
+    const j = new Date(d.getTime() + 9 * 3600 * 1000), p = (n) => ('0' + n).slice(-2);
+    return String(fmt || 'yyyy/MM/dd HH:mm').replace('yyyy', j.getUTCFullYear()).replace('yy', String(j.getUTCFullYear()).slice(2))
+      .replace('MM', p(j.getUTCMonth() + 1)).replace('dd', p(j.getUTCDate())).replace('HH', p(j.getUTCHours())).replace('mm', p(j.getUTCMinutes()));
+  },
 };
 var ScriptApp = { getService: () => ({ getUrl: () => 'https://script.google.com/a/macros/example/s/ABC/exec' }) };
 
@@ -71,6 +75,7 @@ function mkFile(name, parentId) {
     id: 'file' + (seq++), name: name, parents: [parentId], text: (window.OCR_BY_NAME || {})[name] || window.OCR_TEXT,
     getId() { return this.id; }, getName() { return this.name; }, setName(n) { this.name = n; },
     setDescription() {}, setTrashed() { this.trashed = true; }, moveTo(folder) { this.parents = [folder.id]; },
+    getUrl() { return 'https://drive.google.com/file/d/' + this.id + '/view'; },
     getParents() { let i = 0; const p = this.parents; return { hasNext: () => i < p.length, next: () => ({ getId: () => p[i++] }) }; },
   };
   FILES[f.id] = f;

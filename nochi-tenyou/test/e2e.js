@@ -130,6 +130,31 @@ const OUT = path.join(__dirname, 'out');
   await a.waitForFunction(() => document.querySelector('#rows .pill').textContent === '調査中', null, { timeout: 5000 });
   await a.screenshot({ path: path.join(OUT, 'admin.png'), fullPage: true });
 
+  // 受付番号（受付日-連番）と、受付番号導入前の案件への付番
+  const caseNo = await a.evaluate(() => state.cases[0].caseNo);
+  assert.ok(/^\d{6}-01$/.test(caseNo), caseNo);
+  const refill = await a.evaluate(() => {
+    const col = colIndexOf_('caseNo') - 1; SHEETS['案件一覧'].rows[1][col] = '';
+    const n = fillCaseNos_(); return [n, SHEETS['案件一覧'].rows[1][col]];
+  });
+  assert.deepStrictEqual(refill, [1, caseNo]);
+
+  // 概算見積の内訳は表
+  assert.ok((await a.textContent('#detail table.est-t tr.sum')).includes('合計'));
+
+  // 正式見積：PDFを選ぶ → 提示 → 保存・状況変更・Chat（メールは送らない）
+  await a.setInputFiles('#detail .pdf-drop + input[type=file]', { name: 'mitsumori.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 test') });
+  await a.fill('#fAmount', '850,000');
+  await a.click('#detail .pdf-confirm .primary');
+  await a.waitForSelector('#detail .pdf-done', { timeout: 5000 });
+  const rep = await a.evaluate(() => ({ status: state.cases[0].status, amount: state.cases[0].formalEstimate, chat: CHAT_LOG[CHAT_LOG.length - 1] }));
+  assert.strictEqual(rep.status, '正式見積提示済');
+  assert.strictEqual(rep.amount, 850000);
+  assert.ok(await a.evaluate((no) => Object.values(FILES).some((f) => f.name.startsWith('正式見積_' + no + '_')), caseNo));
+  assert.strictEqual(await a.evaluate(() => typeof MailApp), 'undefined');
+  assert.ok(rep.chat.includes('正式見積を提示しました') && rep.chat.includes(caseNo), rep.chat);
+  await a.screenshot({ path: path.join(OUT, 'admin_estimate.png'), fullPage: true });
+
   // 電話番号は tel: リンク
   await a.evaluate(() => { const l = state.lotsByCase[state.cases[0].id][0]; l.kairyoName = '○○土地改良区'; l.kairyoTel = '0565-12-3456'; renderDetail(state.cases[0].id); });
   assert.strictEqual(await a.$eval('#detail a.tel', (e) => e.getAttribute('href')), 'tel:0565123456');

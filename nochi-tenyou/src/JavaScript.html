@@ -1383,7 +1383,7 @@
   }
 
   function onSubmitted(res, isRequest, lotCount) {
-    var lines = ['案件ID ' + res.id + ' として受け付けました（物件 ' + lotCount + ' 件）。'];
+    var lines = ['受付番号 ' + (res.caseNo || res.id) + ' として受け付けました（物件 ' + lotCount + ' 件）。'];
     var type = 'ok';
     if (res.fileCount) lines.push('資料ファイル ' + res.fileCount + ' 件を保存しました。');
     if (res.attachErrors && res.attachErrors.length) {
@@ -1395,7 +1395,7 @@
         lines.push('行政班へ見積調査依頼を通知しました。行政班からの連絡をお待ちください。');
       } else {
         type = 'warn';
-        lines.push('※Chat への通知に失敗しました（' + res.notifyMessage + '）。お手数ですが、行政班へ案件IDを直接お伝えください。');
+        lines.push('※Chat への通知に失敗しました（' + res.notifyMessage + '）。お手数ですが、行政班へ受付番号を直接お伝えください。');
       }
     }
     lines.push('概算見積金額：' + (res.estimate.ok ? yen(res.estimate.total) : '算出不可') + '（目安）');
