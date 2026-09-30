@@ -59,6 +59,14 @@ const OUT = path.join(__dirname, 'out');
   await p.waitForTimeout(800);
   assert.strictEqual(await p.textContent('#estimateTotal'), '¥679,300'); // 報酬(235,000+58,000+300,000)+消費税10% 59,300 + 調査実費 25,000+2,000
 
+  // 地目変更登記：チェックした物件があれば 48,000（税抜）を1回 → +52,800
+  await p.check('.lot [data-f=chimokuHenko]');
+  await p.waitForTimeout(500);
+  assert.strictEqual(await p.textContent('#estimateTotal'), '¥732,100');
+  await p.uncheck('.lot [data-f=chimokuHenko]');
+  await p.waitForTimeout(500);
+  assert.strictEqual(await p.textContent('#estimateTotal'), '¥679,300');
+
   // 現況が農地なのに転用計画が空 → 送信できない
   await p.click('#requestBtn');
   assert.ok((await p.textContent('#formErrors')).includes('今後の転用計画'));
@@ -113,10 +121,10 @@ const OUT = path.join(__dirname, 'out');
   const a = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   watch(a);
   await a.goto('file://' + path.join(OUT, 'admin.html'));
-  await a.waitForSelector('#rows tr td');
-  await a.click('#rows tr');
-  await a.waitForSelector('#detail table tbody tr');
-  assert.strictEqual((await a.$$('#detail table tbody tr')).length, 2);
+  await a.waitForSelector('#rows .case-card');
+  await a.click('#rows .case-card');
+  await a.waitForSelector('#detail .lot-card');
+  assert.strictEqual((await a.$$('#detail .lot-card')).length, 2);
   await a.selectOption('#aStatus', '調査中');
   await a.click('#detail .primary');
   await a.waitForFunction(() => document.querySelector('#rows .pill').textContent === '調査中', null, { timeout: 5000 });

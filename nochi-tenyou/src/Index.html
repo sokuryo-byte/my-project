@@ -9,7 +9,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>農地転用 見積・調査依頼フォーム</h1>
+    <div class="page-head"><h1>農地転用 見積・調査依頼フォーム</h1><a class="portal-link" href="<?= portalUrl ?>" target="_top">← 社内ポータル</a></div>
     <p class="lead">
       ご入力内容に応じて、画面下部に概算見積を表示します。
       送信後、行政班より正式なお見積りをご連絡いたします。
@@ -32,7 +32,7 @@
   <section id="resultBox" class="result hidden" role="status">
     <h2 id="resultTitle"></h2>
     <p id="resultText"></p>
-    <div><button type="button" class="ghost" id="againBtn">新しい案件を入力する</button></div>
+    <div class="btns"><button type="button" class="ghost" id="againBtn">新しい案件を入力する</button><a class="ghost" href="<?= portalUrl ?>" target="_top">社内ポータルに戻る</a></div>
   </section>
 
   <form id="caseForm" autocomplete="off" novalidate class="wrap" style="padding:0">

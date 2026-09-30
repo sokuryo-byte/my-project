@@ -27,12 +27,14 @@ function doGet(e) {
     }
     const t = HtmlService.createTemplateFromFile('Admin');
     t.initialId = String(params.id || '').replace(/\D/g, ''); // 通知のリンクから開いた案件
+    t.portalUrl = PORTAL_URL;
     return t.evaluate()
       .setTitle('農地転用 案件管理（行政班）')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  const index = HtmlService.createTemplateFromFile('Index');
+  index.portalUrl = PORTAL_URL;
+  return index.evaluate()
     .setTitle('農地転用 見積・調査依頼フォーム')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     // 社内ポータル（Google サイト等）のページに埋め込めるようにする。
@@ -212,6 +214,7 @@ function submitCase(form, requestInvestigation) {
       prefecture: l.prefecture, purpose: l.purpose,
       tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
       shimatsusho: l.shimatsusho, shimatsuStamp: l.shimatsuStamp, shimatsuNote: l.shimatsuNote,
+      chimokuHenko: l.chimokuHenko ? 'はい' : '',
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
@@ -457,6 +460,7 @@ function normalizeLot_(l, prefecture, master) {
     isConverted: pick_(l.isConverted, FORM_OPTIONS.yesNo),
     landImprovement: pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown),
     readFromTohon: l.readFromTohon === true,
+    chimokuHenko: l.chimokuHenko === true,
     // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',

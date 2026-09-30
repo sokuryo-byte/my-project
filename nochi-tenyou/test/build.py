@@ -59,7 +59,7 @@ def page(name, seed=''):
     # EstimateLib（見積の計算コード）は、テストではページ内の .gs がそのまま使えるので空にする
     html = re.sub(r"<\?!= include\('(\w+)'\); \?>",
                   lambda m: '' if m.group(1) == 'EstimateLib' else read(os.path.join(SRC, m.group(1) + '.html')), html)
-    html = html.replace('<?= initialId ?>', '')
+    html = html.replace('<?= initialId ?>', '').replace('<?= portalUrl ?>', 'http://192.168.24.54:8000/')
     stub = '<script>' + read(os.path.join(HERE, 'mocks.js')) + '\n' + gs_code() + '\n' + RUN_STUB + seed + '</script>'
     return html.replace('<head>', '<head>' + stub, 1)
 

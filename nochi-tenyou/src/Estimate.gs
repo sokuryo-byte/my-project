@@ -177,6 +177,13 @@ function calculateEstimate_(input) {
     notes.push('市街化区域外の場合は +' + formatYen_(fees.ADD_GENKYO.amount) + '（現況証明（非農地証明））が見込まれます。');
   }
 
+  // --- 5b. 地目変更登記：チェックした物件があれば1回（2筆以上の筆数加算は都度調整） ---
+  const chimokuLots = lots.filter(function (l) { return l.chimokuHenko === true; });
+  if (chimokuLots.length) {
+    items.push(item('ADD_CHIMOKU'));
+    if (chimokuLots.length > 1) notes.push('地目変更登記は' + chimokuLots.length + '筆です。筆数加算は都度調整します。');
+  }
+
   // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
   addActualCosts_(lots, items, notes);
 

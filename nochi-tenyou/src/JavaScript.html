@@ -286,6 +286,12 @@
     convField.appendChild(el('p', { 'class': 'caution conv-warn hidden', role: 'alert' }));
     card.appendChild(convField);
 
+    // 地目変更登記
+    var chimokuHenko = el('label', { 'class': 'check-line' });
+    chimokuHenko.appendChild(el('input', { type: 'checkbox', id: id('chimokuHenko'), 'data-f': 'chimokuHenko' }));
+    chimokuHenko.appendChild(document.createTextNode(' 地目変更登記が必要'));
+    card.appendChild(chimokuHenko);
+
     // 土地改良区（農業委員会 → 土地改良区 の順に電話確認）
     var kairyo = el('div', { 'class': 'choices' });
     renderChoices(kairyo, id('landImprovement'), ['はい', 'いいえ', '分からない']);
@@ -397,6 +403,7 @@
       landUse: lotInput(card, 'landUse').value,
       landUseOther: lotInput(card, 'landUseOther').value,
       isConverted: getRadio(card, 'isConverted'),
+      chimokuHenko: lotInput(card, 'chimokuHenko').checked,
       landImprovement: getRadio(card, 'landImprovement'),
       kairyoName: lotInput(card, 'kairyoName').value,
       kairyoTel: lotInput(card, 'kairyoTel').value,

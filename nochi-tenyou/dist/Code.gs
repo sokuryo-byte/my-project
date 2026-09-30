@@ -119,6 +119,8 @@ const DEFAULT_FEES = [
     note: '転用目的が「分家住宅」で、排水承諾が「必要」「未確認」（未回答を含む）の物件がある場合に加算（料金表 4203）' },
   { key: 'ADD_GENKYO', label: '現況証明（非農地証明）願出', amount: 120000,
     note: '市街化区域外で、既に宅地など農地以外として利用されている（現況が宅地・駐車場・資材置場、または転用済み「はい」）物件がある場合に加算（料金表 4100）' },
+  { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
+    note: '「地目変更登記が必要」にチェックした物件がある場合に1回加算（料金表 3201。2筆以上の筆数加算は都度調整）' },
   { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
     note: '同じ申請に含まれる2筆目以降の物件1筆ごとに加算' },
 ];
@@ -137,6 +139,9 @@ const PERMIT_ZONES = ['市街化調整区域', '非線引き区域', '都市計�
  * 「見積設定」シートの項目名・金額を DEFAULT_FEES の値で1回だけ上書きします（それ以降はシートでの変更が優先）。
  */
 const FEE_TABLE_VERSION = '2026-01';
+
+/** 社内ポータル（依頼画面・管理画面・送信後の画面からのリンク先） */
+const PORTAL_URL = 'http://192.168.24.54:8000/';
 
 /**
  * 料金の個別修正。キーに版を付け、未適用の版だけ「見積設定」シートの該当項目を DEFAULT_FEES の値で上書きする
@@ -504,6 +509,7 @@ const LOT_COLUMNS = [
   { key: 'shimatsusho', header: '始末書の提出' },
   { key: 'shimatsuStamp', header: '始末書の押印' },
   { key: 'shimatsuNote', header: '始末書の備考（押印者・印の種類など）' },
+  { key: 'chimokuHenko', header: '地目変更登記が必要' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
@@ -702,12 +708,14 @@ function doGet(e) {
     }
     const t = HtmlService.createTemplateFromFile('Admin');
     t.initialId = String(params.id || '').replace(/\D/g, ''); // 通知のリンクから開いた案件
+    t.portalUrl = PORTAL_URL;
     return t.evaluate()
       .setTitle('農地転用 案件管理（行政班）')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  const index = HtmlService.createTemplateFromFile('Index');
+  index.portalUrl = PORTAL_URL;
+  return index.evaluate()
     .setTitle('農地転用 見積・調査依頼フォーム')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     // 社内ポータル（Google サイト等）のページに埋め込めるようにする。
@@ -887,6 +895,7 @@ function submitCase(form, requestInvestigation) {
       prefecture: l.prefecture, purpose: l.purpose,
       tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
       shimatsusho: l.shimatsusho, shimatsuStamp: l.shimatsuStamp, shimatsuNote: l.shimatsuNote,
+      chimokuHenko: l.chimokuHenko ? 'はい' : '',
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
@@ -1132,6 +1141,7 @@ function normalizeLot_(l, prefecture, master) {
     isConverted: pick_(l.isConverted, FORM_OPTIONS.yesNo),
     landImprovement: pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown),
     readFromTohon: l.readFromTohon === true,
+    chimokuHenko: l.chimokuHenko === true,
     // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
@@ -1636,6 +1646,13 @@ function calculateEstimate_(input) {
     notes.push('現況が農地以外の物件は、現況証明（非農地証明）で対応できる場合があります（その場合は農地転用の許可申請が不要となり、金額が変わります）。');
   } else if (lots.some(function (l) { return isConvertedLot(l) && l.zone === '分からない'; })) {
     notes.push('市街化区域外の場合は +' + formatYen_(fees.ADD_GENKYO.amount) + '（現況証明（非農地証明））が見込まれます。');
+  }
+
+  // --- 5b. 地目変更登記：チェックした物件があれば1回（2筆以上の筆数加算は都度調整） ---
+  const chimokuLots = lots.filter(function (l) { return l.chimokuHenko === true; });
+  if (chimokuLots.length) {
+    items.push(item('ADD_CHIMOKU'));
+    if (chimokuLots.length > 1) notes.push('地目変更登記は' + chimokuLots.length + '筆です。筆数加算は都度調整します。');
   }
 
   // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
@@ -2143,7 +2160,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
     lines.push('　' + (i + 1) + '. ' + (l.address || '（所在未入力）') + ' ' + l.lotNumber +
       '／' + (l.chimoku || '地目-') + (l.area !== null ? ' ' + l.area + '㎡' : '') +
       '／' + (l.zone || '区域-') + '／農振:' + (l.isNoshin || '-') + '／現況:' + (l.landUse || '-') +
-      (l.readFromTohon ? '（謄本読取）' : ''));
+      (l.readFromTohon ? '（謄本読取）' : '') + (l.chimokuHenko ? '／地目変更登記あり' : ''));
     if (l.landImprovement === 'はい' && (l.kairyoName || l.kairyoBenefit || l.kairyoSettlement)) {
       lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') +
         '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +

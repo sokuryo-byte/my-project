@@ -53,7 +53,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach) {
     lines.push('　' + (i + 1) + '. ' + (l.address || '（所在未入力）') + ' ' + l.lotNumber +
       '／' + (l.chimoku || '地目-') + (l.area !== null ? ' ' + l.area + '㎡' : '') +
       '／' + (l.zone || '区域-') + '／農振:' + (l.isNoshin || '-') + '／現況:' + (l.landUse || '-') +
-      (l.readFromTohon ? '（謄本読取）' : ''));
+      (l.readFromTohon ? '（謄本読取）' : '') + (l.chimokuHenko ? '／地目変更登記あり' : ''));
     if (l.landImprovement === 'はい' && (l.kairyoName || l.kairyoBenefit || l.kairyoSettlement)) {
       lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') +
         '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +
