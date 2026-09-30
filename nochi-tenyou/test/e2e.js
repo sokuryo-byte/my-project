@@ -130,6 +130,21 @@ const OUT = path.join(__dirname, 'out');
   await a.waitForFunction(() => document.querySelector('#rows .pill').textContent === '調査中', null, { timeout: 5000 });
   await a.screenshot({ path: path.join(OUT, 'admin.png'), fullPage: true });
 
+  // 電話番号は tel: リンク
+  await a.evaluate(() => { const l = state.lotsByCase[state.cases[0].id][0]; l.kairyoName = '○○土地改良区'; l.kairyoTel = '0565-12-3456'; renderDetail(state.cases[0].id); });
+  assert.strictEqual(await a.$eval('#detail a.tel', (e) => e.getAttribute('href')), 'tel:0565123456');
+
+  // 削除：控えシートへ移して消す。削除したIDは再利用しない
+  a.on('dialog', (d) => d.accept());
+  await a.click('#detail .danger-link');
+  await a.waitForFunction(() => !document.querySelector('#rows .case-card'), null, { timeout: 5000 });
+  const del = await a.evaluate(() => ({
+    cases: SHEETS['案件一覧'].rows.length, lots: SHEETS['物件明細'].rows.length,
+    delCases: SHEETS['削除した案件'].rows.length, delLots: SHEETS['削除した物件明細'].rows.length,
+    delId: SHEETS['削除した案件'].rows[1][2], next: getNextCaseId_(SHEETS['案件一覧'])
+  }));
+  assert.deepStrictEqual(del, { cases: 1, lots: 1, delCases: 2, delLots: 3, delId: 1, next: 2 });
+
   await browser.close();
   assert.deepStrictEqual(errors, [], 'ページでエラーが発生しました');
   console.log('OK: すべての確認に合格しました（スクリーンショット：test/out/*.png）');

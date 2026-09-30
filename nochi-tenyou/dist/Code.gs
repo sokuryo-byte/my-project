@@ -28,6 +28,8 @@ const SHEET_NAMES = {
   MASTER: 'マスタ',
   FEES: '見積設定',
   ERRORS: 'エラーログ', // 謄本読取・アップロードの失敗内容（原因調査用。初回のエラー時に自動作成）
+  DELETED_CASES: '削除した案件',     // 管理画面で削除した案件の控え（初回の削除時に自動作成。戻すときはここから行をコピー）
+  DELETED_LOTS: '削除した物件明細',
 };
 
 // ------------------------------------------------------------
@@ -1376,6 +1378,49 @@ function updateCaseCells_(rowNumber, patch) {
   });
 }
 
+/**
+ * 案件を削除する：案件一覧の行と物件明細の行を「削除した案件」「削除した物件明細」シートへ移してから消す。
+ * 資料フォルダ（ドライブ）はそのまま残す。
+ * @return {{lots:number}} 移した物件の件数
+ */
+function deleteCase_(caseId, deletedBy) {
+  const ss = getSpreadsheet_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    const cases = getSheet_(SHEET_NAMES.CASES);
+    const now = new Date();
+
+    const delCases = getOrCreateSheet_(ss, SHEET_NAMES.DELETED_CASES);
+    ensureHeaders_(delCases, ['削除日時', '削除者'].concat(CASE_COLUMNS.map(function (c) { return c.header; })));
+    const caseValues = cases.getRange(row, 1, 1, CASE_COLUMNS.length).getValues()[0];
+    delCases.appendRow([now, deletedBy].concat(caseValues));
+
+    // 物件明細：下の行から消す（行番号がずれないように）
+    const lots = getSheet_(SHEET_NAMES.LOTS);
+    const lastRow = lots.getLastRow();
+    const lotRows = [];
+    if (lastRow >= 2) {
+      lots.getRange(2, 1, lastRow - 1, LOT_COLUMNS.length).getValues().forEach(function (r, i) {
+        if (Number(r[0]) === Number(caseId)) lotRows.push({ row: i + 2, values: r });
+      });
+    }
+    if (lotRows.length) {
+      const delLots = getOrCreateSheet_(ss, SHEET_NAMES.DELETED_LOTS);
+      ensureHeaders_(delLots, ['削除日時'].concat(LOT_COLUMNS.map(function (c) { return c.header; })));
+      lotRows.forEach(function (l) { delLots.appendRow([now].concat(l.values)); });
+      lotRows.slice().reverse().forEach(function (l) { lots.deleteRow(l.row); });
+    }
+    cases.deleteRow(row);
+    SpreadsheetApp.flush();
+    return { lots: lotRows.length };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** 案件IDから行番号を探す（見つからなければ 0） */
 function findCaseRow_(caseId) {
   const sheet = getSheet_(SHEET_NAMES.CASES);
@@ -1414,9 +1459,11 @@ function getAllCases_() {
 /** 次の案件IDを返す（ID列の最大値 + 1） */
 function getNextCaseId_(sheet) {
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return 1;
-  const ids = sheet.getRange(2, colIndexOf_('id'), lastRow - 1, 1).getValues();
-  const max = ids.reduce(function (m, r) {
+  const ids = lastRow >= 2 ? sheet.getRange(2, colIndexOf_('id'), lastRow - 1, 1).getValues() : [];
+  // 削除した案件のIDも使わない（Chat 通知の「管理画面で開く」リンクが別の案件を指さないように）
+  const del = getSpreadsheet_().getSheetByName(SHEET_NAMES.DELETED_CASES);
+  const delIds = del && del.getLastRow() >= 2 ? del.getRange(2, 2 + colIndexOf_('id'), del.getLastRow() - 1, 1).getValues() : [];
+  const max = ids.concat(delIds).reduce(function (m, r) {
     const n = Number(r[0]);
     return isNaN(n) ? m : Math.max(m, n);
   }, 0);
@@ -2284,6 +2331,19 @@ function updateCaseByAdmin(caseId, patch) {
     lock.releaseLock();
   }
   return getAllCases_().filter(function (c) { return Number(c.id) === Number(caseId); })[0];
+}
+
+/**
+ * 管理画面からの削除。案件と物件明細は「削除した案件」「削除した物件明細」シートに控えを残す（資料フォルダは残す）。
+ * @param {number} caseId
+ * @return {{id:number, lots:number}}
+ */
+function deleteCaseByAdmin(caseId) {
+  requireAdmin_();
+  const id = Number(caseId);
+  if (!id) throw new Error('案件IDが不正です。');
+  const r = deleteCase_(id, getUserEmail_());
+  return { id: id, lots: r.lots };
 }
 
 /** 管理者かどうか（スクリプトプロパティ ADMIN_EMAILS が優先） */

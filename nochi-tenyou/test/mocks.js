@@ -14,6 +14,7 @@ function mkSheet(name) {
     getMaxRows: () => 1000,
     getSheetId: () => 7,
     appendRow: (r) => rows.push(r.slice()),
+    deleteRow: (n) => rows.splice(n - 1, 1),
     setFrozenRows() {}, setColumnWidth() {}, setColumnWidths() {},
     getRange: (r, c, nr = 1, nc = 1) => ({
       getValues() {

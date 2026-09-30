@@ -58,6 +58,19 @@ function updateCaseByAdmin(caseId, patch) {
   return getAllCases_().filter(function (c) { return Number(c.id) === Number(caseId); })[0];
 }
 
+/**
+ * 管理画面からの削除。案件と物件明細は「削除した案件」「削除した物件明細」シートに控えを残す（資料フォルダは残す）。
+ * @param {number} caseId
+ * @return {{id:number, lots:number}}
+ */
+function deleteCaseByAdmin(caseId) {
+  requireAdmin_();
+  const id = Number(caseId);
+  if (!id) throw new Error('案件IDが不正です。');
+  const r = deleteCase_(id, getUserEmail_());
+  return { id: id, lots: r.lots };
+}
+
 /** 管理者かどうか（スクリプトプロパティ ADMIN_EMAILS が優先） */
 function isAdmin_() {
   const email = getUserEmail_().toLowerCase();

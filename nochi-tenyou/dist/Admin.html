@@ -247,6 +247,10 @@
     .side .row { grid-template-columns: 1fr 1fr; }
     .breakdown-text { font-size: .8rem; white-space: pre-line; margin: 0; }
     .side-links { display: grid; gap: 4px; font-size: .85rem; }
+    a.tel { color: var(--accent); font-weight: 700; text-decoration: underline; white-space: nowrap; }
+    .danger-link { justify-self: start; background: none; border: 1px solid var(--danger); color: var(--danger); border-radius: 6px; padding: 4px 12px; font-size: .8rem; cursor: pointer; margin-top: 4px; }
+    .danger-link:hover { background: var(--danger-bg); }
+    .danger-link:disabled { opacity: .5; cursor: not-allowed; }
 
     .empty { color: var(--muted); padding: 24px; text-align: center; }
     .saved { color: var(--accent); font-size: .85rem; }
@@ -436,6 +440,20 @@
   // ---------------------------------------------------------
   function has(v) { return v !== '' && v !== undefined && v !== null && v !== false; }
 
+  /** 文字列中の電話番号を tel: リンクにして要素に入れる（スマホはタップで発信、PCは電話アプリが設定されていれば発信） */
+  var TEL_RE = /0\d{1,4}[-－(（]\d{1,4}[-－)）]\d{3,4}|0\d{9,10}/g;
+  function telify(node, text) {
+    var s = String(text), last = 0, m;
+    TEL_RE.lastIndex = 0;
+    while ((m = TEL_RE.exec(s)) !== null) {
+      if (m.index > last) node.appendChild(document.createTextNode(s.slice(last, m.index)));
+      node.appendChild(el('a', { href: 'tel:' + m[0].replace(/[^\d]/g, ''), 'class': 'tel' }, m[0]));
+      last = m.index + m[0].length;
+    }
+    if (last < s.length) node.appendChild(document.createTextNode(s.slice(last)));
+    return node;
+  }
+
   /** 見出し＋項目名/値の組（値が空の組は出さない）。組がすべて空なら null */
   function kvList(pairs) {
     var dl = el('dl');
@@ -443,7 +461,7 @@
     pairs.forEach(function (p) {
       if (!has(p[1])) return;
       dl.appendChild(el('dt', {}, p[0]));
-      dl.appendChild(el('dd', p[2] ? { 'class': p[2] } : {}, p[1]));
+      dl.appendChild(telify(el('dd', p[2] ? { 'class': p[2] } : {}), p[1]));
       n++;
     });
     return n ? dl : null;
@@ -574,7 +592,7 @@
       if (!has(kv[1])) return;
       var d = el('div', kv[2] ? { 'class': kv[2] } : {});
       d.appendChild(el('dt', {}, kv[0]));
-      d.appendChild(el('dd', {}, kv[1]));
+      d.appendChild(telify(el('dd'), kv[1]));
       g.appendChild(d);
     });
     ov.appendChild(g);
@@ -630,9 +648,28 @@
     bd.appendChild(el('p', { 'class': 'breakdown-text' }, c.estimateDetail || '―'));
     side.appendChild(bd);
 
+    var del = el('button', { type: 'button', 'class': 'danger-link' }, 'この案件を削除');
+    del.addEventListener('click', function () {
+      var label = '案件ID ' + c.id + '（' + (c.requesterName || '依頼者名なし') + '）';
+      if (!confirm(label + ' を削除します。\n\n案件一覧・物件明細から消え、スプレッドシートの「削除した案件」シートに控えが残ります。資料フォルダは残ります。\nよろしいですか？')) return;
+      del.disabled = true; del.textContent = '削除中…';
+      google.script.run
+        .withSuccessHandler(function () {
+          state.cases = state.cases.filter(function (x) { return x.id !== c.id; });
+          delete state.lotsByCase[c.id];
+          state.selectedId = 0;
+          renderChips(); renderRows();
+          $('detail').innerHTML = '';
+          $('detail').appendChild(el('p', { 'class': 'empty' }, label + ' を削除しました（控えは「削除した案件」シート）。'));
+        })
+        .withFailureHandler(function (err) { del.disabled = false; del.textContent = 'この案件を削除'; alert('削除に失敗しました：' + err.message); })
+        .deleteCaseByAdmin(c.id);
+    });
+
     var info = panel('記録');
     var kv = kvList([['Chat通知', c.notifyResult], ['最終更新', c.updatedAt]]);
     if (kv) { kv.className = 'breakdown-text'; kv.style.display = 'grid'; kv.style.gridTemplateColumns = '6em 1fr'; kv.style.gap = '2px 8px'; kv.style.margin = '0'; info.appendChild(kv); }
+    info.appendChild(del);
     side.appendChild(info);
 
     body.appendChild(main);
