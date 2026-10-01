@@ -520,14 +520,14 @@
     rn.classList.add('rireki-note', 'hidden');
     rb.appendChild(rn);
     rb.appendChild(convField);
-    // 許可・届出済みで現況が未転用：改めて許可・届出が必要か
+    // 許可・届出済み（履歴あり）：再申請が必要か（現況にかかわらず確認）
     var rp = el('div', { 'class': 'reapply-block hidden', style: 'display:grid;gap:8px' });
     var rpc = el('div', { 'class': 'choices' });
     renderChoices(rpc, id('saiShinsei'), o.saiShinsei);
-    rp.appendChild(prependQ(radioField('再度の許可・届出（許可・届出済みで未転用）', rpc,
+    rp.appendChild(prependQ(radioField('再申請の要否（許可・届出済み）', rpc,
       el('p', { 'class': 'help' }, '「必要」の場合だけ、以降の確認（除外・見込み・土地改良区など）に進みます')), 'q-sai'));
-    rp.appendChild(field('再度の許可・届出の備考', el('input', { type: 'text', id: id('saiShinseiNote'), maxlength: '200',
-      placeholder: '例）許可から3年以上経過のため再申請が必要、計画変更の届出で足りる など', 'data-f': 'saiShinseiNote' })));
+    rp.appendChild(field('再申請の備考', el('input', { type: 'text', id: id('saiShinseiNote'), maxlength: '200',
+      placeholder: '例）未着手のまま期間経過で再申請が必要、目的変更のため事業計画変更が必要、計画変更の届出で足りる など', 'data-f': 'saiShinseiNote' })));
     rb.appendChild(rp);
     // 履歴がない（無断転用）場合：始末書の提出と押印
     var sb = el('div', { 'class': 'shimatsu-block hidden', style: 'display:grid;gap:8px' });
@@ -890,7 +890,9 @@
       '「過去にこの土地で' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」'
     ]);
     setQ(card, 'q-rireki-detail', rirekiAns === 'あり' ? '「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」' : '');
-    setQ(card, 'q-sai', '「許可（届出）の後、まだ転用していないのですが、改めて許可（届出）が必要でしょうか。」');
+    setQ(card, 'q-sai', converted
+      ? '「当時の許可（届出）の内容と今回の計画で、改めて許可（届出）や事業計画変更などの手続きは必要でしょうか。」'
+      : '「許可（届出）の後、まだ転用していないのですが、改めて許可（届出）が必要でしょうか。」');
     setQ(card, 'q-shimatsu', '「無断で転用している状態になるかと思いますが、手続きにあたって始末書（顛末書）の提出は必要でしょうか。」');
     setQ(card, 'q-shimatsu-stamp', '「始末書には押印が必要でしょうか。必要でしたら、どなたの、どの印鑑（実印など）が必要か、印鑑証明書の添付も要るかお教えいただけますでしょうか。」');
     var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
@@ -964,7 +966,7 @@
     // 見込みが「難しい」なら、その先（土地改良区・地元委員・排水）は聞かない
     // 許可・届出済み（履歴あり）なら以降は聞かない。現況が未転用なら「再度の許可・届出」を確認し、「必要」のときだけ続ける
     var granted = getRadio(card, 'tenyoRireki') === 'あり';
-    var reapplyShow = granted && getRadio(card, 'isConverted') !== 'はい';
+    var reapplyShow = granted; // 履歴ありなら現況にかかわらず再申請の要否を確認
     card.querySelector('.reapply-block').classList.toggle('hidden', !reapplyShow);
     var grantedStop = granted && !(reapplyShow && getRadio(card, 'saiShinsei') === '必要');
     if (grantedStop) ['.jogai-block', '.kanou-block', '.uketsuke-block'].forEach(function (s) { card.querySelector(s).classList.add('hidden'); });
@@ -974,7 +976,7 @@
     var stopMsg = card.querySelector('.stop-msg');
     stopMsg.textContent = !stop ? ''
       : grantedStop ? (reapplyShow && getRadio(card, 'saiShinsei') !== '不要'
-          ? '※ 許可・届出済みです。まだ転用していないため、改めて許可・届出が必要かを確認してください（「必要」の場合だけ以降を確認します）。'
+          ? '※ 許可・届出済みです。再申請の要否を確認してください（「必要」の場合だけ以降を確認します）。'
           : '※ 許可・届出済みのため、以降の確認は不要です（履歴を記録してください）。')
       : jogai && getRadio(card, 'hojo8nen') === '未経過' ? '※ 事業完了から8年を経過していないため、農振除外の要件を満たしません。以降の確認は不要です（行政班が内容を確認します）。'
       : jogai && getRadio(card, 'jogaiKanou') === '難しい' ? '※ 農振除外の見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。'

@@ -465,10 +465,10 @@ function normalizeLot_(l, prefecture, master) {
   const split = splitLotNumber_(place);
   const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
   // 過去の転用許可・届出の履歴（現況にかかわらず聞く）。履歴があれば以降（除外・見込み・土地改良区など）は聞かない。
-  // ただし現況が未転用で、農業委員会から「再度の許可・届出が必要」と回答があった場合は続ける
+  // ただし農業委員会から「再申請が必要」と回答があった場合は続ける
   const rirekiAns = pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki);
   const rirekiOn = rirekiAns === 'あり';
-  const saiShinsei = rirekiOn && !convOn ? pick_(l.saiShinsei, FORM_OPTIONS.saiShinsei) : '';
+  const saiShinsei = rirekiOn ? pick_(l.saiShinsei, FORM_OPTIONS.saiShinsei) : ''; // 履歴ありなら現況にかかわらず再申請の要否を聞く
   const go = !rirekiOn || saiShinsei === '必要';
   const kairyoOn = go && pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
   const benefitOn = kairyoOn && pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) === '該当する';

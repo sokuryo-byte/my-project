@@ -85,6 +85,12 @@ const OUT = path.join(__dirname, 'out');
     return [e1.total, e2.total > 0, e3.total === calculateEstimate_({ lots: [base] }).total, e3.notes.some((n) => n.indexOf('物件2') === 0 && n.indexOf('計上していません') > 0)];
   });
   assert.deepStrictEqual(granted, [0, true, true, true]);
+  // 転用済みでも再申請の要否を保存し、「必要」なら計上
+  const saiConv = await p.evaluate(() => {
+    const l = normalizeLot_({ zone: '市街化調整区域', municipality: '豊田市', address: '○○町 1番', isConverted: 'はい', tenyoRireki: 'あり', saiShinsei: '必要', saiShinseiNote: '目的変更' }, '愛知県', []);
+    return [l.saiShinsei, l.saiShinseiNote, calculateEstimate_({ lots: [l] }).total > 0];
+  });
+  assert.deepStrictEqual(saiConv, ['必要', '目的変更', true]);
 
   // 地目変更登記：チェックした物件があれば 48,000（税抜）を1回 → +52,800
   await p.check('.lot [data-f=chimokuHenko]');

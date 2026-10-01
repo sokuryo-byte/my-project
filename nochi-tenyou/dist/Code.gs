@@ -394,7 +394,7 @@ const FORM_OPTIONS = {
   kairyoFeeUnits: ['1申請あたり', '1筆あたり'],             // 土地改良区の手数料等：1申請につき／1筆ごと
   tenyoRireki: ['あり', 'なし', '未確認'],
   shimatsusho: ['必要', '不要', '未確認'],                  // 無断転用の始末書（顛末書）の提出（農業委員会に確認）
-  saiShinsei: ['必要', '不要', '未確認'],                   // 許可・届出済みで現況が未転用の場合、改めて許可・届出が必要か（農業委員会に確認）
+  saiShinsei: ['必要', '不要', '未確認'],                   // 許可・届出済み（履歴あり）の場合、再申請（改めての許可・届出）が必要か（農業委員会に確認）
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
@@ -1166,10 +1166,10 @@ function normalizeLot_(l, prefecture, master) {
   const split = splitLotNumber_(place);
   const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
   // 過去の転用許可・届出の履歴（現況にかかわらず聞く）。履歴があれば以降（除外・見込み・土地改良区など）は聞かない。
-  // ただし現況が未転用で、農業委員会から「再度の許可・届出が必要」と回答があった場合は続ける
+  // ただし農業委員会から「再申請が必要」と回答があった場合は続ける
   const rirekiAns = pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki);
   const rirekiOn = rirekiAns === 'あり';
-  const saiShinsei = rirekiOn && !convOn ? pick_(l.saiShinsei, FORM_OPTIONS.saiShinsei) : '';
+  const saiShinsei = rirekiOn ? pick_(l.saiShinsei, FORM_OPTIONS.saiShinsei) : ''; // 履歴ありなら現況にかかわらず再申請の要否を聞く
   const go = !rirekiOn || saiShinsei === '必要';
   const kairyoOn = go && pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
   const benefitOn = kairyoOn && pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) === '該当する';
@@ -1838,9 +1838,9 @@ function calculateEstimate_(input) {
     const kind = l.zone === '市街化区域' ? '転用届出の受理' : l.zone === '分からない' ? '転用届出の受理または転用許可' : '転用許可';
     const detail = [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・');
     notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
-      (l.saiShinsei === '必要' ? '。現況が未転用のため、改めて許可・届出が必要との回答です' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
-        : l.saiShinsei === '不要' ? '。改めての許可・届出は不要との回答のため、見積に計上していません' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
-        : '。許可・届出済みのため、見積に計上していません（改めて必要な場合は加算）。'));
+      (l.saiShinsei === '必要' ? '。再申請（改めての許可・届出）が必要との回答です' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : l.saiShinsei === '不要' ? '。再申請は不要との回答のため、見積に計上していません' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : '。許可・届出済みのため、見積に計上していません（再申請が必要な場合は加算）。'));
   });
   return { ok: true, total: total, feeSubtotal: feeSubtotal, tax: tax, taxRate: TAX_RATE, feeTotal: feeSubtotal + tax,
     costTotal: costTotal, items: items, notes: notes };
@@ -2370,7 +2370,7 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
         (l.tenyoRireki === 'あり' ? '（' + [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・') + '）' : ''));
     }
     if (l.saiShinsei) {
-      lines.push('　　再度の許可・届出（未転用）：' + l.saiShinsei + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : ''));
+      lines.push('　　再申請の要否：' + l.saiShinsei + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : ''));
     }
     if (l.shimatsusho) {
       lines.push('　　始末書の提出：' + l.shimatsusho + (l.shimatsuStamp ? '／押印 ' + l.shimatsuStamp : '') + (l.shimatsuNote ? '（' + l.shimatsuNote + '）' : ''));

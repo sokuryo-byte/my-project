@@ -219,9 +219,9 @@ function calculateEstimate_(input) {
     const kind = l.zone === '市街化区域' ? '転用届出の受理' : l.zone === '分からない' ? '転用届出の受理または転用許可' : '転用許可';
     const detail = [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・');
     notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
-      (l.saiShinsei === '必要' ? '。現況が未転用のため、改めて許可・届出が必要との回答です' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
-        : l.saiShinsei === '不要' ? '。改めての許可・届出は不要との回答のため、見積に計上していません' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
-        : '。許可・届出済みのため、見積に計上していません（改めて必要な場合は加算）。'));
+      (l.saiShinsei === '必要' ? '。再申請（改めての許可・届出）が必要との回答です' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : l.saiShinsei === '不要' ? '。再申請は不要との回答のため、見積に計上していません' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : '。許可・届出済みのため、見積に計上していません（再申請が必要な場合は加算）。'));
   });
   return { ok: true, total: total, feeSubtotal: feeSubtotal, tax: tax, taxRate: TAX_RATE, feeTotal: feeSubtotal + tax,
     costTotal: costTotal, items: items, notes: notes };
