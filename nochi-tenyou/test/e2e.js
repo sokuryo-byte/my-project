@@ -131,7 +131,14 @@ const OUT = path.join(__dirname, 'out');
   // ---------------- 謄本：紙の全部事項証明書のスキャン（ページ上部の所在地番を優先。地番変更・崩れた所在行） ----------------
   const scanText = ['愛知県○○市△△町5丁目10', '表題部 (土地の表示)', '所 在「○○市△△町五丁目', '①地番', '②地目', '26番', '田', '52', '10番', '①変更', '権利部 (甲区)', '所有者 ○○市□□町四丁目173番地'].join(String.fromCharCode(10));
   const scanned = await bulk.evaluate((t) => parseTohonText_(t), scanText);
-  assert.deepStrictEqual(scanned.map((l) => [l.address, l.lotNumber, l.chimoku]), [['○○市△△町5丁目', '10番', '田']]);
+  assert.deepStrictEqual(scanned.map((l) => [l.address, l.lotNumber, l.chimoku, l.area]), [['○○市△△町5丁目', '10番', '田', '52']]);
+
+  // 謄本：登記情報提供サービスの表で、小数のない地積「２２３：」（「：」だけ付く）と、分筆後の最新の行
+  const colonText = ['┃所 在│○○市△△一丁目 │ ┃', '┃ ① 地 番 │ ②地 目 │ ③ 地 積 ㎡ │ 原因及びその日付 ┃',
+    '┃２１番 │畑 │ ２２３： │換地┃', '┃ │ │ ： │処分 ┃', '┃２１番１ │ │ ５４： │①③２１番１、２１番２に分筆 ┃', '┃ │ │ ： │〔平成２４年６月１９日〕 ┃',
+    '┏━┓ ┃ 権 利 部 （ 甲 区 ） ┃'].join(String.fromCharCode(10));
+  const colon = await bulk.evaluate((t) => parseTohonText_('┃ 表 題 部 （土地の表示） │調製│ ┃' + String.fromCharCode(10) + t), colonText);
+  assert.deepStrictEqual(colon.map((l) => [l.lotNumber, l.chimokuRaw, l.area]), [['21番1', '畑', '54']]);
 
   // ---------------- 管理画面 ----------------
   const a = await browser.newPage({ viewport: { width: 1280, height: 1000 } });

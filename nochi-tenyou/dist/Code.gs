@@ -2150,7 +2150,8 @@ function parseTohonText_(rawText) {
     if (!row && !address && !header) return;
 
     const chimokuRaw = row ? row[2] : (header ? tohonSingleChimoku_(sec) : '');
-    const area = row ? row[3].replace(/,/g, '') + (row[4] ? '.' + row[4] : '') : '';
+    // 紙のスキャンでは、地番・地目・地積が1行にならず別々の行に出る → 地番の見出しの後の、数字だけの行を地積とみなす
+    const area = row ? row[3].replace(/,/g, '') + (row[4] ? '.' + row[4] : '') : tohonLooseArea_(sec);
     const lot = {
       address: address,
       lotNumber: header ? header.lotNumber : row ? row[1] : '',
@@ -2182,6 +2183,23 @@ function tohonPageHeader_(chunk) {
   return null;
 }
 
+/**
+ * 紙の全部事項証明書のスキャン用：表題部の「地番」の見出しより後、権利部より前で、最初に出てくる数字だけの行を地積とする。
+ *  例）「26番」「田」「積」「m」「52」→ 52 ／「165 28」「165:28」→ 165.28
+ * 地番（「番」が付く）・日付（「年」が付く）・不動産番号（桁が多い）は数字だけの行にならないので対象外。
+ */
+function tohonLooseArea_(sec) {
+  const body = String(sec).split(/権\s*利\s*部/)[0];
+  const start = body.search(/地\s*[番審]/);
+  if (start < 0) return '';
+  const lines = body.slice(start).split(String.fromCharCode(10)).slice(1).map(function (l) { return l.trim(); });
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\d{1,3}(?:,\d{3})+|\d{1,6})(?:(?:\s*[:：.]\s*|\s+)(\d{1,2}))?$/);
+    if (m) return m[1].replace(/,/g, '') + (m[2] && Number(m[2]) > 0 ? '.' + m[2] : '');
+  }
+  return '';
+}
+
 /** 表題部に地目の語が1種類だけ出てくる場合はそれを返す（複数あれば判断しない＝空欄） */
 function tohonSingleChimoku_(sec) {
   const body = String(sec).split(/権\s*利\s*部/)[0];
@@ -2204,7 +2222,8 @@ function parseTohonTable_(sec) {
   if (sec.indexOf('┃') < 0 || sec.indexOf('│') < 0) return null;
   const lines = [];
   // 1行＝左端（┃┠┏┗）から右端（┃┨┓┛）まで。罫線だけの区切り行（─ ━ ┼ ├ など）は読み飛ばす
-  const re = /[┃┠┏┗]([^┃┠┨┏┓┗┛]*)[┃┨┓┛]/g;
+  // 行は改行をまたがない（「┃」の直後が改行で次の行の「┃」が続く場合に、空の行として次の行の左端を取り込まないように）
+  const re = /[┃┠┏┗]([^┃┠┨┏┓┗┛\n]*)[┃┨┓┛]/g;
   let m;
   while ((m = re.exec(sec)) !== null) {
     if (/^[\s─━┼├┤┬┴┯┷┿]*$/.test(m[1])) continue;
@@ -2227,7 +2246,8 @@ function parseTohonTable_(sec) {
       if (n) lotNumber = n[1].replace('番地', '番');
       const c = (cells[1] || '').replace(/[①-⑳]/g, '');
       if (c && TOHON_CHIMOKU_WORDS.indexOf(c) >= 0) chimokuRaw = c;
-      const a = (cells[2] || '').match(/^(\d[\d,]*)(?::(\d{1,2}))?$/);
+      // 地積は「４１３：２２」「２２３：」（小数なしでも「：」が付く）のどちらも読む。「：」だけの行（空欄）は読み飛ばす
+      const a = (cells[2] || '').match(/^(\d[\d,]*)(?::(\d{0,2}))?$/);
       if (a) area = a[1].replace(/,/g, '') + (a[2] && Number(a[2]) > 0 ? '.' + a[2] : '');
     }
   }
