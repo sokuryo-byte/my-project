@@ -439,6 +439,7 @@
       iinContacts: getContacts(card, 'iinContacts'),
       localConsent: getRadio(card, 'localConsent'),
       localContacts: getContacts(card, 'localContacts'),
+      kairyoExtra: qsa('.kairyo-extra', card).map(function (b) { return readKairyoExtra(card, b); }),
       purpose: getRadio(card, 'purpose'),
       tenyoRireki: getRadio(card, 'tenyoRireki'),
       rirekiDate: lotInput(card, 'rirekiDate').value,
@@ -711,7 +712,7 @@
     // ② 土地改良区（「はい」のときだけ表示）
     var s2 = el('div', { 'class': 'step2 hidden' });
     var h2 = el('div', { 'class': 'step-h' });
-    h2.appendChild(el('span', {}, '② 土地改良区へ確認'));
+    h2.appendChild(el('span', { 'class': 'kairyo-title' }, '② 土地改良区へ確認'));
     h2.appendChild(el('a', { 'class': 'tel kairyo-tel hidden' }));
     s2.appendChild(h2);
     s2.appendChild(el('p', { 'class': 'caution iin-remind hidden' }, '※ ①（イ）地元委員の押印が未回答です。農業委員会の電話で確認してください。'));
@@ -761,7 +762,12 @@
     s2.appendChild(prependQ(radioField('地元関係者の同意（押印）', consent,
       el('p', { 'class': 'help' }, '自治会長・水利組合・農事組合・地元の委員や理事など、説明や同意書への押印が必要な方がいるか')), 'q-local'));
     s2.appendChild(prependQ(contactList('localContacts', '同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-local-contacts'));
+    // 複数の土地改良区にかかる場合：2つ目以降を追加（同じ項目を聞く）
+    var addK = el('button', { type: 'button', 'class': 'linkbtn kairyo-add' }, '＋ ほかの土地改良区にもかかっている場合は追加');
+    addK.addEventListener('click', function () { addKairyoExtra(card, {}); });
+    s2.appendChild(addK);
     box.appendChild(s2);
+    box.appendChild(el('div', { 'class': 'kairyo-extras', style: 'display:grid;gap:8px' }));
     // ③ 排水先（転用目的が分家住宅のとき）
     var s3 = el('div', { 'class': 'step3 step2 hidden' });
     var h3 = el('div', { 'class': 'step-h' });
@@ -801,6 +807,111 @@
     s3.appendChild(s3b);
     box.appendChild(s3);
     return box;
+  }
+
+  /**
+   * 2つ目以降の土地改良区のブロック（1つ目と同じ項目）。radio の name は「kx番号_項目」、入力欄は data-k で区別する。
+   * @param {Object} d 初期値（readKairyoExtra と同じ形）
+   */
+  var MAX_KAIRYO_EXTRA_UI = 3;
+  function addKairyoExtra(card, d) {
+    var wrap = card.querySelector('.kairyo-extras');
+    if (wrap.children.length >= MAX_KAIRYO_EXTRA_UI) return null;
+    var o = state.options, n = state.nextLotId++;
+    var nm = function (f) { return 'kx' + n + '_' + f; };
+    var b = el('div', { 'class': 'kairyo-extra step2', 'data-kx': String(n) });
+    var h = el('div', { 'class': 'step-h' });
+    h.appendChild(el('span', { 'class': 'kx-title' }));
+    h.appendChild(el('a', { 'class': 'tel kx-tel hidden' }));
+    var del = el('button', { type: 'button', 'class': 'linkbtn', style: 'margin-left:auto' }, 'この土地改良区を外す');
+    del.addEventListener('click', function () { b.remove(); updateCallBox(card); schedulePreview(); });
+    h.appendChild(del);
+    b.appendChild(h);
+    var inp = function (k, attrs) { return el('input', Object.assign({ type: 'text', 'data-k': k }, attrs || {})); };
+    var r1 = el('div', { 'class': 'row' });
+    r1.appendChild(field('土地改良区名', inp('kairyoName', { maxlength: '100', placeholder: '例）△△土地改良区' })));
+    r1.appendChild(field('土地改良区の電話番号', inp('kairyoTel', { type: 'tel', maxlength: '20', placeholder: '例）0565-00-0000' })));
+    b.appendChild(r1);
+    b.appendChild(el('div', { 'class': 'script kx-greet' }));
+    var radios = function (f, values) { var c = el('div', { 'class': 'choices' }); renderChoices(c, nm(f), values); return c; };
+    b.appendChild(prependQ(radioField('受益地に該当するか', radios('kairyoBenefit', o.kairyoBenefit)), 'kx-q-benefit'));
+    var kd = el('div', { 'class': 'kx-detail hidden', style: 'display:grid;gap:8px' });
+    kd.appendChild(prependQ(radioField('地区除外の手続き', radios('kairyoProcedure', o.kairyoProcedure)), 'kx-q-proc'));
+    kd.appendChild(prependQ(radioField('地区除外の決済金', radios('kairyoSettlement', o.kairyoSettlement)), 'kx-q-settle'));
+    var sn = el('div', { 'class': 'inline-inputs' });
+    sn.appendChild(inp('kairyoSettlementNote', { type: 'number', min: '0', step: '1', inputmode: 'numeric', style: 'width:11em;text-align:right', 'aria-label': '決済金' }));
+    sn.appendChild(el('span', {}, '円'));
+    var su = el('select', { 'data-k': 'kairyoSettlementUnit', 'aria-label': '決済金の単位', style: 'width:auto' });
+    o.settlementUnits.forEach(function (u) { su.appendChild(new Option(u, u)); });
+    su.value = '㎡あたり';
+    sn.appendChild(su);
+    sn.appendChild(el('span', { 'class': 'help kx-calc' }));
+    var snf = field('決済金', sn.firstChild, null, false, sn);
+    snf.classList.add('kx-settle-note', 'hidden');
+    kd.appendChild(snf);
+    var fb = el('div', { 'class': 'inline-inputs' });
+    fb.appendChild(inp('kairyoFeeAmount', { type: 'number', min: '0', step: '1', inputmode: 'numeric', style: 'width:11em;text-align:right', 'aria-label': '手数料などの金額' }));
+    fb.appendChild(el('span', {}, '円'));
+    var fu = el('select', { 'data-k': 'kairyoFeeUnit', 'aria-label': '手数料の単位', style: 'width:auto' });
+    o.kairyoFeeUnits.forEach(function (u) { fu.appendChild(new Option(u, u)); });
+    fb.appendChild(fu);
+    var fnote = inp('kairyoFeeNote', { maxlength: '100', placeholder: '内容（例：事務手数料）', 'aria-label': '手数料などの内容' });
+    fnote.style.flex = '1'; fnote.style.minWidth = '12em';
+    fb.appendChild(fnote);
+    kd.appendChild(prependQ(field('手数料など（決済金以外）', fb.firstChild, null, false, fb), 'kx-q-fee'));
+    b.appendChild(kd);
+    b.appendChild(prependQ(radioField('地元関係者の同意（押印）', radios('localConsent', o.localConsent)), 'kx-q-local'));
+    b.appendChild(prependQ(contactList('kx' + n + '_local', '同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'kx-q-local-contacts'));
+    wrap.appendChild(b);
+    // 初期値
+    ['kairyoName', 'kairyoTel', 'kairyoSettlementNote', 'kairyoFeeAmount', 'kairyoFeeNote'].forEach(function (k) { if (d[k] !== undefined) b.querySelector('[data-k=' + k + ']').value = d[k]; });
+    if (d.kairyoSettlementUnit) su.value = d.kairyoSettlementUnit;
+    if (d.kairyoFeeUnit) fu.value = d.kairyoFeeUnit;
+    ['kairyoBenefit', 'kairyoProcedure', 'kairyoSettlement', 'localConsent'].forEach(function (f) {
+      qsa('input[type=radio][name="' + nm(f) + '"]', b).forEach(function (r) { r.checked = r.value === d[f]; });
+    });
+    if (d.localContacts && d.localContacts.length) setContacts(card, 'kx' + n + '_local', d.localContacts);
+    updateCallBox(card);
+    schedulePreview();
+    return b;
+  }
+
+  function kxRadio(b, f) {
+    var r = b.querySelector('input[type=radio][name="kx' + b.getAttribute('data-kx') + '_' + f + '"]:checked');
+    return r ? r.value : '';
+  }
+
+  function readKairyoExtra(card, b) {
+    var v = function (k) { return b.querySelector('[data-k=' + k + ']').value; };
+    return {
+      kairyoName: v('kairyoName'), kairyoTel: v('kairyoTel'),
+      kairyoBenefit: kxRadio(b, 'kairyoBenefit'), kairyoProcedure: kxRadio(b, 'kairyoProcedure'), kairyoSettlement: kxRadio(b, 'kairyoSettlement'),
+      kairyoSettlementNote: v('kairyoSettlementNote'), kairyoSettlementUnit: v('kairyoSettlementUnit'),
+      kairyoFeeAmount: v('kairyoFeeAmount'), kairyoFeeUnit: v('kairyoFeeUnit'), kairyoFeeNote: v('kairyoFeeNote'),
+      localConsent: kxRadio(b, 'localConsent'), localContacts: getContacts(card, 'kx' + b.getAttribute('data-kx') + '_local')
+    };
+  }
+
+  function updateKairyoExtra(card, b, k, where, area) {
+    var d = readKairyoExtra(card, b);
+    var name = d.kairyoName.trim() || '土地改良区';
+    b.querySelector('.kx-title').textContent = '②-' + (k + 2) + ' ' + name + 'へ確認（' + (k + 2) + 'つ目）';
+    telLink(b.querySelector('.kx-tel'), d.kairyoTel.trim());
+    var on = d.kairyoBenefit === '該当する';
+    b.querySelector('.kx-detail').classList.toggle('hidden', !on);
+    b.querySelector('.kx-settle-note').classList.toggle('hidden', !(on && d.kairyoSettlement === '必要'));
+    b.querySelector('[data-contacts="kx' + b.getAttribute('data-kx') + '_local"]').classList.toggle('hidden', d.localConsent !== '必要');
+    var amt = Number(d.kairyoSettlementNote);
+    b.querySelector('.kx-calc').textContent = amt > 0 && d.kairyoSettlementUnit !== '総額' && area > 0
+      ? '→ この筆 ' + area + '㎡で約' + String(Math.round(d.kairyoSettlementUnit === '㎡あたり' ? amt * area : amt * area / 10000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円' : '';
+    var q = function (cls, lines) { var e = b.querySelector('.' + cls); scriptLines(e, [].concat(lines)); };
+    q('kx-greet', '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。' + where + 'の土地で農地転用を予定しております。」');
+    q('kx-q-benefit', '「' + (name === '土地改良区' ? '貴改良区の' : name + 'の') + '受益地に該当しますでしょうか。」');
+    q('kx-q-proc', '「地区除外の手続きは必要でしょうか。」');
+    q('kx-q-settle', '「決済金は必要でしょうか。必要な場合は、金額の目安（㎡単価など）をお教えいただけますでしょうか。」');
+    q('kx-q-fee', '「決済金とは別に、手数料などはかかりますでしょうか。」');
+    q('kx-q-local', '「また、地元の自治会長さんや水利組合、地元の委員・理事の方など、ご説明や同意書への押印が必要な方はいらっしゃいますでしょうか。」');
+    q('kx-q-local-contacts', '「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
   }
 
   /**
@@ -990,7 +1101,8 @@
     setQ(card, 'q-kairyo', hojoIn ? '（ほ場整備の区域内のため、土地改良区にかかっています）'
       : hojoOut ? '「ほ場整備の区域外とのことですが、用排水などで土地改良区の区域にかかっておりますでしょうか。」'
       : '「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」');
-    setQ(card, 'q-kairyo-name', '（農業委員会に）「土地改良区の名称と、お電話番号をお教えいただけますでしょうか。」');
+    setQ(card, 'q-kairyo-name', ['（農業委員会に）「土地改良区の名称と、お電話番号をお教えいただけますでしょうか。」',
+      '→ 複数の土地改良区にかかっている場合：「ほかの土地改良区の名称とお電話番号もお教えいただけますでしょうか。」（下の「＋ ほかの土地改良区…」で追加）']);
     setQ(card, 'q-iin', '「また、申請にあたり地元の農業委員さんや農地利用最適化推進委員さんの押印は必要でしょうか。」');
     setQ(card, 'q-iin-contacts', '「委員さんのお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
     card.querySelector('[data-contacts=iinContacts]').classList.toggle('hidden', getRadio(card, 'iinStamp') !== '必要');
@@ -1054,7 +1166,12 @@
       ? '→ この筆 ' + sArea + '㎡で約' + String(Math.round(sUnit === '㎡あたり' ? sAmt * sArea : sAmt * sArea / 10000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円'
       : (sUnit !== '総額' && !(sArea > 0) ? '※ 面積を入力すると概算の総額を表示します' : '');
     var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
+    var extras = qsa('.kairyo-extra', card);
+    card.querySelector('.kairyo-title').textContent = '② ' + kname + 'へ確認' + (extras.length ? '（1つ目）' : '');
     telLink(card.querySelector('.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
+    card.querySelector('.kairyo-extras').classList.toggle('hidden', !on);
+    card.querySelector('.kairyo-add').classList.toggle('hidden', extras.length >= MAX_KAIRYO_EXTRA_UI);
+    extras.forEach(function (b, k) { updateKairyoExtra(card, b, k, where, sArea); });
     scriptLines(card.querySelector('.script2'), [
       '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。' + where + 'の土地で農地転用を予定しております。」'
     ]);

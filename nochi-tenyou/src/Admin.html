@@ -374,7 +374,7 @@
   /** 物件の電話確認の結果を、確認する順（依頼画面のトーク例の順）に並べる */
   function lotSteps(l) {
     var bad = function (v) { return v === '難しい' ? 'bad' : ''; };
-    return [
+    var steps = [
       ['非農地証明・是正', [
         ['非農地証明', l.hinochi, l.hinochi === '不可' ? 'bad' : ''], ['利用年数', l.hinochiYears], ['証明資料', l.hinochiDocs], ['要件・備考', l.hinochiNote],
         ['是正の許可申請', l.zeseiKyoka, l.zeseiKyoka === 'できない' ? 'bad' : ''], ['是正の備考', l.zeseiNote]]],
@@ -397,6 +397,20 @@
         ['隣接水路', l.drainAdjacent], ['排水承諾', l.drainConsent], ['用水・管理者', l.drainName], ['電話', l.drainTel],
         ['手数料', l.drainFee], ['地元承諾', l.drainLocalConsent], ['承諾が必要な方', l.drainContacts]]]
     ];
+    // 2つ目以降の土地改良区は「土地改良区」の次に並べる
+    var at = steps.map(function (x) { return x[0]; }).indexOf('土地改良区') + 1;
+    kairyoExtras(l).forEach(function (e, k) {
+      steps.splice(at + k, 0, ['土地改良区（' + (k + 2) + '）', [
+        ['名称', e.kairyoName], ['電話', e.kairyoTel], ['受益地', e.kairyoBenefit], ['地区除外の手続き', e.kairyoProcedure],
+        ['決済金', [e.kairyoSettlement, e.kairyoSettlementNote].filter(has).join('／')], ['手数料等', e.kairyoFee],
+        ['地元の同意', e.localConsent], ['同意が必要な方', (e.localContacts || []).map(function (c) { return [c.name, c.address, c.tel].join('／'); }).join('\n')]]]);
+    });
+    return steps;
+  }
+
+  /** 物件明細の「2つ目以降の土地改良区のデータ」（JSON）を読む */
+  function kairyoExtras(l) {
+    try { return JSON.parse(l.kairyoExtraData || '[]') || []; } catch (e) { return []; }
   }
 
   function buildLotCard(l) {
@@ -503,6 +517,13 @@
       }
       people(l.iinContacts).forEach(function (pp) { add('地元委員', pp.name, pp.tel, pp.address, ['押印をお願いする'], l.no); });
       people(l.localContacts).forEach(function (pp) { add('地元関係者', pp.name, pp.tel, pp.address, ['同意の押印をお願いする'], l.no); });
+      kairyoExtras(l).forEach(function (e) {
+        add('土地改良区', e.kairyoName, e.kairyoTel, '', [
+          has(e.kairyoBenefit) && '受益地 ' + e.kairyoBenefit, has(e.kairyoProcedure) && '地区除外 ' + e.kairyoProcedure,
+          has(e.kairyoSettlement) && '決済金 ' + [e.kairyoSettlement, e.kairyoSettlementNote].filter(has).join(' '), has(e.kairyoFee) && '手数料 ' + e.kairyoFee
+        ], l.no);
+        (e.localContacts || []).forEach(function (pp) { add('地元関係者', pp.name, pp.tel, pp.address, ['同意の押印をお願いする'], l.no); });
+      });
       if (has(l.drainName) || has(l.drainTel)) {
         add('用水（排水）', l.drainName, l.drainTel, '', [has(l.drainConsent) && '排水承諾 ' + l.drainConsent, has(l.drainFee) && '手数料 ' + l.drainFee], l.no);
       }

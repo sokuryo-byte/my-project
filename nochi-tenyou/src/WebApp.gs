@@ -263,6 +263,8 @@ function submitCase(form, requestInvestigation) {
       saiShinsei: l.saiShinsei, saiShinseiNote: l.saiShinseiNote,
       hinochi: l.hinochi, hinochiYears: l.hinochiYears, hinochiDocs: l.hinochiDocs, hinochiNote: l.hinochiNote,
       zeseiKyoka: l.zeseiKyoka, zeseiNote: l.zeseiNote,
+      kairyoExtra: kairyoExtraText_(l.kairyoExtra),
+      kairyoExtraData: l.kairyoExtra && l.kairyoExtra.length ? JSON.stringify(l.kairyoExtra) : '',
       chimokuHenko: l.chimokuHenko ? 'はい' : '',
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
@@ -412,6 +414,39 @@ function monthlyText_(from, to) {
   const d = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n + '日' : ''; };
   const t = rangeText_(d(from), d(to));
   return t ? '毎月' + t : '';
+}
+
+/** 2つ目以降の土地改良区の入力を整える（1つ目と同じ項目・同じ条件） */
+function normalizeKairyoEntry_(e, area) {
+  const benefit = pick_(e.kairyoBenefit, FORM_OPTIONS.kairyoBenefit);
+  const on = benefit === '該当する';
+  const settlement = on ? pick_(e.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '';
+  const unit = pick_(e.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits) || '総額';
+  const feeUnit = pick_(e.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり';
+  const local = pick_(e.localConsent, FORM_OPTIONS.localConsent);
+  return {
+    kairyoName: str_(e.kairyoName, 100), kairyoTel: str_(e.kairyoTel, 20), kairyoBenefit: benefit,
+    kairyoProcedure: on ? pick_(e.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
+    kairyoSettlement: settlement,
+    kairyoSettlementNote: settlement === '必要' ? settlementText_(e.kairyoSettlementNote, unit, area) : '',
+    kairyoFee: on && yenText_(e.kairyoFeeAmount) ? [feeUnit + ' ' + yenText_(e.kairyoFeeAmount), str_(e.kairyoFeeNote, 100)].filter(String).join('／') : '',
+    settlementAmount: settlement === '必要' ? numOrZero_(e.kairyoSettlementNote) : 0,
+    settlementUnit: unit,
+    kairyoFeeAmount: on ? numOrZero_(e.kairyoFeeAmount) : 0,
+    kairyoFeeUnit: feeUnit,
+    localConsent: local,
+    localContacts: local === '必要' ? normalizeContacts_(e.localContacts) : [],
+  };
+}
+
+/** 2つ目以降の土地改良区を、シートで読める1行ずつの文字にする */
+function kairyoExtraText_(list) {
+  return (list || []).map(function (e) {
+    return [e.kairyoName || '名称未入力', e.kairyoTel, e.kairyoBenefit && '受益地 ' + e.kairyoBenefit, e.kairyoProcedure && '地区除外 ' + e.kairyoProcedure,
+      e.kairyoSettlement && '決済金 ' + [e.kairyoSettlement, e.kairyoSettlementNote].filter(String).join(' '), e.kairyoFee && '手数料等 ' + e.kairyoFee,
+      e.localConsent && '地元同意 ' + e.localConsent + (e.localContacts && e.localContacts.length ? '（' + contactsToText_(e.localContacts).split('\n').join('、') + '）' : '')]
+      .filter(Boolean).join('／');
+  }).join('\n');
 }
 
 /** 地目変更登記が必要な物件「あり（2筆）：物件1 ○○町 123番1、物件3 ○○町 125番」（なければ空） */
@@ -567,6 +602,10 @@ function normalizeLot_(l, prefecture, master) {
     // 地元関係者の同意（土地改良区へ確認。「必要」のときだけ氏名・住所・電話を保存）
     localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
     localContacts: kairyoOn && pick_(l.localConsent, FORM_OPTIONS.localConsent) === '必要' ? normalizeContacts_(l.localContacts) : [],
+    // 2つ目以降の土地改良区（複数の改良区にかかる場合）
+    kairyoExtra: kairyoOn ? (Array.isArray(l.kairyoExtra) ? l.kairyoExtra : []).slice(0, MAX_KAIRYO_EXTRA)
+      .map(function (e) { return normalizeKairyoEntry_(e || {}, areaText === '' ? null : Number(areaText)); })
+      .filter(function (e) { return e.kairyoName || e.kairyoTel || e.kairyoBenefit; }) : [],
     // 転用の見込み（許可が必要な区域で農業委員会に確認）
     purpose: purpose,
     // 転用済みの物件：過去の届出受理・許可の履歴（「あり」のときだけ年月日・番号・内容）

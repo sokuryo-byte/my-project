@@ -214,6 +214,7 @@ const NO_CITY_PLANNING_TAX = {
 const TRUST_MULTIPLIER = 1.5;
 
 /** 委員・地元関係者の連絡先を1物件あたり何人まで入力できるか */
+const MAX_KAIRYO_EXTRA = 3; // 1つの物件で追加できる土地改良区（2つ目以降）の数
 const MAX_CONTACTS = 5;
 
 /**
@@ -541,6 +542,8 @@ const LOT_COLUMNS = [
   { key: 'hinochiNote', header: '非農地証明の要件・備考（現地確認・受付・手数料など）' },
   { key: 'zeseiKyoka', header: '是正のための許可申請ができるか' },
   { key: 'zeseiNote', header: '是正の許可申請の備考' },
+  { key: 'kairyoExtra', header: '2つ目以降の土地改良区' },
+  { key: 'kairyoExtraData', header: '（自動）2つ目以降の土地改良区のデータ・変更しない' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */

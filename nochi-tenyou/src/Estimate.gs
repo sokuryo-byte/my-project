@@ -118,28 +118,36 @@ function calculateEstimate_(input) {
   }
 
   // --- 4. 土地改良区 地区除外 加算（「分からない」も加算。土地改良区に「受益地に該当しない」と確認できた物件は除く） ---
-  const kairyoLots = lots.filter(function (l) {
-    return l.landImprovement === '分からない' ||
-      (l.landImprovement === 'はい' && l.kairyoBenefit !== '該当しない' && l.kairyoProcedure !== '不要');
+  // 土地改良区ごとに1件（複数の改良区にかかる場合は改良区の数だけ）。受益地に該当しない・手続き不要と分かった改良区は除く
+  const kairyoNames = {};
+  let kairyoUnknown = false, kairyoConfirmed = false;
+  lots.forEach(function (l) {
+    if (l.landImprovement === '分からない') { kairyoNames['（不明）'] = true; kairyoUnknown = true; return; }
+    kairyoEntries_(l).forEach(function (e) {
+      if (e.kairyoBenefit === '該当しない' || e.kairyoProcedure === '不要') return;
+      kairyoNames[e.kairyoName || '土地改良区'] = true;
+      if (e.kairyoBenefit === '該当する') kairyoConfirmed = true; else kairyoUnknown = true;
+    });
   });
-  if (kairyoLots.length) {
-    items.push(item('ADD_LAND_IMPROVEMENT'));
-    if (!kairyoLots.some(function (l) { return l.landImprovement === 'はい' && l.kairyoBenefit === '該当する'; })) {
-      notes.push('土地改良区の受益地か未確認のため加算しています。該当しない場合は減額となります。');
-    }
+  const kairyoCount = Object.keys(kairyoNames).length;
+  if (kairyoCount) {
+    items.push(item('ADD_LAND_IMPROVEMENT', kairyoCount));
+    if (kairyoUnknown && !kairyoConfirmed) notes.push('土地改良区の受益地か未確認のため加算しています。該当しない場合は減額となります。');
   }
 
 
   // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---
   const consentLots = lots.filter(function (l) {
-    return l.landImprovement === '分からない' || (l.landImprovement === 'はい' && l.localConsent !== '不要') ||
+    return l.landImprovement === '分からない' || kairyoEntries_(l).some(function (e) { return e.localConsent !== '不要'; }) ||
       (l.drainConsent === '必要' && l.drainLocalConsent !== '不要'); // 排水承諾で地元承諾が必要な場合も
   });
   if (consentLots.length) {
     // 同意（押印）が必要な人数分（地元関係者＋排水の地元承諾者。同じ人＝氏名と電話が同じなら1人）
     const people = {};
     consentLots.forEach(function (l) {
-      [].concat(l.localConsent === '必要' ? l.localContacts || [] : [], l.drainLocalConsent === '必要' ? l.drainContacts || [] : [])
+      const fromKairyo = [];
+      kairyoEntries_(l).forEach(function (e) { if (e.localConsent === '必要') fromKairyo.push.apply(fromKairyo, e.localContacts || []); });
+      [].concat(fromKairyo, l.drainLocalConsent === '必要' ? l.drainContacts || [] : [])
         .forEach(function (p) {
           const key = String(p.name || '').replace(/\s/g, '') + '|' + String(p.tel || '').replace(/\D/g, '');
           if (key !== '|') people[key] = true;
@@ -148,7 +156,7 @@ function calculateEstimate_(input) {
     const count = Object.keys(people).length;
     items.push(item('ADD_WATER_ASSOCIATION', Math.max(1, count)));
     if (!count) {
-      notes.push(consentLots.some(function (l) { return l.localConsent === '必要' || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })
+      notes.push(consentLots.some(function (l) { return kairyoEntries_(l).some(function (e) { return e.localConsent === '必要'; }) || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })
         ? '地元関係者の同意（押印）が必要な方の人数が未入力のため、1人分で計上しています。人数分の加算となります。'
         : '地元関係者の同意（押印）が未確認のため1人分で加算しています。不要な場合は減額、複数の方が必要な場合は人数分の加算となります。');
     }
@@ -277,6 +285,7 @@ function lotRowToEstimateLot_(r) {
     kairyoFeeUnit: /^1筆あたり/.test(fee) ? '1筆あたり' : '1申請あたり',
     drainFeeAmount: yen(r.drainFee),
     localContacts: contactLines_(r.localContacts),
+    kairyoExtra: (function () { try { return JSON.parse(r.kairyoExtraData || '[]'); } catch (e) { return []; } })(),
     drainContacts: contactLines_(r.drainContacts),
   };
   ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'localConsent', 'iinStamp', 'purpose',
@@ -347,26 +356,11 @@ function cost(it) {
  */
 function addActualCosts_(lots, items, notes) {
   const groups = {};
-  lots.forEach(function (l, i) {
-    if (l.landImprovement !== 'はい' || l.kairyoBenefit !== '該当する') return;
-    const name = l.kairyoName || '土地改良区';
-    // 決済金（筆ごと）
-    if (l.settlementAmount > 0) {
-      const lotLabel = lotName_(l, i);
-      if (l.settlementUnit === '総額') {
-        items.push(cost({ label: '地区除外決済金 ' + lotLabel, amount: Math.round(l.settlementAmount) }));
-      } else if (l.area > 0) {
-        const total = l.settlementUnit === '㎡あたり' ? l.settlementAmount * l.area : l.settlementAmount * l.area / 10000;
-        items.push(cost({ label: '地区除外決済金 ' + lotLabel + '：' + (l.settlementUnit === '㎡あたり' ? '1㎡' : '1ha') + 'あたり' +
-          formatYen_(l.settlementAmount) + ' × ' + l.area + '㎡', amount: Math.round(total) }));
-      } else {
-        notes.push(lotName_(l, i) + '：面積が未入力のため、地区除外決済金を計算できません。');
-      }
-    }
-    // 手数料等（改良区ごと）
-    const g = groups[name] = groups[name] || { name: name, count: 0, fee: 0, unit: '' };
-    g.count++;
-    if (!g.fee && l.kairyoFeeAmount > 0) { g.fee = l.kairyoFeeAmount; g.unit = l.kairyoFeeUnit; }
+  lots.forEach(function (lot, i) {
+    kairyoEntries_(lot).forEach(function (e) {
+      if (e.kairyoBenefit !== '該当する') return;
+      addKairyoCost_(lot, e, i, groups, items, notes);
+    });
   });
   Object.keys(groups).forEach(function (k) {
     const g = groups[k];
@@ -386,6 +380,39 @@ function addActualCosts_(lots, items, notes) {
   Object.keys(drains).forEach(function (k) {
     items.push(cost({ label: '排水承諾 手数料等（' + k + '）', amount: Math.round(drains[k]) }));
   });
+}
+
+/** 物件の土地改良区（1つ目＋2つ目以降）。土地改良区「はい」のときだけ */
+function kairyoEntries_(l) {
+  if (l.landImprovement !== 'はい') return [];
+  return [{
+    kairyoName: l.kairyoName, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
+    settlementAmount: l.settlementAmount, settlementUnit: l.settlementUnit, kairyoFeeAmount: l.kairyoFeeAmount, kairyoFeeUnit: l.kairyoFeeUnit,
+    localConsent: l.localConsent, localContacts: l.localContacts,
+  }].concat(Array.isArray(l.kairyoExtra) ? l.kairyoExtra : []);
+}
+
+/** 1つの土地改良区の実費（決済金は筆ごと、手数料等は改良区ごとにまとめる） */
+function addKairyoCost_(l, e, i, groups, items, notes) {
+  const name = e.kairyoName || '土地改良区';
+  l = Object.assign({}, l, { settlementAmount: e.settlementAmount, settlementUnit: e.settlementUnit, kairyoFeeAmount: e.kairyoFeeAmount, kairyoFeeUnit: e.kairyoFeeUnit });
+  // 決済金（筆ごと）
+  if (l.settlementAmount > 0) {
+    const lotLabel = lotName_(l, i) + (name !== '土地改良区' ? '・' + name : '');
+    if (l.settlementUnit === '総額') {
+      items.push(cost({ label: '地区除外決済金 ' + lotLabel, amount: Math.round(l.settlementAmount) }));
+    } else if (l.area > 0) {
+      const total = l.settlementUnit === '㎡あたり' ? l.settlementAmount * l.area : l.settlementAmount * l.area / 10000;
+      items.push(cost({ label: '地区除外決済金 ' + lotLabel + '：' + (l.settlementUnit === '㎡あたり' ? '1㎡' : '1ha') + 'あたり' +
+        formatYen_(l.settlementAmount) + ' × ' + l.area + '㎡', amount: Math.round(total) }));
+    } else {
+      notes.push(lotName_(l, i) + '：面積が未入力のため、地区除外決済金を計算できません。');
+    }
+  }
+  // 手数料等（改良区ごと）
+  const g = groups[name] = groups[name] || { name: name, count: 0, fee: 0, unit: '' };
+  g.count++;
+  if (!g.fee && l.kairyoFeeAmount > 0) { g.fee = l.kairyoFeeAmount; g.unit = l.kairyoFeeUnit; }
 }
 
 /** 見積内訳をシート保存用の1つの文字列にする */

@@ -63,6 +63,9 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
         (l.kairyoSettlement ? '／決済金:' + l.kairyoSettlement : '') +
         (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : ''));
     }
+    (l.landImprovement === 'はい' ? l.kairyoExtra || [] : []).forEach(function (e, k) {
+      lines.push('　　土地改良区（' + (k + 2) + '）：' + kairyoExtraText_([e]));
+    });
     if (l.iinStamp === '必要') {
       lines.push('　　農業委員等の押印：必要');
       (l.iinContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
