@@ -2367,6 +2367,7 @@ function getAdminData() {
     cases: getAllCases_(),
     lotsByCase: getLotsByCase_(),
     statuses: CASE_STATUSES,
+    nogyoIinkai: NOGYO_IINKAI, // 連絡先・訪問先の一覧に農業委員会の電話番号を出すため
     userEmail: getUserEmail_(),
   };
 }
