@@ -64,11 +64,16 @@ const OUT = path.join(__dirname, 'out');
   assert.strictEqual(await p.$eval('#extraLotWrap', (e) => e.classList.contains('hidden')), false);
   const extra = await p.evaluate(() => {
     const lots = [{ zone: '市街化区域', landUse: '耕作中' }, { zone: '市街化区域', landUse: '耕作中' }, { zone: '市街化区域', landUse: '耕作中' }];
-    const has = (e) => e.items.some((it) => it.label.indexOf('物件（筆）追加') === 0);
+    const has = (e) => e.items.some((it) => it.label.indexOf('筆数加算') === 0);
     return [has(calculateEstimate_({ lots: lots })), has(calculateEstimate_({ lots: lots, extraLotFee: true })),
       calculateEstimate_({ lots: lots, extraLotFee: true }).total - calculateEstimate_({ lots: lots }).total];
   });
   assert.deepStrictEqual(extra, [false, true, 22000]);
+  // 許可と届出で別の単価（同じ金額でも別の行）
+  const split = await p.evaluate(() => calculateEstimate_({ extraLotFee: true, lots: [
+    { zone: '市街化区域' }, { zone: '市街化区域' }, { zone: '市街化調整区域' }, { zone: '市街化調整区域' }, { zone: '市街化調整区域' }] })
+    .items.filter((it) => it.label.indexOf('筆数加算') === 0).map((it) => it.label));
+  assert.deepStrictEqual(split, ['筆数加算・許可（1筆あたり） × 2', '筆数加算・届出（1筆あたり）']);
 
   // 地目変更登記：チェックした物件があれば 48,000（税抜）を1回 → +52,800
   await p.check('.lot [data-f=chimokuHenko]');

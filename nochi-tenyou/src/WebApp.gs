@@ -106,10 +106,16 @@ function runFeePatches_(props) {
     addMissingFeeRows_(sheet);
     const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
     todo.forEach(function (v) {
-      FEE_PATCHES[v].forEach(function (key) {
+      FEE_PATCHES[v].forEach(function (entry) {
+        const labelOnly = /:label$/.test(entry); // 「キー:label」は名称と適用条件だけ更新し、金額（設定で変えたもの）は残す
+        const key = entry.replace(/:label$/, '');
         const d = DEFAULT_FEES.filter(function (f) { return f.key === key; })[0];
         const i = keys.indexOf(key);
-        if (d && i >= 0) sheet.getRange(i + 2, 2, 1, 3).setValues([[d.label, d.amount, d.note]]);
+        if (d && i >= 0) {
+          sheet.getRange(i + 2, 2).setValue(d.label);
+          sheet.getRange(i + 2, 4).setValue(d.note);
+          if (!labelOnly) sheet.getRange(i + 2, 3).setValue(d.amount);
+        }
       });
       done.push(v);
     });

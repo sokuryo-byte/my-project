@@ -88,10 +88,19 @@ function calculateEstimate_(input) {
     notes.push('区域区分が異なるため、申請' + zones.length + '件として計算しています。');
   }
 
-  // --- 2. 物件（筆）追加 加算 ---
-  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）
-  const extraLots = lots.length - zones.length;
-  if (extraLots > 0 && input.extraLotFee === true) items.push(item('ADD_PER_EXTRA_LOT', extraLots));
+  // --- 2. 筆数加算（許可・届出で別単価） ---
+  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）。
+  // 申請（区域区分）ごとに2筆目以降を数え、許可と届出で別の単価にする
+  if (input.extraLotFee === true) {
+    let todoke = 0, kyoka = 0;
+    zones.forEach(function (z) {
+      const n = lots.filter(function (l) { return (l.zone === '分からない' ? FALLBACK_ZONE_FOR_UNKNOWN : l.zone) === z; }).length - 1;
+      if (n <= 0) return;
+      if (PERMIT_ZONES.indexOf(z) >= 0) kyoka += n; else todoke += n;
+    });
+    if (kyoka > 0) items.push(item('ADD_PER_EXTRA_LOT', kyoka));
+    if (todoke > 0) items.push(item('ADD_PER_EXTRA_LOT_TODOKE', todoke));
+  }
 
   // --- 3. 農振除外 加算 ---
   const noshinYes = lots.filter(function (l) { return l.isNoshin === 'はい'; });

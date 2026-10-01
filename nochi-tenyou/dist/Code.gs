@@ -123,8 +123,10 @@ const DEFAULT_FEES = [
     note: '市街化区域外で、既に宅地など農地以外として利用されている（現況が宅地・駐車場・資材置場、または転用済み「はい」）物件がある場合に加算（料金表 4100）' },
   { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
     note: '「地目変更登記が必要」にチェックした物件がある場合に1回加算（料金表 3201。2筆以上の筆数加算は都度調整）' },
-  { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
-    note: '依頼画面で「筆数加算をする」にチェックした場合だけ、同じ申請に含まれる2筆目以降の物件1筆ごとに加算（1申請で足りる場合は加算しない）' },
+  { key: 'ADD_PER_EXTRA_LOT', label: '筆数加算・許可（1筆あたり）', amount: 10000,
+    note: '「筆数加算をする」にチェックした場合だけ、許可（市街化調整区域・非線引き・都市計画区域外）の同じ申請の2筆目以降1筆ごとに加算' },
+  { key: 'ADD_PER_EXTRA_LOT_TODOKE', label: '筆数加算・届出（1筆あたり）', amount: 10000,
+    note: '「筆数加算をする」にチェックした場合だけ、届出（市街化区域。区域不明の仮計算を含む）の同じ申請の2筆目以降1筆ごとに加算（金額は仮。設定で変更）' },
 ];
 
 /**
@@ -152,6 +154,7 @@ const PORTAL_URL = 'http://192.168.24.54:8000/';
 const FEE_PATCHES = {
   '2026-02': ['ADD_LAND_IMPROVEMENT'], // 土地改良区除外申請 35,000 → 40,000
   '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
+  '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
 };
 
 /** 報酬にかける消費税率（実費にはかけない） */
@@ -801,10 +804,16 @@ function runFeePatches_(props) {
     addMissingFeeRows_(sheet);
     const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
     todo.forEach(function (v) {
-      FEE_PATCHES[v].forEach(function (key) {
+      FEE_PATCHES[v].forEach(function (entry) {
+        const labelOnly = /:label$/.test(entry); // 「キー:label」は名称と適用条件だけ更新し、金額（設定で変えたもの）は残す
+        const key = entry.replace(/:label$/, '');
         const d = DEFAULT_FEES.filter(function (f) { return f.key === key; })[0];
         const i = keys.indexOf(key);
-        if (d && i >= 0) sheet.getRange(i + 2, 2, 1, 3).setValues([[d.label, d.amount, d.note]]);
+        if (d && i >= 0) {
+          sheet.getRange(i + 2, 2).setValue(d.label);
+          sheet.getRange(i + 2, 4).setValue(d.note);
+          if (!labelOnly) sheet.getRange(i + 2, 3).setValue(d.amount);
+        }
       });
       done.push(v);
     });
@@ -1685,10 +1694,19 @@ function calculateEstimate_(input) {
     notes.push('区域区分が異なるため、申請' + zones.length + '件として計算しています。');
   }
 
-  // --- 2. 物件（筆）追加 加算 ---
-  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）
-  const extraLots = lots.length - zones.length;
-  if (extraLots > 0 && input.extraLotFee === true) items.push(item('ADD_PER_EXTRA_LOT', extraLots));
+  // --- 2. 筆数加算（許可・届出で別単価） ---
+  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）。
+  // 申請（区域区分）ごとに2筆目以降を数え、許可と届出で別の単価にする
+  if (input.extraLotFee === true) {
+    let todoke = 0, kyoka = 0;
+    zones.forEach(function (z) {
+      const n = lots.filter(function (l) { return (l.zone === '分からない' ? FALLBACK_ZONE_FOR_UNKNOWN : l.zone) === z; }).length - 1;
+      if (n <= 0) return;
+      if (PERMIT_ZONES.indexOf(z) >= 0) kyoka += n; else todoke += n;
+    });
+    if (kyoka > 0) items.push(item('ADD_PER_EXTRA_LOT', kyoka));
+    if (todoke > 0) items.push(item('ADD_PER_EXTRA_LOT_TODOKE', todoke));
+  }
 
   // --- 3. 農振除外 加算 ---
   const noshinYes = lots.filter(function (l) { return l.isNoshin === 'はい'; });

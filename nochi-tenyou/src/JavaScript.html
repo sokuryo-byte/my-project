@@ -193,11 +193,11 @@
     head.appendChild(del);
     card.appendChild(head);
 
-    // ===== 電話の前に入力（謄本・課税明細書・現地で分かること） =====
+    // ===== 架電前入力（謄本・課税明細書・現地確認で判明する事項） =====
     var pre = el('div', { 'class': 'lot-sec' });
     pre.appendChild(el('span', { 'class': 'lot-sec-n' }, '1'));
-    pre.appendChild(el('b', {}, '電話の前に入力'));
-    pre.appendChild(el('span', { 'class': 'lot-sec-help' }, '謄本・課税明細書・現地で分かること'));
+    pre.appendChild(el('b', {}, '架電前入力'));
+    pre.appendChild(el('span', { 'class': 'lot-sec-help' }, '謄本・課税明細書・現地確認で判明する事項'));
     card.appendChild(pre);
 
     // 市区町村・所在地番
@@ -303,11 +303,11 @@
     // 土地改良区（農業委員会 → 土地改良区 の順に電話確認）
     var kairyo = el('div', { 'class': 'choices' });
     renderChoices(kairyo, id('landImprovement'), ['はい', 'いいえ', '分からない']);
-    // ===== ここからヒアリング（電話で確認） =====
+    // ===== ヒアリング（架電） =====
     var hear = el('div', { 'class': 'lot-sec hear' });
     hear.appendChild(el('span', { 'class': 'lot-sec-n' }, '2'));
-    hear.appendChild(el('b', {}, 'ここからヒアリング'));
-    hear.appendChild(el('span', { 'class': 'lot-sec-help' }, 'トーク例に沿って電話で確認し、回答を選択・入力してください'));
+    hear.appendChild(el('b', {}, 'ヒアリング（架電）'));
+    hear.appendChild(el('span', { 'class': 'lot-sec-help' }, 'トーク例に沿って確認し、回答を記録'));
     card.appendChild(hear);
     card.appendChild(buildCallBox(card, id, o, kairyo, noshinField, convField));
 
@@ -1226,7 +1226,11 @@
   var uploadQueue = [], uploadActive = 0;
 
   function addFiles(docType, fileList) {
-    Array.prototype.forEach.call(fileList, function (file) {
+    var files = Array.prototype.slice.call(fileList);
+    // 謄本はファイル名の順（数字は数として比較）に並べ、読み取り結果もこの順に物件へ入れる
+    // （ドラッグ時の並びはエクスプローラーの選び方で逆になることがあり、読み取りも並行で終わる順が変わるため）
+    if (docType === TOHON) files.sort(function (a, b) { return a.name.localeCompare(b.name, 'ja', { numeric: true }); });
+    files.forEach(function (file) {
       var item = { localId: state.nextLocalId++, docType: docType, name: file.name, status: 'waiting' };
       state.uploads.push(item);
       if (state.upload.mimeTypes.indexOf(file.type) < 0) {
@@ -1234,6 +1238,7 @@
       } else if (file.size > state.upload.maxMb * 1024 * 1024) {
         item.status = 'error'; item.error = state.upload.maxMb + 'MB超';
       } else {
+        if (docType === TOHON) tohonOrder.push(item);
         uploadQueue.push(function (done) { uploadOne(item, file, done); });
       }
     });
@@ -1253,7 +1258,7 @@
   function uploadOne(item, file, done) {
     item.status = 'uploading';
     renderFiles();
-    var fail = function (msg) { item.status = 'error'; item.error = msg; renderFiles(); done(); };
+    var fail = function (msg) { item.status = 'error'; item.error = msg; item.tohonReady = true; flushTohon(); renderFiles(); done(); };
     var reader = new FileReader();
     reader.onload = function () {
       var base64 = String(reader.result).split(',')[1] || '';
@@ -1275,15 +1280,31 @@
     renderFiles();
     google.script.run
       .withSuccessHandler(function (res) {
-        item.status = 'done';
+        item.tohonResult = res; item.tohonReady = true;
+        flushTohon();
+        done();
+      })
+      .withFailureHandler(function (err) { item.tohonError = err.message; item.tohonReady = true; flushTohon(); done(); })
+      .readTohon(item.fileId);
+  }
+
+  /** 読み取りが終わった謄本を、ファイル名の順に物件へ入れる（前の謄本が終わるまで待つ） */
+  var tohonOrder = [];
+  function flushTohon() {
+    while (tohonOrder.length && tohonOrder[0].tohonReady) {
+      var item = tohonOrder.shift();
+      if (item.status === 'error') continue; // アップロードに失敗したもの
+      item.status = 'done';
+      if (item.tohonError) {
+        item.note = '読み取りに失敗：' + item.tohonError;
+      } else {
+        var res = item.tohonResult || {};
         var found = (res.lots || []).length;
         var filled = applyTohon(res.lots || []);
         item.note = found && !filled ? '読み取り済み（入力済みの欄は変更していません）' : res.message;
-        renderFiles();
-        done();
-      })
-      .withFailureHandler(function (err) { item.status = 'done'; item.note = '読み取りに失敗：' + err.message; renderFiles(); done(); })
-      .readTohon(item.fileId);
+      }
+    }
+    renderFiles();
   }
 
   function removeUpload(localId) {
@@ -1477,6 +1498,7 @@
     $('caseForm').reset();
     $('lots').innerHTML = '';
     state.uploads = [];
+    tohonOrder = [];
     addLot();
     renderFiles();
     updatePlanRequired();

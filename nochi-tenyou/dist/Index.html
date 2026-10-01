@@ -147,7 +147,7 @@
   /* 物件カード（複数） */
   .lots { display: grid; gap: 12px; }
   .lot { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 14px; background: var(--bg); }
-  /* 物件の2段：1 電話の前に入力 ／ 2 ここからヒアリング */
+  /* 物件の2段：1 架電前入力 ／ 2 ヒアリング（架電） */
   .lot-sec { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
   .lot-sec b { font-size: .95rem; }
   .lot-sec .lot-sec-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--muted); color: #fff; font-size: .78rem; font-weight: 700; }
@@ -293,8 +293,10 @@ const DEFAULT_FEES = [
     note: '市街化区域外で、既に宅地など農地以外として利用されている（現況が宅地・駐車場・資材置場、または転用済み「はい」）物件がある場合に加算（料金表 4100）' },
   { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
     note: '「地目変更登記が必要」にチェックした物件がある場合に1回加算（料金表 3201。2筆以上の筆数加算は都度調整）' },
-  { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
-    note: '依頼画面で「筆数加算をする」にチェックした場合だけ、同じ申請に含まれる2筆目以降の物件1筆ごとに加算（1申請で足りる場合は加算しない）' },
+  { key: 'ADD_PER_EXTRA_LOT', label: '筆数加算・許可（1筆あたり）', amount: 10000,
+    note: '「筆数加算をする」にチェックした場合だけ、許可（市街化調整区域・非線引き・都市計画区域外）の同じ申請の2筆目以降1筆ごとに加算' },
+  { key: 'ADD_PER_EXTRA_LOT_TODOKE', label: '筆数加算・届出（1筆あたり）', amount: 10000,
+    note: '「筆数加算をする」にチェックした場合だけ、届出（市街化区域。区域不明の仮計算を含む）の同じ申請の2筆目以降1筆ごとに加算（金額は仮。設定で変更）' },
 ];
 
 /**
@@ -322,6 +324,7 @@ const PORTAL_URL = 'http://192.168.24.54:8000/';
 const FEE_PATCHES = {
   '2026-02': ['ADD_LAND_IMPROVEMENT'], // 土地改良区除外申請 35,000 → 40,000
   '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
+  '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
 };
 
 /** 報酬にかける消費税率（実費にはかけない） */
@@ -795,10 +798,19 @@ function calculateEstimate_(input) {
     notes.push('区域区分が異なるため、申請' + zones.length + '件として計算しています。');
   }
 
-  // --- 2. 物件（筆）追加 加算 ---
-  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）
-  const extraLots = lots.length - zones.length;
-  if (extraLots > 0 && input.extraLotFee === true) items.push(item('ADD_PER_EXTRA_LOT', extraLots));
+  // --- 2. 筆数加算（許可・届出で別単価） ---
+  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）。
+  // 申請（区域区分）ごとに2筆目以降を数え、許可と届出で別の単価にする
+  if (input.extraLotFee === true) {
+    let todoke = 0, kyoka = 0;
+    zones.forEach(function (z) {
+      const n = lots.filter(function (l) { return (l.zone === '分からない' ? FALLBACK_ZONE_FOR_UNKNOWN : l.zone) === z; }).length - 1;
+      if (n <= 0) return;
+      if (PERMIT_ZONES.indexOf(z) >= 0) kyoka += n; else todoke += n;
+    });
+    if (kyoka > 0) items.push(item('ADD_PER_EXTRA_LOT', kyoka));
+    if (todoke > 0) items.push(item('ADD_PER_EXTRA_LOT_TODOKE', todoke));
+  }
 
   // --- 3. 農振除外 加算 ---
   const noshinYes = lots.filter(function (l) { return l.isNoshin === 'はい'; });
@@ -1106,10 +1118,16 @@ function runFeePatches_(props) {
     addMissingFeeRows_(sheet);
     const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
     todo.forEach(function (v) {
-      FEE_PATCHES[v].forEach(function (key) {
+      FEE_PATCHES[v].forEach(function (entry) {
+        const labelOnly = /:label$/.test(entry); // 「キー:label」は名称と適用条件だけ更新し、金額（設定で変えたもの）は残す
+        const key = entry.replace(/:label$/, '');
         const d = DEFAULT_FEES.filter(function (f) { return f.key === key; })[0];
         const i = keys.indexOf(key);
-        if (d && i >= 0) sheet.getRange(i + 2, 2, 1, 3).setValues([[d.label, d.amount, d.note]]);
+        if (d && i >= 0) {
+          sheet.getRange(i + 2, 2).setValue(d.label);
+          sheet.getRange(i + 2, 4).setValue(d.note);
+          if (!labelOnly) sheet.getRange(i + 2, 3).setValue(d.amount);
+        }
       });
       done.push(v);
     });
@@ -1927,11 +1945,11 @@ function getUserEmail_() { return ''; }
     head.appendChild(del);
     card.appendChild(head);
 
-    // ===== 電話の前に入力（謄本・課税明細書・現地で分かること） =====
+    // ===== 架電前入力（謄本・課税明細書・現地確認で判明する事項） =====
     var pre = el('div', { 'class': 'lot-sec' });
     pre.appendChild(el('span', { 'class': 'lot-sec-n' }, '1'));
-    pre.appendChild(el('b', {}, '電話の前に入力'));
-    pre.appendChild(el('span', { 'class': 'lot-sec-help' }, '謄本・課税明細書・現地で分かること'));
+    pre.appendChild(el('b', {}, '架電前入力'));
+    pre.appendChild(el('span', { 'class': 'lot-sec-help' }, '謄本・課税明細書・現地確認で判明する事項'));
     card.appendChild(pre);
 
     // 市区町村・所在地番
@@ -2037,11 +2055,11 @@ function getUserEmail_() { return ''; }
     // 土地改良区（農業委員会 → 土地改良区 の順に電話確認）
     var kairyo = el('div', { 'class': 'choices' });
     renderChoices(kairyo, id('landImprovement'), ['はい', 'いいえ', '分からない']);
-    // ===== ここからヒアリング（電話で確認） =====
+    // ===== ヒアリング（架電） =====
     var hear = el('div', { 'class': 'lot-sec hear' });
     hear.appendChild(el('span', { 'class': 'lot-sec-n' }, '2'));
-    hear.appendChild(el('b', {}, 'ここからヒアリング'));
-    hear.appendChild(el('span', { 'class': 'lot-sec-help' }, 'トーク例に沿って電話で確認し、回答を選択・入力してください'));
+    hear.appendChild(el('b', {}, 'ヒアリング（架電）'));
+    hear.appendChild(el('span', { 'class': 'lot-sec-help' }, 'トーク例に沿って確認し、回答を記録'));
     card.appendChild(hear);
     card.appendChild(buildCallBox(card, id, o, kairyo, noshinField, convField));
 
@@ -2960,7 +2978,11 @@ function getUserEmail_() { return ''; }
   var uploadQueue = [], uploadActive = 0;
 
   function addFiles(docType, fileList) {
-    Array.prototype.forEach.call(fileList, function (file) {
+    var files = Array.prototype.slice.call(fileList);
+    // 謄本はファイル名の順（数字は数として比較）に並べ、読み取り結果もこの順に物件へ入れる
+    // （ドラッグ時の並びはエクスプローラーの選び方で逆になることがあり、読み取りも並行で終わる順が変わるため）
+    if (docType === TOHON) files.sort(function (a, b) { return a.name.localeCompare(b.name, 'ja', { numeric: true }); });
+    files.forEach(function (file) {
       var item = { localId: state.nextLocalId++, docType: docType, name: file.name, status: 'waiting' };
       state.uploads.push(item);
       if (state.upload.mimeTypes.indexOf(file.type) < 0) {
@@ -2968,6 +2990,7 @@ function getUserEmail_() { return ''; }
       } else if (file.size > state.upload.maxMb * 1024 * 1024) {
         item.status = 'error'; item.error = state.upload.maxMb + 'MB超';
       } else {
+        if (docType === TOHON) tohonOrder.push(item);
         uploadQueue.push(function (done) { uploadOne(item, file, done); });
       }
     });
@@ -2987,7 +3010,7 @@ function getUserEmail_() { return ''; }
   function uploadOne(item, file, done) {
     item.status = 'uploading';
     renderFiles();
-    var fail = function (msg) { item.status = 'error'; item.error = msg; renderFiles(); done(); };
+    var fail = function (msg) { item.status = 'error'; item.error = msg; item.tohonReady = true; flushTohon(); renderFiles(); done(); };
     var reader = new FileReader();
     reader.onload = function () {
       var base64 = String(reader.result).split(',')[1] || '';
@@ -3009,15 +3032,31 @@ function getUserEmail_() { return ''; }
     renderFiles();
     google.script.run
       .withSuccessHandler(function (res) {
-        item.status = 'done';
+        item.tohonResult = res; item.tohonReady = true;
+        flushTohon();
+        done();
+      })
+      .withFailureHandler(function (err) { item.tohonError = err.message; item.tohonReady = true; flushTohon(); done(); })
+      .readTohon(item.fileId);
+  }
+
+  /** 読み取りが終わった謄本を、ファイル名の順に物件へ入れる（前の謄本が終わるまで待つ） */
+  var tohonOrder = [];
+  function flushTohon() {
+    while (tohonOrder.length && tohonOrder[0].tohonReady) {
+      var item = tohonOrder.shift();
+      if (item.status === 'error') continue; // アップロードに失敗したもの
+      item.status = 'done';
+      if (item.tohonError) {
+        item.note = '読み取りに失敗：' + item.tohonError;
+      } else {
+        var res = item.tohonResult || {};
         var found = (res.lots || []).length;
         var filled = applyTohon(res.lots || []);
         item.note = found && !filled ? '読み取り済み（入力済みの欄は変更していません）' : res.message;
-        renderFiles();
-        done();
-      })
-      .withFailureHandler(function (err) { item.status = 'done'; item.note = '読み取りに失敗：' + err.message; renderFiles(); done(); })
-      .readTohon(item.fileId);
+      }
+    }
+    renderFiles();
   }
 
   function removeUpload(localId) {
@@ -3211,6 +3250,7 @@ function getUserEmail_() { return ''; }
     $('caseForm').reset();
     $('lots').innerHTML = '';
     state.uploads = [];
+    tohonOrder = [];
     addLot();
     renderFiles();
     updatePlanRequired();
