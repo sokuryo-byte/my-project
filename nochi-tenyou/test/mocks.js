@@ -53,7 +53,9 @@ var PropertiesService = { getScriptProperties: () => ({ getProperty: (k) => PROP
 var Session = { getActiveUser: () => ({ getEmail: () => 'tanaka@example.co.jp' }), getScriptTimeZone: () => 'Asia/Tokyo' };
 var Utilities = {
   base64Decode: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
-  newBlob: (bytes, mime, name) => ({ bytes: bytes, mime: mime, name: name }),
+  newBlob: (bytes, mime, name) => ({ bytes: bytes, mime: mime, name: name,
+    getAs: function (type) { window.LAST_PDF_HTML = String(this.bytes); return { getBytes: () => [37, 80, 68, 70] }; } }),
+  base64Encode: (b) => btoa(String.fromCharCode.apply(null, b)),
   formatDate: (d, tz, fmt) => {
     const j = new Date(d.getTime() + 9 * 3600 * 1000), p = (n) => ('0' + n).slice(-2);
     return String(fmt || 'yyyy/MM/dd HH:mm').replace('yyyy', j.getUTCFullYear()).replace('yy', String(j.getUTCFullYear()).slice(2))

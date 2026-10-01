@@ -199,7 +199,8 @@
     .dhead .flow { grid-column: 1; }
     .dhead-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
     .dhead h2 { margin: 0; font-size: 1.2rem; padding: 0; border: none; }
-    .dhead .meta { font-size: .8rem; color: var(--muted); }
+    .dhead .meta { font-size: .8rem; color: var(--muted); flex-basis: 100%; }
+    .pdf-btn { padding: 2px 12px; font-size: .8rem; }
     .dhead .amt { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: .75rem; color: var(--muted); }
     .dhead .amt b { display: block; font-size: 1.35rem; color: var(--fg); font-variant-numeric: tabular-nums; }
     /* 対応の流れ（対応状況の進み具合） */
@@ -549,43 +550,201 @@
    * 見積内訳の文字（estimateToText_ の形式）を表にする。
    * 【報酬】【実費】の見出し、「・項目：¥金額」、「報酬 ¥…＋消費税 ¥…＝¥…／実費 ¥…／合計 ¥…」、「※注記」
    */
-  function buildEstimatePanel(text) {
-    var p = panel('概算見積の内訳（依頼時の自動計算）');
-    var lines = String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); });
-    if (!lines.length) { p.appendChild(el('p', { 'class': 'help' }, '内訳はありません。')); return p; }
-    var t = el('table', { 'class': 'est-t' });
-    var notes = [];
-    var row = function (cls, label, amount) {
-      var tr = el('tr', cls ? { 'class': cls } : {});
-      tr.appendChild(el('td', {}, label));
-      tr.appendChild(el('td', { 'class': 'y' }, amount || ''));
-      t.appendChild(tr);
-    };
-    lines.forEach(function (l) {
+  function parseEstimateText(text) {
+    var rows = [], notes = [];
+    String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); }).forEach(function (l) {
       var m;
-      if (/^【.+】$/.test(l)) { row('grp', l.replace(/[【】]/g, ''), ''); return; }
+      if (/^【.+】$/.test(l)) { rows.push(['grp', l.replace(/[【】]/g, ''), '']); return; }
       if (l.charAt(0) === '※') { notes.push(l.slice(1)); return; }
       if ((m = l.match(/^報酬 (¥[\d,]+)＋消費税 (¥[\d,]+)＝(¥[\d,]+)／実費 (¥[\d,]+)／合計 (¥[\d,]+)$/))) {
-        row('grp', '集計', '');
-        row('sub', '報酬（税抜）', m[1]); row('sub', '消費税', m[2]); row('sub', '報酬（税込）', m[3]); row('sub', '実費', m[4]);
-        row('sum', '合計', m[5]);
+        rows.push(['grp', '集計', ''], ['sub', '報酬（税抜）', m[1]], ['sub', '消費税', m[2]], ['sub', '報酬（税込）', m[3]],
+          ['sub', '実費', m[4]], ['sum', '合計', m[5]]);
         return;
       }
-      if ((m = l.match(/^・(.+)：(¥[\d,]+)$/))) { row('', m[1], m[2]); return; }
+      if ((m = l.match(/^・(.+)：(¥[\d,]+)$/))) { rows.push(['', m[1], m[2]]); return; }
       notes.push(l);
+    });
+    return { rows: rows, notes: notes };
+  }
+
+  function buildEstimatePanel(text) {
+    var p = panel('概算見積の内訳（依頼時の自動計算）');
+    var est = parseEstimateText(text);
+    if (!est.rows.length && !est.notes.length) { p.appendChild(el('p', { 'class': 'help' }, '内訳はありません。')); return p; }
+    var t = el('table', { 'class': 'est-t' });
+    est.rows.forEach(function (r) {
+      var tr = el('tr', r[0] ? { 'class': r[0] } : {});
+      tr.appendChild(el('td', {}, r[1]));
+      tr.appendChild(el('td', { 'class': 'y' }, r[2]));
+      t.appendChild(tr);
     });
     var box = el('div', { 'class': 'est' });
     box.appendChild(t);
-    if (notes.length) {
+    if (est.notes.length) {
       var ul = el('ul', { 'class': 'est-notes' });
-      notes.forEach(function (n) { ul.appendChild(el('li', {}, n)); });
+      est.notes.forEach(function (n) { ul.appendChild(el('li', {}, n)); });
       box.appendChild(ul);
     }
     p.appendChild(box);
     return p;
   }
 
-  /** 正式見積の提示：見積書PDFをドラッグ → 金額・メール送信を確認 → 提示 */
+  // ---------------------------------------------------------
+  // PDF出力：案件の全情報をA4の帳票（HTML）にし、サーバーでPDFに変換してダウンロード
+  // （変換は Apps Script の HTML→PDF。CSS の grid/flex は効かないため表で組む）
+  // ---------------------------------------------------------
+  function esc(v) {
+    return String(v === undefined || v === null ? '' : v).replace(/[&<>"]/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch];
+    }).replace(/\r?\n/g, '<br>');
+  }
+
+  /** 項目名/値の表（2組ずつ横に並べる。値が空の組は出さない。wide は1行を使う） */
+  function kvTable(pairs) {
+    var list = pairs.filter(function (p) { return has(p[1]); });
+    if (!list.length) return '';
+    var html = '<table class="kv">', half = [];
+    var flush = function () {
+      if (!half.length) return;
+      html += '<tr>' + half.map(function (p) { return '<th>' + esc(p[0]) + '</th><td>' + esc(p[1]) + '</td>'; }).join('') +
+        (half.length === 1 ? '<th></th><td></td>' : '') + '</tr>';
+      half = [];
+    };
+    list.forEach(function (p) {
+      if (p[2] === 'wide' || String(p[1]).length > 18 || String(p[1]).indexOf(String.fromCharCode(10)) >= 0) { flush(); html += '<tr><th>' + esc(p[0]) + '</th><td colspan="3">' + esc(p[1]) + '</td></tr>'; return; }
+      half.push(p);
+      if (half.length === 2) flush();
+    });
+    flush();
+    return html + '</table>';
+  }
+
+  function buildPrintHtml(c, lots) {
+    var formal = has(c.formalEstimate);
+    var css = [
+      '@page { size: A4; margin: 14mm 12mm; }',
+      'body { font-family: "Noto Sans JP", "Noto Sans CJK JP", sans-serif; font-size: 9.5pt; color: #1f2a22; line-height: 1.5; margin: 0; }',
+      'h1 { font-size: 15pt; margin: 0 0 2px; }',
+      'h2 { font-size: 10.5pt; color: #2f6b3f; border-bottom: 1.5px solid #2f6b3f; padding-bottom: 2px; margin: 14px 0 6px; page-break-after: avoid; }',
+      'h3 { font-size: 10pt; margin: 10px 0 4px; background: #e3eee3; padding: 3px 6px; }',
+      'h4 { font-size: 9pt; color: #2f6b3f; margin: 6px 0 2px; }',
+      'table { width: 100%; border-collapse: collapse; page-break-inside: auto; }',
+      'tr { page-break-inside: avoid; }',
+      'table.kv th, table.kv td { border: 1px solid #c9d3c8; padding: 3px 6px; vertical-align: top; text-align: left; }',
+      'table.kv th { background: #f3f5f1; color: #5d6b60; font-weight: normal; width: 17%; font-size: 8.5pt; }',
+      'table.kv td { width: 33%; }',
+      'table.head td { border: none; padding: 0; vertical-align: top; }',
+      '.meta { color: #5d6b60; font-size: 8.5pt; }',
+      '.amt { text-align: right; }',
+      '.amt b { font-size: 16pt; }',
+      'table.est td { border-bottom: 1px solid #d3dbd2; padding: 3px 6px; }',
+      'table.est td.y { text-align: right; width: 22%; white-space: nowrap; }',
+      'table.est tr.grp td { color: #2f6b3f; font-weight: bold; font-size: 8.5pt; border-bottom: 1.5px solid #e3eee3; padding-top: 6px; }',
+      'table.est tr.sub td { color: #5d6b60; }',
+      'table.est tr.sum td { font-weight: bold; font-size: 11pt; border-top: 1.5px solid #1f2a22; border-bottom: none; }',
+      'ul { margin: 4px 0 0; padding-left: 1.2em; color: #5d6b60; font-size: 8.5pt; }',
+      '.tags { font-size: 8.5pt; color: #5d6b60; margin: 0 0 4px; }',
+      '.bad { color: #b3261e; font-weight: bold; }',
+      '.none { color: #5d6b60; font-size: 8.5pt; }',
+      '.foot { margin-top: 16px; border-top: 1px solid #d3dbd2; padding-top: 4px; color: #5d6b60; font-size: 8pt; text-align: right; }'
+    ].join('\n');
+
+    var h = [];
+    h.push('<table class="head"><tr><td>');
+    h.push('<h1>農地転用 案件詳細</h1>');
+    h.push('<div class="meta">受付番号 ' + esc(c.caseNo || c.id) + '　受付 ' + esc(c.receivedAt || '―') + '　' +
+      esc(c.requestFlag === true ? '見積調査依頼' : '保存のみ') + '</div>');
+    h.push('<div style="font-size:12pt;font-weight:bold;margin-top:4px">' + esc(c.requesterName || '（依頼者名なし）') + ' 様</div>');
+    h.push('</td><td class="amt">');
+    h.push('<div class="meta">' + (formal ? '正式見積' : '概算見積') + '</div><b>' + esc(yen(formal ? c.formalEstimate : c.estimate)) + '</b>');
+    if (formal) h.push('<div class="meta">概算 ' + esc(yen(c.estimate)) + '</div>');
+    h.push('</td></tr></table>');
+
+    h.push('<h2>対応状況</h2>');
+    h.push(kvTable([
+      ['対応状況', c.status || '―'], ['担当者', c.assignee || '未定'],
+      ['入力者', c.submittedBy], ['最終更新', c.updatedAt],
+      ['正式見積の提示', c.estimatePdfAt], ['正式見積の報告', c.reportResult],
+      ['対応メモ', c.adminMemo, 'wide']
+    ]));
+
+    h.push('<h2>依頼の概要</h2>');
+    h.push(kvTable([
+      ['物件', lots.length ? lots.length + '筆（' + (c.prefecture || '―') + '）' : ''], ['面積合計', has(c.area) ? c.area + ' ㎡' : ''],
+      ['区域区分', c.zone], ['転用目的', c.purpose],
+      ['信託手続きに付随', c.trust === true ? 'はい' : ''], ['資料', c.documents],
+      ['今後の転用計画', c.plan, 'wide'],
+      ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(has).join('\n'), 'wide']
+    ]));
+
+    var est = parseEstimateText(c.estimateDetail);
+    if (est.rows.length || est.notes.length) {
+      h.push('<h2>概算見積の内訳（依頼時の自動計算）</h2>');
+      if (est.rows.length) {
+        h.push('<table class="est">' + est.rows.map(function (r) {
+          return '<tr' + (r[0] ? ' class="' + r[0] + '"' : '') + '><td>' + esc(r[1]) + '</td><td class="y">' + esc(r[2]) + '</td></tr>';
+        }).join('') + '</table>');
+      }
+      if (est.notes.length) h.push('<ul>' + est.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>');
+    }
+
+    h.push('<h2>物件と電話確認の結果（' + lots.length + '筆）</h2>');
+    if (!lots.length) h.push('<p class="none">物件明細がありません。</p>');
+    lots.forEach(function (l) {
+      h.push('<div style="page-break-inside:avoid">');
+      h.push('<h3>物件' + esc(l.no) + '　' + esc([l.address, l.lotNumber].filter(has).join(' ') || '（所在未入力）') + '</h3>');
+      h.push(kvTable([
+        ['都道府県', l.prefecture], ['市区町村', l.municipality],
+        ['登記地目', l.chimoku], ['面積（登記地積）', has(l.area) ? l.area + ' ㎡' : ''],
+        ['区域区分', l.zone], ['農振農用地', has(l.isNoshin) ? boolText(l.isNoshin) : ''],
+        ['現況利用', l.landUse], ['既に転用済み', has(l.isConverted) ? boolText(l.isConverted) : ''],
+        ['転用目的', l.purpose], ['土地改良区', l.landImprovement],
+        ['地目変更登記', has(l.chimokuHenko) ? '必要' : ''], ['入力方法', l.readFromTohon === true || l.readFromTohon === '謄本から読取' ? '謄本から読取' : '']
+      ]));
+      var n = 0;
+      lotSteps(l).forEach(function (st) {
+        var t = kvTable(st[1]);
+        if (!t) return;
+        if (st[1].some(function (p) { return p[2] === 'bad' && has(p[1]); })) t = t.replace(/<td>難しい<\/td>/g, '<td class="bad">難しい</td>');
+        h.push('<h4>' + (++n) + '. ' + esc(st[0]) + '</h4>' + t);
+      });
+      if (!n) h.push('<p class="none">電話確認の記録はありません。</p>');
+      h.push('</div>');
+    });
+
+    h.push('<h2>記録</h2>');
+    h.push(kvTable([
+      ['Chat通知', c.notifyResult], ['資料', c.folderUrl ? 'アップロード資料 ' + (c.fileCount || 0) + '件' : ''],
+      ['資料フォルダ', c.folderUrl, 'wide'], ['正式見積PDF', c.estimatePdfUrl, 'wide']
+    ]));
+
+    var now = new Date();
+    var pad = function (x) { return ('0' + x).slice(-2); };
+    h.push('<div class="foot">出力 ' + now.getFullYear() + '/' + pad(now.getMonth() + 1) + '/' + pad(now.getDate()) + ' ' +
+      pad(now.getHours()) + ':' + pad(now.getMinutes()) + '　' + esc($('userInfo').textContent) + '</div>');
+
+    return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><style>' + css + '</style></head><body>' + h.join('\n') + '</body></html>';
+  }
+
+  function exportPdf(c, btn) {
+    var lots = state.lotsByCase[c.id] || [];
+    var name = '農地転用_案件詳細_' + (c.caseNo || c.id) + '_' + String(c.requesterName || '').replace(/[\\\/:*?"<>|\s]/g, '') + '.pdf';
+    btn.disabled = true; btn.textContent = 'PDF作成中…';
+    google.script.run
+      .withSuccessHandler(function (r) {
+        btn.disabled = false; btn.textContent = 'PDF出力';
+        var bin = atob(r.data), bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        var a = el('a', { href: url, download: r.name });
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      })
+      .withFailureHandler(function (err) { btn.disabled = false; btn.textContent = 'PDF出力'; alert('PDFの作成に失敗しました：' + err.message); })
+      .exportCasePdf(buildPrintHtml(c, lots), name);
+  }
+
+  /** 正式見積の提示：見積書PDFをドラッグ → 金額を確認 → 提示 */
   function buildFormalPanel(c) {
     var p = panel('正式見積の提示');
     if (c.estimatePdfUrl) {
@@ -670,6 +829,9 @@
     var top = el('div', { 'class': 'dhead-top' });
     top.appendChild(el('h2', {}, c.requesterName || '（依頼者名なし）'));
     top.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―'));
+    var pdfBtn = el('button', { type: 'button', 'class': 'ghost pdf-btn' }, 'PDF出力');
+    pdfBtn.addEventListener('click', function () { exportPdf(c, pdfBtn); });
+    top.appendChild(pdfBtn);
     top.appendChild(el('span', { 'class': 'meta' }, '受付番号 ' + (c.caseNo || c.id) + '　受付 ' + (c.receivedAt || '―') + '　入力者 ' + (c.submittedBy || '―') +
       '　' + (c.requestFlag === true ? '見積調査依頼' : '保存のみ')));
     var amt = el('div', { 'class': 'amt' });

@@ -5,6 +5,7 @@
  * Playwright が必要です（グローバルに入っている場合は NODE_PATH=$(npm root -g) node e2e.js）。
  */
 const path = require('path');
+const fs = require('fs');
 const assert = require('assert');
 const { chromium } = require('playwright');
 
@@ -154,6 +155,13 @@ const OUT = path.join(__dirname, 'out');
   assert.strictEqual(await a.evaluate(() => typeof MailApp), 'undefined');
   assert.ok(rep.chat.includes('正式見積を提示しました') && rep.chat.includes(caseNo), rep.chat);
   await a.screenshot({ path: path.join(OUT, 'admin_estimate.png'), fullPage: true });
+
+  // PDF出力：帳票HTMLをサーバーでPDFにしてダウンロード
+  const [dl] = await Promise.all([a.waitForEvent('download', { timeout: 5000 }), a.click('#detail .pdf-btn')]);
+  assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
+  const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
+  for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥822,500', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
+  fs.writeFileSync(path.join(OUT, 'case_print.html'), printHtml);
 
   // 電話番号は tel: リンク
   await a.evaluate(() => { const l = state.lotsByCase[state.cases[0].id][0]; l.kairyoName = '○○土地改良区'; l.kairyoTel = '0565-12-3456'; renderDetail(state.cases[0].id); });

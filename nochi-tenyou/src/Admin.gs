@@ -122,6 +122,19 @@ function submitFormalEstimate(caseId, file, opts) {
   return getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
 }
 
+/**
+ * 案件詳細のPDF出力：管理画面で組んだ帳票（HTML）をPDFに変換して返す（保存はしない）。
+ * @param {string} html
+ * @param {string} fileName
+ * @return {{name:string, data:string}} data は Base64
+ */
+function exportCasePdf(html, fileName) {
+  requireAdmin_();
+  const name = sanitizeFileName_(String(fileName || '案件詳細.pdf'));
+  const pdf = Utilities.newBlob(String(html || ''), 'text/html', 'case.html').getAs('application/pdf');
+  return { name: /\.pdf$/i.test(name) ? name : name + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) };
+}
+
 /** 管理者かどうか（スクリプトプロパティ ADMIN_EMAILS が優先） */
 function isAdmin_() {
   const email = getUserEmail_().toLowerCase();
