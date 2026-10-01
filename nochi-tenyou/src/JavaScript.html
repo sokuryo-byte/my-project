@@ -448,6 +448,12 @@
       shimatsuStamp: getRadio(card, 'shimatsuStamp'),
       shimatsuNote: lotInput(card, 'shimatsuNote').value,
       saiShinsei: getRadio(card, 'saiShinsei'),
+      hinochi: getRadio(card, 'hinochi'),
+      hinochiYears: lotInput(card, 'hinochiYears').value,
+      hinochiDocs: qsa('.hinochi-docs input[data-doc]:checked', card).map(function (x) { return x.value; }),
+      hinochiNote: lotInput(card, 'hinochiNote').value,
+      zeseiKyoka: getRadio(card, 'zeseiKyoka'),
+      zeseiNote: lotInput(card, 'zeseiNote').value,
       saiShinseiNote: lotInput(card, 'saiShinseiNote').value,
       tenyoKanou: getRadio(card, 'tenyoKanou'),
       noutiKubun: getRadio(card, 'noutiKubun'),
@@ -529,6 +535,41 @@
     rp.appendChild(field('再申請の備考', el('input', { type: 'text', id: id('saiShinseiNote'), maxlength: '200',
       placeholder: '例）未着手のまま期間経過で再申請が必要、目的変更のため事業計画変更が必要、計画変更の届出で足りる など', 'data-f': 'saiShinseiNote' })));
     rb.appendChild(rp);
+    // 無断転用（転用済み・履歴なし、市街化区域以外）：非農地証明で対応できるか → 可能なら要件、不可なら是正の許可申請
+    var hb = el('div', { 'class': 'hinochi-block hidden', style: 'display:grid;gap:8px' });
+    var hc = el('div', { 'class': 'choices' });
+    renderChoices(hc, id('hinochi'), o.hinochi);
+    hb.appendChild(prependQ(radioField('非農地証明（現況証明）で対応できるか', hc,
+      el('p', { 'class': 'help' }, '「可能」なら許可申請に代えて現況証明で見積ります')), 'q-hinochi'));
+    var hreq = el('div', { 'class': 'hinochi-req hidden', style: 'display:grid;gap:8px' });
+    hreq.appendChild(qEl('q-hinochi-req'));
+    var hy = el('div', { 'class': 'inline-inputs' });
+    hy.appendChild(el('span', {}, '農地以外での利用が'));
+    hy.appendChild(el('input', { type: 'text', id: id('hinochiYears'), maxlength: '20', 'data-f': 'hinochiYears', placeholder: '例）20年以上', style: 'width:9em' }));
+    hy.appendChild(el('span', {}, '続いていること'));
+    hreq.appendChild(field('要件：利用年数', hy.children[1], null, false, hy));
+    var hd = el('div', { 'class': 'choices hinochi-docs' });
+    o.hinochiDocs.forEach(function (d) {
+      var lb = el('label');
+      lb.appendChild(el('input', { type: 'checkbox', value: d, 'data-doc': '1' }));
+      lb.appendChild(document.createTextNode(' ' + d));
+      hd.appendChild(lb);
+    });
+    var hdf = el('div', { 'class': 'field' });
+    hdf.appendChild(el('span', { 'class': 'lbl' }, '要件：証明資料'));
+    hdf.appendChild(hd);
+    hreq.appendChild(hdf);
+    hreq.appendChild(field('要件・備考（現地確認・受付時期・手数料など）', el('textarea', { id: id('hinochiNote'), rows: '2', maxlength: '300', 'data-f': 'hinochiNote',
+      placeholder: '例）現地確認あり、毎月10日締切、手数料なし' })));
+    hb.appendChild(hreq);
+    var hz = el('div', { 'class': 'zesei-block hidden', style: 'display:grid;gap:8px' });
+    var zc = el('div', { 'class': 'choices' });
+    renderChoices(zc, id('zeseiKyoka'), o.zeseiKyoka);
+    hz.appendChild(prependQ(radioField('是正のための許可申請ができるか', zc), 'q-zesei'));
+    hz.appendChild(field('是正の許可申請の備考', el('input', { type: 'text', id: id('zeseiNote'), maxlength: '300', 'data-f': 'zeseiNote',
+      placeholder: '例）始末書を添えて5条許可申請、事前相談が必要 など' })));
+    hb.appendChild(hz);
+    rb.appendChild(hb);
     // 履歴がない（無断転用）場合：始末書の提出と押印
     var sb = el('div', { 'class': 'shimatsu-block hidden', style: 'display:grid;gap:8px' });
     var sh = el('div', { 'class': 'choices' });
@@ -871,6 +912,17 @@
     card.querySelector('.rireki-note').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
     var rirekiAns = getRadio(card, 'tenyoRireki');
     var shimatsuShow = converted && rirekiAns !== 'あり'; // 転用済みで許可・届出の履歴がない＝無断転用
+    // 非農地証明（市街化区域以外の無断転用）：可能なら要件、不可なら是正の許可申請
+    var hinochiShow = shimatsuShow && zone !== '市街化区域';
+    var hinochiAns = getRadio(card, 'hinochi');
+    card.querySelector('.hinochi-block').classList.toggle('hidden', !hinochiShow);
+    card.querySelector('.hinochi-req').classList.toggle('hidden', hinochiAns !== '可能');
+    card.querySelector('.zesei-block').classList.toggle('hidden', hinochiAns !== '不可');
+    if (hinochiShow && hinochiAns === '可能') shimatsuShow = false; // 非農地証明で対応できるなら始末書は聞かない
+    setQ(card, 'q-hinochi', '「現在は農地以外（駐車場など）として使っているのですが、非農地証明（現況証明）で対応できますでしょうか。」');
+    setQ(card, 'q-hinochi-req', ['「非農地証明の要件をお教えください。農地以外での利用が何年以上続いている必要がありますでしょうか。」',
+      '「証明には、どのような資料（航空写真、固定資産税の課税地目、建物の登記など）が必要でしょうか。現地確認の有無、受付時期、手数料もお教えいただけますでしょうか。」']);
+    setQ(card, 'q-zesei', '「非農地証明が難しい場合、現在の状態を是正するために農地転用の許可（届出）を申請することはできますでしょうか。」');
     card.querySelector('.shimatsu-block').classList.toggle('hidden', !shimatsuShow);
     var shimatsuNeed = getRadio(card, 'shimatsusho') === '必要';
     card.querySelector('.shimatsu-stamp').classList.toggle('hidden', !shimatsuNeed);

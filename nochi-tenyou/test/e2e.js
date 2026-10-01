@@ -73,6 +73,14 @@ const OUT = path.join(__dirname, 'out');
   });
   assert.deepStrictEqual(consent, ['地元承諾書（区長・水利組合等）（1人あたり） × 3=60000', '地元承諾書（区長・水利組合等）（1人あたり）=20000', '調査実費（市街化区域）=2000,地元協力金等（○○区）=30000']);
 
+  // 非農地証明：可能なら許可申請を計上せず現況証明、不可・未確認なら許可申請（現況証明は計上しない）
+  const hino = await p.evaluate(() => {
+    const l = (h) => ({ zone: '市街化調整区域', landUse: '駐車場', isConverted: 'はい', tenyoRireki: 'なし', hinochi: h });
+    const labels = (h) => calculateEstimate_({ lots: [l(h)] }).items.filter((it) => it.kind !== 'cost').map((it) => it.label).join('／');
+    return [labels('可能'), labels('不可'), labels('')];
+  });
+  assert.deepStrictEqual(hino, ['現況証明（非農地証明）願出', '農地法第5条許可申請（市街化調整区域）', '農地法第5条許可申請（市街化調整区域）']);
+
   // 地目変更登記：案件一覧の列とChatに「登記担当へ連絡」を目立たせて出す
   const chimokuNote = await p.evaluate(() => [chimokuHenkoText_([{ address: '豊田市○○町', lotNumber: '1番', chimokuHenko: true }, { address: '豊田市○○町', lotNumber: '2番' }])]);
   assert.deepStrictEqual(chimokuNote, ['あり（1筆）：物件1 豊田市○○町 1番']);
@@ -244,7 +252,7 @@ const OUT = path.join(__dirname, 'out');
   await a.waitForFunction(() => !document.querySelector('#pdfDialog').open, null, { timeout: 5000 });
   assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
   const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
-  for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥841,500', '地元協力金等（○○区 協力金）', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
+  for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥709,500', '地元協力金等（○○区 協力金）', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
   fs.writeFileSync(path.join(OUT, 'case_print.html'), printHtml);
 
   // 電話番号は tel: リンク。連絡先・訪問先の一覧（農業委員会は市区町村から、同じ相手は物件をまとめる）

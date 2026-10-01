@@ -261,6 +261,8 @@ function submitCase(form, requestInvestigation) {
       tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
       shimatsusho: l.shimatsusho, shimatsuStamp: l.shimatsuStamp, shimatsuNote: l.shimatsuNote,
       saiShinsei: l.saiShinsei, saiShinseiNote: l.saiShinseiNote,
+      hinochi: l.hinochi, hinochiYears: l.hinochiYears, hinochiDocs: l.hinochiDocs, hinochiNote: l.hinochiNote,
+      zeseiKyoka: l.zeseiKyoka, zeseiNote: l.zeseiNote,
       chimokuHenko: l.chimokuHenko ? 'はい' : '',
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
@@ -517,6 +519,7 @@ function normalizeLot_(l, prefecture, master) {
     ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
   const purpose = pick_(l.zone, FORM_OPTIONS.zones) === '市街化調整区域' ? pick_(l.purpose, FORM_OPTIONS.purposes) : '';
   const drainOn = go && purpose === '分家住宅';
+  const hinochiOn = convOn && !rirekiOn && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域';
   const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
@@ -577,6 +580,14 @@ function normalizeLot_(l, prefecture, master) {
     shimatsusho: convOn && !rirekiOn ? pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) : '',
     shimatsuStamp: shimatsuOn ? pick_(l.shimatsuStamp, FORM_OPTIONS.shimatsusho) : '',
     shimatsuNote: shimatsuOn ? str_(l.shimatsuNote, 200) : '',
+    // 無断転用（転用済み・履歴なし、市街化区域以外）：非農地証明で対応できるか → 可能なら要件、不可なら是正の許可申請
+    hinochi: hinochiOn ? pick_(l.hinochi, FORM_OPTIONS.hinochi) : '',
+    hinochiYears: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '可能' ? str_(l.hinochiYears, 20) : '',
+    hinochiDocs: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '可能'
+      ? (Array.isArray(l.hinochiDocs) ? l.hinochiDocs : []).filter(function (d) { return FORM_OPTIONS.hinochiDocs.indexOf(d) >= 0; }).join('・') : '',
+    hinochiNote: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '可能' ? str_(l.hinochiNote, 300) : '',
+    zeseiKyoka: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? pick_(l.zeseiKyoka, FORM_OPTIONS.zeseiKyoka) : '',
+    zeseiNote: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? str_(l.zeseiNote, 300) : '',
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
     noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',

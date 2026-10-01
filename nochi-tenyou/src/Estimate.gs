@@ -47,7 +47,8 @@ function calculateEstimate_(input) {
   const allLots = input.lots || [];
   // 許可・届出の履歴がある物件は、改めて許可・届出が必要と回答があった場合以外は計上しない（物件番号は元のまま）
   const lots = allLots.map(function (l, i) { return Object.assign({}, l, { __i: i }); })
-    .filter(function (l) { return !(l.tenyoRireki === 'あり' && l.saiShinsei !== '必要'); });
+    .filter(function (l) { return !(l.tenyoRireki === 'あり' && l.saiShinsei !== '必要') && l.hinochi !== '可能'; });
+  // ↑ 非農地証明（現況証明）で対応できる物件も、許可申請は計上しない（現況証明を計上）
   const items = [];
   const notes = [];
   const item = function (key, times) {
@@ -194,13 +195,22 @@ function calculateEstimate_(input) {
   const isConvertedLot = function (l) {
     return l.isConverted === 'はい' || CONVERTED_LAND_USES.indexOf(l.landUse) >= 0;
   };
-  const genkyo = lots.filter(function (l) { return isConvertedLot(l) && PERMIT_ZONES.indexOf(l.zone) >= 0; });
-  if (genkyo.length) {
-    items.push(item('ADD_GENKYO'));
-    notes.push('現況が農地以外の物件は、現況証明（非農地証明）で対応できる場合があります（その場合は農地転用の許可申請が不要となり、金額が変わります）。');
-  } else if (lots.some(function (l) { return isConvertedLot(l) && l.zone === '分からない'; })) {
-    notes.push('市街化区域外の場合は +' + formatYen_(fees.ADD_GENKYO.amount) + '（現況証明（非農地証明））が見込まれます。');
-  }
+  // 非農地証明で対応できるかは農業委員会に聞かないと分からない。「可能」と回答があった物件だけ現況証明を計上する
+  const genkyo = allLots.filter(function (l) { return l.hinochi === '可能'; });
+  if (genkyo.length) items.push(item('ADD_GENKYO'));
+  allLots.forEach(function (l, i) {
+    if (l.hinochi === '可能') {
+      const req = [l.hinochiYears ? '農地以外の利用 ' + l.hinochiYears : '', l.hinochiDocs, l.hinochiNote].filter(String).join('／');
+      notes.push(lotName_(l, i) + '：非農地証明（現況証明）で対応できるとの回答のため、許可申請に代えて現況証明で計上しています' + (req ? '（要件：' + req + '）' : '') + '。');
+    } else if (l.hinochi === '不可') {
+      notes.push(lotName_(l, i) + '：非農地証明では対応できないとの回答のため、無断転用の是正として許可申請で計上しています' +
+        (l.zeseiKyoka === 'できない' ? '。ただし是正の許可申請もできないとの回答です（要相談）' : l.zeseiKyoka === '要相談・未確認' ? '（是正の許可申請の可否は要確認）' : '') +
+        (l.zeseiNote ? '（' + l.zeseiNote + '）' : '') + '。');
+    } else if (isConvertedLot(l) && l.tenyoRireki !== 'あり' && l.zone !== '市街化区域') {
+      notes.push(lotName_(l, i) + '：現況が農地以外です。非農地証明（現況証明）で対応できる場合は、許可申請に代えて現況証明（' +
+        formatYen_(fees.ADD_GENKYO.amount) + '）となります（農業委員会に確認）。');
+    }
+  });
 
   // --- 5b. 地目変更登記：チェックした物件があれば1回（2筆以上の筆数加算は都度調整） ---
   // 地目変更登記は農地転用とは別の手続きのため、許可・届出の履歴がある物件も含めて数える
@@ -272,7 +282,8 @@ function lotRowToEstimateLot_(r) {
   ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'localConsent', 'iinStamp', 'purpose',
     'drainConsent', 'drainLocalConsent', 'drainName', 'jogaiKanou', 'jogaiNote', 'jogaiUketsuke', 'tenyoKanou', 'kanouNote',
     'noutiKubun', 'tenyoUketsuke', 'tenyoRireki', 'rirekiDate', 'rirekiNo', 'rirekiNote', 'saiShinsei', 'saiShinseiNote',
-    'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'hojoKuiki', 'hojo8nen'].forEach(function (k) {
+    'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'hojoKuiki', 'hojo8nen',
+    'hinochi', 'hinochiYears', 'hinochiDocs', 'hinochiNote', 'zeseiKyoka', 'zeseiNote'].forEach(function (k) {
     lot[k] = r[k] === undefined || r[k] === null ? '' : String(r[k]);
   });
   return lot;

@@ -375,6 +375,9 @@
   function lotSteps(l) {
     var bad = function (v) { return v === '難しい' ? 'bad' : ''; };
     return [
+      ['非農地証明・是正', [
+        ['非農地証明', l.hinochi, l.hinochi === '不可' ? 'bad' : ''], ['利用年数', l.hinochiYears], ['証明資料', l.hinochiDocs], ['要件・備考', l.hinochiNote],
+        ['是正の許可申請', l.zeseiKyoka, l.zeseiKyoka === 'できない' ? 'bad' : ''], ['是正の備考', l.zeseiNote]]],
       ['過去の転用履歴・始末書', [
         ['転用履歴', l.tenyoRireki], ['受理・許可日', l.rirekiDate], ['番号', l.rirekiNo], ['内容', l.rirekiNote],
         ['再申請の要否', l.saiShinsei], ['再申請の備考', l.saiShinseiNote],

@@ -74,6 +74,11 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
     if (l.saiShinsei) {
       lines.push('　　再申請の要否：' + l.saiShinsei + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : ''));
     }
+    if (l.hinochi) {
+      lines.push('　　非農地証明（現況証明）：' + l.hinochi +
+        (l.hinochi === '可能' ? [l.hinochiYears && '利用 ' + l.hinochiYears, l.hinochiDocs, l.hinochiNote].filter(String).map(function (x) { return '／' + x; }).join('') : '') +
+        (l.hinochi === '不可' ? '／是正の許可申請：' + (l.zeseiKyoka || '-') + (l.zeseiNote ? '（' + l.zeseiNote + '）' : '') : ''));
+    }
     if (l.shimatsusho) {
       lines.push('　　始末書の提出：' + l.shimatsusho + (l.shimatsuStamp ? '／押印 ' + l.shimatsuStamp : '') + (l.shimatsuNote ? '（' + l.shimatsuNote + '）' : ''));
     }
