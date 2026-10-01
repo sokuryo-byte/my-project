@@ -892,7 +892,7 @@
     h.push(kvTable([
       ['物件', lots.length ? lots.length + '筆（' + (c.prefecture || '―') + '）' : ''], ['面積合計', has(c.area) ? c.area + ' ㎡' : ''],
       ['区域区分', c.zone], ['転用目的', c.purpose],
-      ['信託手続き', c.trust === true ? '付随する' : ''], ['資料', c.documents],
+      ['信託手続き', c.trust === true ? '付随する' : ''], ['筆数加算', c.extraLotFee], ['資料', c.documents],
       ['入力者', c.submittedBy], ['最終更新', c.updatedAt],
       ['今後の転用計画', c.plan, 'wide'],
       ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(has).join('\n'), 'wide']
@@ -1091,6 +1091,7 @@
       ['区域区分', c.zone],
       ['転用目的', c.purpose],
       ['信託手続きに付随', c.trust === true ? 'はい' : ''],
+      ['筆数加算', c.extraLotFee],
       ['資料', c.documents],
       ['今後の転用計画', c.plan, 'wide'],
       ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(has).join('\n'), 'wide']

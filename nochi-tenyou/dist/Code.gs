@@ -124,7 +124,7 @@ const DEFAULT_FEES = [
   { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
     note: '「地目変更登記が必要」にチェックした物件がある場合に1回加算（料金表 3201。2筆以上の筆数加算は都度調整）' },
   { key: 'ADD_PER_EXTRA_LOT', label: '物件（筆）追加 加算（1筆あたり）', amount: 10000,
-    note: '同じ申請に含まれる2筆目以降の物件1筆ごとに加算' },
+    note: '依頼画面で「筆数加算をする」にチェックした場合だけ、同じ申請に含まれる2筆目以降の物件1筆ごとに加算（1申請で足りる場合は加算しない）' },
 ];
 
 /**
@@ -461,7 +461,8 @@ const CASE_COLUMNS = [
   { key: 'estimatePdfUrl', header: '正式見積PDF' },
   { key: 'estimatePdfAt', header: '正式見積の提示日時' },
   { key: 'reportResult', header: '正式見積の報告結果' },
-  { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' },
+  { key: 'extraLotFee', header: '筆数加算' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**
@@ -897,6 +898,7 @@ function submitCase(form, requestInvestigation) {
     waterAssociation: summary.localConsent,
     purpose: input.purpose,
     trust: input.trust,
+    extraLotFee: input.lots.length > 1 ? (input.extraLotFee ? 'あり' : 'なし') : '',
     localConsentNote: summary.localContacts,
     estimateDetail: estimateToText_(estimate),
     submittedBy: input.submittedBy,
@@ -1127,6 +1129,7 @@ function normalizeInput_(form) {
   return {
     requesterName: str_(f.requesterName, 50),
     trust: f.trust === true,
+    extraLotFee: f.extraLotFee === true, // 筆数加算をするか（1申請で足りるなら加算しない）
     prefecture: prefecture,
     lots: lots,
     plan: str_(f.plan, 1000),
@@ -1683,8 +1686,9 @@ function calculateEstimate_(input) {
   }
 
   // --- 2. 物件（筆）追加 加算 ---
+  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）
   const extraLots = lots.length - zones.length;
-  if (extraLots > 0) items.push(item('ADD_PER_EXTRA_LOT', extraLots));
+  if (extraLots > 0 && input.extraLotFee === true) items.push(item('ADD_PER_EXTRA_LOT', extraLots));
 
   // --- 3. 農振除外 加算 ---
   const noshinYes = lots.filter(function (l) { return l.isNoshin === 'はい'; });

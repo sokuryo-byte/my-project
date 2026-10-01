@@ -89,8 +89,9 @@ function calculateEstimate_(input) {
   }
 
   // --- 2. 物件（筆）追加 加算 ---
+  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）
   const extraLots = lots.length - zones.length;
-  if (extraLots > 0) items.push(item('ADD_PER_EXTRA_LOT', extraLots));
+  if (extraLots > 0 && input.extraLotFee === true) items.push(item('ADD_PER_EXTRA_LOT', extraLots));
 
   // --- 3. 農振除外 加算 ---
   const noshinYes = lots.filter(function (l) { return l.isNoshin === 'はい'; });

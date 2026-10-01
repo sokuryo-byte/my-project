@@ -203,6 +203,7 @@ function submitCase(form, requestInvestigation) {
     waterAssociation: summary.localConsent,
     purpose: input.purpose,
     trust: input.trust,
+    extraLotFee: input.lots.length > 1 ? (input.extraLotFee ? 'あり' : 'なし') : '',
     localConsentNote: summary.localContacts,
     estimateDetail: estimateToText_(estimate),
     submittedBy: input.submittedBy,
@@ -433,6 +434,7 @@ function normalizeInput_(form) {
   return {
     requesterName: str_(f.requesterName, 50),
     trust: f.trust === true,
+    extraLotFee: f.extraLotFee === true, // 筆数加算をするか（1申請で足りるなら加算しない）
     prefecture: prefecture,
     lots: lots,
     plan: str_(f.plan, 1000),

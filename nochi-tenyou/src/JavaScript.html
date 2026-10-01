@@ -370,6 +370,7 @@
       card.querySelector('.lot-title').textContent = '物件' + (i + 1);
       card.querySelector('.lot-del').classList.toggle('hidden', lots.length === 1);
     });
+    $('extraLotWrap').classList.toggle('hidden', lots.length < 2); // 筆数加算は2筆以上のときだけ選ぶ
   }
 
   /**
@@ -1334,6 +1335,7 @@
     return {
       requesterName: $('requesterName').value,
       trust: $('trust').checked,
+      extraLotFee: $('extraLotFee').checked,
       prefecture: qsa('.lot').length ? lotPref(qsa('.lot')[0]) : state.prefs[0],
       lots: qsa('.lot').map(getLotData),
       plan: $('plan').value,

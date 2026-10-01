@@ -60,6 +60,16 @@ const OUT = path.join(__dirname, 'out');
   await p.waitForTimeout(800);
   assert.strictEqual(await p.textContent('#estimateTotal'), '¥679,300'); // 報酬(235,000+58,000+300,000)+消費税10% 59,300 + 調査実費 25,000+2,000
 
+  // 筆数加算：2筆以上で表示。チェックしたときだけ（同じ区域の2筆目以降）加算
+  assert.strictEqual(await p.$eval('#extraLotWrap', (e) => e.classList.contains('hidden')), false);
+  const extra = await p.evaluate(() => {
+    const lots = [{ zone: '市街化区域', landUse: '耕作中' }, { zone: '市街化区域', landUse: '耕作中' }, { zone: '市街化区域', landUse: '耕作中' }];
+    const has = (e) => e.items.some((it) => it.label.indexOf('物件（筆）追加') === 0);
+    return [has(calculateEstimate_({ lots: lots })), has(calculateEstimate_({ lots: lots, extraLotFee: true })),
+      calculateEstimate_({ lots: lots, extraLotFee: true }).total - calculateEstimate_({ lots: lots }).total];
+  });
+  assert.deepStrictEqual(extra, [false, true, 22000]);
+
   // 地目変更登記：チェックした物件があれば 48,000（税抜）を1回 → +52,800
   await p.check('.lot [data-f=chimokuHenko]');
   await p.waitForTimeout(500);
@@ -161,7 +171,7 @@ const OUT = path.join(__dirname, 'out');
   await a.waitForFunction(() => document.querySelector('#detail .pdf-note').textContent.includes('保存しました'));
   assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
   const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
-  for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥822,500', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
+  for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥811,500', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
   fs.writeFileSync(path.join(OUT, 'case_print.html'), printHtml);
 
   // 電話番号は tel: リンク。連絡先・訪問先の一覧（農業委員会は市区町村から、同じ相手は物件をまとめる）
