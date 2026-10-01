@@ -154,6 +154,48 @@ function deleteCase_(caseId, deletedBy) {
   }
 }
 
+/**
+ * 個別のデータ修正（指定の受付番号の案件だけ）：許可・届出の履歴がある物件の「再申請の要否」が空欄なら「不要」にし、
+ * 物件明細から概算見積を計算し直して案件一覧に書き込む。ほかの案件・ほかの列は変更しない。
+ * @return {string} 結果（スクリプトプロパティ FIX_261001_02_RESULT に記録）
+ */
+function fixCaseSaiShinseiAndRecalc_(caseNo) {
+  const c = getAllCases_().filter(function (x) { return String(x.caseNo) === caseNo; })[0];
+  if (!c) return caseNo + '：案件なし';
+  const row = findCaseRow_(c.id);
+  const lotsSheet = getSheet_(SHEET_NAMES.LOTS);
+  ensureHeaders_(lotsSheet, LOT_COLUMNS.map(function (x) { return x.header; }));
+  const col = function (key) { return LOT_COLUMNS.findIndex(function (x) { return x.key === key; }); };
+  const values = lotsSheet.getRange(2, 1, lotsSheet.getLastRow() - 1, LOT_COLUMNS.length).getValues();
+  const tz = Session.getScriptTimeZone();
+  const bool = function (v) { return v === true ? 'はい' : v === false ? 'いいえ' : v === '不明' ? '分からない' : ''; };
+  let fixed = 0;
+  const lots = [];
+  values.forEach(function (r, i) {
+    if (Number(r[0]) !== Number(c.id)) return;
+    if (r[col('tenyoRireki')] === 'あり' && !r[col('saiShinsei')]) {
+      lotsSheet.getRange(i + 2, col('saiShinsei') + 1).setValue('不要');
+      r[col('saiShinsei')] = '不要';
+      fixed++;
+    }
+    const d = r[col('rirekiDate')];
+    lots.push({
+      lotNumber: String(r[col('lotNumber')] || ''), zone: r[col('zone')], area: Number(r[col('area')]) || null,
+      isNoshin: bool(r[col('isNoshin')]), landUse: String(r[col('landUse')] || ''), isConverted: bool(r[col('isConverted')]),
+      landImprovement: r[col('landImprovement')] || '', purpose: r[col('purpose')] || '',
+      chimokuHenko: r[col('chimokuHenko')] === 'はい' || r[col('chimokuHenko')] === true,
+      tenyoRireki: r[col('tenyoRireki')], saiShinsei: r[col('saiShinsei')], saiShinseiNote: r[col('saiShinseiNote')] || '',
+      rirekiDate: d instanceof Date ? Utilities.formatDate(d, tz, 'yyyy/MM/dd') : String(d || ''),
+      rirekiNo: String(r[col('rirekiNo')] || ''), rirekiNote: String(r[col('rirekiNote')] || ''),
+      shimatsusho: r[col('shimatsusho')] || '', kairyoBenefit: r[col('kairyoBenefit')] || '',
+    });
+  });
+  const est = calculateEstimate_({ lots: lots, trust: c.trust === true, extraLotFee: c.extraLotFee === 'あり' });
+  updateCaseCells_(row, { estimate: est.ok ? est.total : '', estimateDetail: estimateToText_(est), updatedAt: new Date() });
+  SpreadsheetApp.flush();
+  return caseNo + '：再申請の要否を' + fixed + '筆「不要」に／概算 ' + (est.ok ? est.total : '計算不可');
+}
+
 /** 案件IDから行番号を探す（見つからなければ 0） */
 function findCaseRow_(caseId) {
   const sheet = getSheet_(SHEET_NAMES.CASES);

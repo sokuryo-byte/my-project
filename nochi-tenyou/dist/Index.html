@@ -1091,6 +1091,21 @@ function ensureSetup_() {
 function runMigrations_() {
   const props = PropertiesService.getScriptProperties();
   runFeePatches_(props);
+  // 個別のデータ修正（1回だけ・この受付番号の案件だけ）：再申請の要否を「不要」にして概算を再計算（地目変更が0円になっていた不具合の後始末）
+  if (props.getProperty('FIX_261001_02') !== '1') {
+    const lock0 = LockService.getScriptLock();
+    lock0.waitLock(30 * 1000);
+    try {
+      if (props.getProperty('FIX_261001_02') !== '1') {
+        props.setProperty('FIX_261001_02_RESULT', fixCaseSaiShinseiAndRecalc_('261001-02'));
+        props.setProperty('FIX_261001_02', '1');
+      }
+    } catch (e) {
+      logError_('FIX_261001_02', e && e.message || e, '');
+    } finally {
+      lock0.releaseLock();
+    }
+  }
   if (props.getProperty('CASE_NO_DONE') !== '1') {
     const lock = LockService.getScriptLock();
     lock.waitLock(30 * 1000);
