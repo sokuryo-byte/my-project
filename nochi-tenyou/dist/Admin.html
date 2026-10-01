@@ -372,7 +372,7 @@
   <div id="settingsView" class="settings hidden">
     <section>
       <h2>概算見積の金額</h2>
-      <p class="help">依頼画面の概算見積に即時反映されます。報酬は税抜（消費税10%は自動で加算）、実費は非課税です。適用条件の変更はシステム改修が必要です。</p>
+      <p class="help">依頼画面の概算見積に即時反映され、保存すると対応状況が「新規」「調査中」の案件の概算も計算し直します（正式見積提示済・受任・完了・失注は変更しません）。報酬は税抜（消費税10%は自動で加算）、実費は非課税です。適用条件の変更はシステム改修が必要です。</p>
       <div class="list">
         <table class="cases fees">
           <thead><tr><th>項目名（見積に表示）</th><th class="num">金額（円）</th><th>適用条件</th></tr></thead>
@@ -1294,11 +1294,20 @@
   $('tabCases').addEventListener('click', function () { showTab('cases'); });
   $('tabSettings').addEventListener('click', function () { showTab('settings'); });
   $('saveFees').addEventListener('click', function () {
+    var btn = this;
     var rows = Array.prototype.map.call(document.querySelectorAll('#feeRows tr[data-key]'), function (tr) {
       return { key: tr.getAttribute('data-key'),
         label: tr.querySelector('[data-f=label]').value, amount: tr.querySelector('[data-f=amount]').value };
     });
-    callSettings(this, 'feesMsg', 'saveFeeSettings', rows);
+    btn.disabled = true; flash('feesMsg', '保存中…');
+    google.script.run
+      .withSuccessHandler(function (data) {
+        btn.disabled = false; renderSettings(data);
+        flash('feesMsg', '保存しました（新規・調査中の案件の概算を ' + (data.recalculated || 0) + '件 計算し直しました）');
+        load(); // 案件一覧の金額も新しくする
+      })
+      .withFailureHandler(function (err) { btn.disabled = false; flash('feesMsg', err.message, true); })
+      .saveFeeSettings(rows);
   });
   $('saveAdmins').addEventListener('click', function () {
     callSettings(this, 'adminsMsg', 'saveAdminEmails', $('adminEmails').value);

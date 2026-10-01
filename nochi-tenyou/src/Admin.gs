@@ -236,10 +236,20 @@ function saveFeeSettings(rows) {
       const i = keys.indexOf(r.key);
       if (i >= 0) sheet.getRange(i + 2, 2, 1, 2).setValues([[r.label, r.amount]]);
     });
+    SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
   }
-  return getAdminSettings();
+  // 正式見積を提示する前の案件（新規・調査中）の概算を、新しい金額ですぐ計算し直す
+  let recalculated = 0;
+  const lock2 = LockService.getScriptLock();
+  lock2.waitLock(30 * 1000);
+  try {
+    recalculated = recalcOpenEstimates_();
+  } finally {
+    lock2.releaseLock();
+  }
+  return Object.assign(getAdminSettings(), { recalculated: recalculated });
 }
 
 /**

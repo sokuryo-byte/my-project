@@ -79,6 +79,21 @@ function runMigrations_() {
       lock0.releaseLock();
     }
   }
+  // 地目変更登記の計算を変えたため（3筆目から筆数加算）、提示前の案件の概算を1回計算し直す
+  if (props.getProperty('RECALC_2026_05') !== '1') {
+    const lock1 = LockService.getScriptLock();
+    lock1.waitLock(30 * 1000);
+    try {
+      if (props.getProperty('RECALC_2026_05') !== '1') {
+        props.setProperty('RECALC_2026_05_RESULT', String(recalcOpenEstimates_()));
+        props.setProperty('RECALC_2026_05', '1');
+      }
+    } catch (e) {
+      logError_('RECALC_2026_05', e && e.message || e, '');
+    } finally {
+      lock1.releaseLock();
+    }
+  }
   if (props.getProperty('CASE_NO_DONE') !== '1') {
     const lock = LockService.getScriptLock();
     lock.waitLock(30 * 1000);

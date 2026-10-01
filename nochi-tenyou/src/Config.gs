@@ -119,7 +119,9 @@ const DEFAULT_FEES = [
   { key: 'ADD_GENKYO', label: '現況証明（非農地証明）願出', amount: 120000,
     note: '市街化区域外で、既に宅地など農地以外として利用されている（現況が宅地・駐車場・資材置場、または転用済み「はい」）物件がある場合に加算（料金表 4100）' },
   { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
-    note: '「地目変更登記が必要」にチェックした物件がある場合に1回加算（料金表 3201。2筆以上の筆数加算は都度調整）' },
+    note: '「地目変更登記が必要」にチェックした物件がある場合に1回加算（料金表 3201。2筆までこの金額のみ）' },
+  { key: 'ADD_CHIMOKU_EXTRA', label: '地目変更登記 筆数加算（3筆目から1筆あたり）', amount: 5000,
+    note: '地目変更登記が3筆以上の場合、3筆目から1筆ごとに加算' },
   { key: 'ADD_PER_EXTRA_LOT', label: '筆数加算・許可（1筆あたり）', amount: 10000,
     note: '「筆数加算をする」にチェックした場合だけ、許可（市街化調整区域・非線引き・都市計画区域外）の同じ申請の2筆目以降1筆ごとに加算' },
   { key: 'ADD_PER_EXTRA_LOT_TODOKE', label: '筆数加算・届出（1筆あたり）', amount: 10000,
@@ -152,6 +154,7 @@ const FEE_PATCHES = {
   '2026-02': ['ADD_LAND_IMPROVEMENT'], // 土地改良区除外申請 35,000 → 40,000
   '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
   '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
+  '2026-05': ['ADD_CHIMOKU:label'],       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
 };
 
 /** 報酬にかける消費税率（実費にはかけない） */
@@ -529,6 +532,9 @@ const LOT_COLUMNS = [
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
 const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments'];
+
+/** 見積の金額設定を変えたときに概算を計算し直す案件（正式見積を提示する前の案件だけ） */
+const RECALC_STATUSES = ['新規', '調査中'];
 
 /** 訪問のアポイントの状況 */
 const APPOINTMENT_STATUSES = ['未連絡', '調整中', '確定', '訪問済み'];

@@ -195,7 +195,8 @@ function calculateEstimate_(input) {
   const chimokuLots = allLots.filter(function (l) { return l.chimokuHenko === true; });
   if (chimokuLots.length) {
     items.push(item('ADD_CHIMOKU'));
-    if (chimokuLots.length > 1) notes.push('地目変更登記は' + chimokuLots.length + '筆です。筆数加算は都度調整します。');
+    // 2筆までは加算なし、3筆目から1筆ごとに加算
+    if (chimokuLots.length > 2) items.push(item('ADD_CHIMOKU_EXTRA', chimokuLots.length - 2));
   }
 
   // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
@@ -226,6 +227,66 @@ function calculateEstimate_(input) {
   });
   return { ok: true, total: total, feeSubtotal: feeSubtotal, tax: tax, taxRate: TAX_RATE, feeTotal: feeSubtotal + tax,
     costTotal: costTotal, items: items, notes: notes };
+}
+
+/**
+ * 物件明細シートの1行（getLotsByCase_ の形）を、見積の計算に使う形に戻す。
+ * 金額はシートに保存した文字（「1㎡あたり 329円（…）」「1申請あたり 1,100円／…」「10,000円／…」）から読み取る。
+ */
+function lotRowToEstimateLot_(r) {
+  const bool = function (v) { return v === true ? 'はい' : v === false ? 'いいえ' : v === '不明' ? '分からない' : String(v || ''); };
+  const yen = function (s) { const m = String(s || '').match(/([\d,]+)円/); return m ? Number(m[1].replace(/,/g, '')) : 0; };
+  const st = String(r.kairyoSettlementNote || '');
+  const fee = String(r.kairyoFee || '');
+  const lot = {
+    lotNumber: String(r.lotNumber || ''),
+    area: Number(String(r.area === undefined ? '' : r.area).replace(/,/g, '')) || null,
+    isNoshin: bool(r.isNoshin), isConverted: bool(r.isConverted),
+    landUse: String(r.landUse || '').replace(/（.*$/, ''), // 「駐車場（補足）」→「駐車場」
+    chimokuHenko: r.chimokuHenko === 'はい' || r.chimokuHenko === true,
+    settlementAmount: r.kairyoSettlement === '必要' ? yen(st) : 0,
+    settlementUnit: /^1㎡あたり/.test(st) ? '㎡あたり' : /^1haあたり/.test(st) ? 'haあたり' : '総額',
+    kairyoFeeAmount: yen(fee),
+    kairyoFeeUnit: /^1筆あたり/.test(fee) ? '1筆あたり' : '1申請あたり',
+    drainFeeAmount: yen(r.drainFee),
+  };
+  ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'localConsent', 'iinStamp', 'purpose',
+    'drainConsent', 'drainLocalConsent', 'drainName', 'jogaiKanou', 'jogaiNote', 'jogaiUketsuke', 'tenyoKanou', 'kanouNote',
+    'noutiKubun', 'tenyoUketsuke', 'tenyoRireki', 'rirekiDate', 'rirekiNo', 'rirekiNote', 'saiShinsei', 'saiShinseiNote',
+    'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'hojoKuiki', 'hojo8nen'].forEach(function (k) {
+    lot[k] = r[k] === undefined || r[k] === null ? '' : String(r[k]);
+  });
+  return lot;
+}
+
+/**
+ * 1件の概算を、物件明細シートの内容と現在の金額設定で計算し直す。変わったときだけ書き込む。
+ * @return {boolean} 書き込んだか
+ */
+function recalcCaseEstimate_(c, lotRows) {
+  if (!lotRows || !lotRows.length) return false;
+  const est = calculateEstimate_({
+    lots: lotRows.map(lotRowToEstimateLot_), trust: c.trust === true, extraLotFee: c.extraLotFee === 'あり',
+  });
+  const total = est.ok ? est.total : '';
+  const detail = estimateToText_(est);
+  if (String(c.estimate) === String(total) && String(c.estimateDetail) === detail) return false;
+  const row = findCaseRow_(c.id);
+  if (!row) return false;
+  updateCaseCells_(row, { estimate: total, estimateDetail: detail });
+  return true;
+}
+
+/** 正式見積を提示する前の案件（RECALC_STATUSES）の概算を、現在の金額設定で計算し直す。@return {number} 変わった件数 */
+function recalcOpenEstimates_() {
+  const lotsBy = getLotsByCase_();
+  let n = 0;
+  getAllCases_().forEach(function (c) {
+    if (RECALC_STATUSES.indexOf(c.status) < 0) return;
+    if (recalcCaseEstimate_(c, lotsBy[c.id])) n++;
+  });
+  SpreadsheetApp.flush();
+  return n;
 }
 
 /** 物件の呼び名（物件1（123番1）） */
