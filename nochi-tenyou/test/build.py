@@ -35,7 +35,13 @@ var google = { script: { get run() {
     return function () {
       var args = JSON.parse(JSON.stringify(Array.prototype.slice.call(arguments)));
       setTimeout(function () {
-        try { var r = window[name].apply(null, args); ok(r === undefined ? null : JSON.parse(JSON.stringify(r))); }
+        try {
+          var r = window[name].apply(null, args);
+          // 本番の google.script.run は戻り値に Date が混じると受け渡しに失敗する（null になる）ので、同じく失敗させる
+          var hasDate = function (v) { return v instanceof Date || (v && typeof v === 'object' && Object.keys(v).some(function (k) { return hasDate(v[k]); })); };
+          if (hasDate(r)) throw new Error(name + ' の戻り値に日付（Date）が含まれています');
+          ok(r === undefined ? null : JSON.parse(JSON.stringify(r)));
+        }
         catch (e) { console.log('SERVER ERROR ' + name + ': ' + e.message); ng(e); }
       }, 30);
     };

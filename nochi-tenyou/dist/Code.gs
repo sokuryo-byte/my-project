@@ -1415,10 +1415,12 @@ function getLotsByCase_() {
   const lastRow = sheet.getLastRow();
   const result = {};
   if (lastRow < 2) return result;
+  const tz = Session.getScriptTimeZone();
   sheet.getRange(2, 1, lastRow - 1, LOT_COLUMNS.length).getValues().forEach(function (r) {
     if (r[0] === '') return;
     const lot = {};
-    LOT_COLUMNS.forEach(function (c, i) { lot[c.key] = r[i]; });
+    // 「2020/06/01」などはシートが日付に変換して保存する。日付のまま画面へ渡すと google.script.run が失敗する（管理画面が読み込めない）ため文字にする
+    LOT_COLUMNS.forEach(function (c, i) { lot[c.key] = r[i] instanceof Date ? Utilities.formatDate(r[i], tz, 'yyyy/MM/dd') : r[i]; });
     (result[lot.caseId] = result[lot.caseId] || []).push(lot);
   });
   return result;

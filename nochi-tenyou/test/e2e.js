@@ -155,7 +155,10 @@ const OUT = path.join(__dirname, 'out');
   const a = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   watch(a);
   await a.goto('file://' + path.join(OUT, 'admin.html'));
+  // シートが「2020/06/01」を日付に変換して保存した状態を再現（これでも読み込めること）
+  await a.evaluate(() => { const sh = SHEETS['物件明細']; const col = LOT_COLUMNS.findIndex((c) => c.key === 'rirekiDate'); sh.rows[1][col] = new Date(2020, 5, 1); load(); });
   await a.waitForSelector('#rows .case-card');
+  assert.strictEqual(await a.evaluate(() => state.lotsByCase[state.cases[0].id][0].rirekiDate), '2020/06/01');
   await a.click('#rows .case-card');
   await a.waitForSelector('#detail .lot-card');
   assert.strictEqual((await a.$$('#detail .lot-card')).length, 2);

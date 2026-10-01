@@ -421,6 +421,11 @@
   function load() {
     google.script.run
       .withSuccessHandler(function (data) {
+        if (!data) { // サーバー側で受け渡しに失敗した場合（日付などが混じると null が返る）
+          $('rows').innerHTML = '';
+          $('rows').appendChild(el('p', { 'class': 'empty' }, '読み込みに失敗しました（データの受け渡しエラー）。行政班の管理者に連絡してください。'));
+          return;
+        }
         state.cases = data.cases;
         state.statuses = data.statuses;
         state.lotsByCase = data.lotsByCase || {};
