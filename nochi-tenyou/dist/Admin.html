@@ -218,6 +218,8 @@
     .dhead h2 { margin: 0; font-size: 1.2rem; padding: 0; border: none; }
     .dhead .meta { font-size: .8rem; color: var(--muted); flex-basis: 100%; }
     .pdf-btn { padding: 2px 12px; font-size: .8rem; }
+    .pdf-note { display: inline-flex; align-items: center; gap: 8px; }
+    .pdf-note .pdf-save { padding: 2px 12px; font-size: .8rem; }
     .dhead .amt { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: .75rem; color: var(--muted); }
     .dhead .amt b { display: block; font-size: 1.35rem; color: var(--fg); font-variant-numeric: tabular-nums; }
     /* 対応の流れ（対応状況の進み具合） */
@@ -971,11 +973,20 @@
         var bin = atob(r.data), bytes = new Uint8Array(bin.length);
         for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-        var a = el('a', { href: url, download: r.name });
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        // 自動では保存しない。ボタンの横に「保存する」を出し、押したときだけダウンロードする（小窓は出さない）
         var note = btn.parentNode.querySelector('.pdf-note');
-        if (note) { note.textContent = '保存しました（' + r.name + '）'; setTimeout(function () { note.textContent = ''; }, 6000); }
+        note.innerHTML = '';
+        var save = el('button', { type: 'button', 'class': 'primary pdf-save' }, '保存する');
+        var msg = el('span', { 'class': 'saved' });
+        save.addEventListener('click', function () {
+          var a = el('a', { href: url, download: r.name });
+          document.body.appendChild(a); a.click(); a.remove();
+          msg.textContent = '保存しました（' + r.name + '）';
+          save.textContent = 'もう一度保存';
+        });
+        note.appendChild(save);
+        note.appendChild(msg);
+        save.focus();
       })
       .withFailureHandler(function (err) { btn.disabled = false; btn.textContent = 'PDF出力'; alert('PDFの作成に失敗しました：' + err.message); })
       .exportCasePdf(buildPrintHtml(c, lots), name);
@@ -1069,7 +1080,7 @@
     var pdfBtn = el('button', { type: 'button', 'class': 'ghost pdf-btn' }, 'PDF出力');
     pdfBtn.addEventListener('click', function () { exportPdf(c, pdfBtn); });
     top.appendChild(pdfBtn);
-    top.appendChild(el('span', { 'class': 'saved pdf-note', role: 'status' }));
+    top.appendChild(el('span', { 'class': 'pdf-note', role: 'status' }));
     top.appendChild(el('span', { 'class': 'meta' }, '受付番号 ' + (c.caseNo || c.id) + '　受付 ' + (c.receivedAt || '―') + '　入力者 ' + (c.submittedBy || '―') +
       '　' + (c.requestFlag === true ? '見積調査依頼' : '保存のみ')));
     var amt = el('div', { 'class': 'amt' });

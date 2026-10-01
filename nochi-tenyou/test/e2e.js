@@ -199,7 +199,13 @@ const OUT = path.join(__dirname, 'out');
   await a.screenshot({ path: path.join(OUT, 'admin_estimate.png'), fullPage: true });
 
   // PDF出力：帳票HTMLをサーバーでPDFにしてダウンロード
-  const [dl] = await Promise.all([a.waitForEvent('download', { timeout: 5000 }), a.click('#detail .pdf-btn')]);
+  // PDF出力を押しただけでは保存されない（「保存する」を押したときだけ）
+  let autoDl = false; const onDl = () => { autoDl = true; }; a.on('download', onDl);
+  await a.click('#detail .pdf-btn');
+  await a.waitForSelector('#detail .pdf-save', { timeout: 5000 });
+  await a.waitForTimeout(500); a.off('download', onDl);
+  assert.strictEqual(autoDl, false, 'PDF出力を押しただけで保存された');
+  const [dl] = await Promise.all([a.waitForEvent('download', { timeout: 5000 }), a.click('#detail .pdf-save')]);
   await a.waitForFunction(() => document.querySelector('#detail .pdf-note').textContent.includes('保存しました'));
   assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
   const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
