@@ -458,6 +458,7 @@ const CASE_COLUMNS = [
   { key: 'estimatePdfUrl', header: '正式見積PDF' },
   { key: 'estimatePdfAt', header: '正式見積の提示日時' },
   { key: 'reportResult', header: '正式見積の報告結果' },
+  { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**
@@ -519,7 +520,10 @@ const LOT_COLUMNS = [
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
-const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo'];
+const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments'];
+
+/** 訪問のアポイントの状況 */
+const APPOINTMENT_STATUSES = ['未連絡', '調整中', '確定', '訪問済み'];
 
 /** マスタシートの列（見出し） */
 const MASTER_HEADERS = ['都道府県', '市区町村', '都市計画情報URL', '農振図URL', '備考', '農業委員会 電話番号'];
@@ -2368,6 +2372,7 @@ function getAdminData() {
     lotsByCase: getLotsByCase_(),
     statuses: CASE_STATUSES,
     nogyoIinkai: NOGYO_IINKAI, // 連絡先・訪問先の一覧に農業委員会の電話番号を出すため
+    appointmentStatuses: APPOINTMENT_STATUSES,
     userEmail: getUserEmail_(),
   };
 }
@@ -2487,6 +2492,42 @@ function exportCasePdf(html, fileName) {
   const name = sanitizeFileName_(String(fileName || '案件詳細.pdf'));
   const pdf = Utilities.newBlob(String(html || ''), 'text/html', 'case.html').getAs('application/pdf');
   return { name: /\.pdf$/i.test(name) ? name : name + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) };
+}
+
+/**
+ * 訪問のアポイント（押印・同意で伺う相手ごと）を保存する。
+ * @param {number} caseId
+ * @param {string} key 連絡先キー（区分|氏名|電話の数字）
+ * @param {{at:string, status:string, memo:string}} appt すべて空なら削除
+ * @return {string} 保存後の appointments（JSON）
+ */
+function saveAppointment(caseId, key, appt) {
+  requireAdmin_();
+  const k = String(key || '').slice(0, 200);
+  if (!k) throw new Error('連絡先が不正です。');
+  const a = appt || {};
+  const at = String(a.at || '').trim();
+  if (at && !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(at)) throw new Error('日時の形式が不正です。');
+  const status = APPOINTMENT_STATUSES.indexOf(a.status) >= 0 ? a.status : '';
+  const memo = String(a.memo || '').trim().slice(0, 300);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    const sheet = getSheet_(SHEET_NAMES.CASES);
+    if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
+    let map = {};
+    try { map = JSON.parse(String(sheet.getRange(row, colIndexOf_('appointments')).getValue() || '{}')) || {}; } catch (e) { map = {}; }
+    if (at || memo || (status && status !== '未連絡')) map[k] = { at: at, status: status, memo: memo };
+    else delete map[k];
+    const json = Object.keys(map).length ? JSON.stringify(map) : '';
+    updateCaseCells_(row, { appointments: json, updatedAt: new Date() });
+    return json;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** 管理者かどうか（スクリプトプロパティ ADMIN_EMAILS が優先） */

@@ -157,11 +157,8 @@ const OUT = path.join(__dirname, 'out');
   await a.screenshot({ path: path.join(OUT, 'admin_estimate.png'), fullPage: true });
 
   // PDF出力：帳票HTMLをサーバーでPDFにしてダウンロード
-  await a.click('#detail .pdf-btn');
-  await a.waitForSelector('#pdfDialog[open]', { timeout: 5000 });
-  const [dl] = await Promise.all([a.waitForEvent('download', { timeout: 5000 }), a.click('#pdfSave')]);
-  assert.ok((await a.textContent('#pdfDone')).includes('保存しました'));
-  await a.click('#pdfClose');
+  const [dl] = await Promise.all([a.waitForEvent('download', { timeout: 5000 }), a.click('#detail .pdf-btn')]);
+  await a.waitForFunction(() => document.querySelector('#detail .pdf-note').textContent.includes('保存しました'));
   assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
   const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
   for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥822,500', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
@@ -171,8 +168,20 @@ const OUT = path.join(__dirname, 'out');
   await a.evaluate(() => { state.lotsByCase[state.cases[0].id].forEach((l) => { l.kairyoName = '○○土地改良区'; l.kairyoTel = '0565-12-3456'; });
     state.lotsByCase[state.cases[0].id][0].iinContacts = '山田 太郎／○○町1-2／090-1111-2222'; renderDetail(state.cases[0].id); });
   assert.strictEqual(await a.$eval('#detail table.ct a.tel', (e) => e.getAttribute('href')).then((h) => h.startsWith('tel:')), true);
-  const ct = await a.$$eval('#detail table.ct tr', (rows) => rows.map((r) => r.querySelector('.kind').textContent + '|' + r.querySelector('.lots').textContent));
+  const ct = await a.$$eval('#detail table.ct tr:not(.appt)', (rows) => rows.map((r) => r.querySelector('.kind').textContent + '|' + r.querySelector('.lots').textContent));
   assert.deepStrictEqual(ct, ['農業委員会|物件1・2', '土地改良区|物件1・2', '地元委員|物件1']);
+
+  // 訪問のアポイント（地元委員など伺う相手だけ）：入力するとその場で保存、PDFにも出る
+  assert.strictEqual((await a.$$('#detail tr.appt')).length, 1);
+  await a.fill('#detail tr.appt input[type=datetime-local]', '2026-10-03T14:00');
+  await a.selectOption('#detail tr.appt select', '確定');
+  await a.fill('#detail tr.appt input[type=text]', '実印持参');
+  await a.press('#detail tr.appt input[type=text]', 'Tab');
+  await a.waitForFunction(() => /実印持参/.test(SHEETS['案件一覧'].rows[1][colIndexOf_('appointments') - 1] || ''), null, { timeout: 5000 });
+  const apptJson = JSON.parse(await a.evaluate(() => SHEETS['案件一覧'].rows[1][colIndexOf_('appointments') - 1]));
+  assert.deepStrictEqual(Object.values(apptJson), [{ at: '2026-10-03T14:00', status: '確定', memo: '実印持参' }]);
+  const apptPdf = await a.evaluate(() => buildPrintHtml(state.cases[0], state.lotsByCase[state.cases[0].id]));
+  assert.ok(apptPdf.includes('10/3(土) 14:00　確定') && apptPdf.includes('実印持参'));
 
   // 削除：控えシートへ移して消す。削除したIDは再利用しない
   a.on('dialog', (d) => d.accept());

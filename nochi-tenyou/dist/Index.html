@@ -616,6 +616,7 @@ const CASE_COLUMNS = [
   { key: 'estimatePdfUrl', header: '正式見積PDF' },
   { key: 'estimatePdfAt', header: '正式見積の提示日時' },
   { key: 'reportResult', header: '正式見積の報告結果' },
+  { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**
@@ -677,7 +678,10 @@ const LOT_COLUMNS = [
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
-const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo'];
+const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments'];
+
+/** 訪問のアポイントの状況 */
+const APPOINTMENT_STATUSES = ['未連絡', '調整中', '確定', '訪問済み'];
 
 /** マスタシートの列（見出し） */
 const MASTER_HEADERS = ['都道府県', '市区町村', '都市計画情報URL', '農振図URL', '備考', '農業委員会 電話番号'];
