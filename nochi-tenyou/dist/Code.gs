@@ -393,7 +393,8 @@ const FORM_OPTIONS = {
   settlementUnits: ['総額', '㎡あたり', 'haあたり'],        // 決済金の単位（多くは㎡単価・ha単価）
   kairyoFeeUnits: ['1申請あたり', '1筆あたり'],             // 土地改良区の手数料等：1申請につき／1筆ごと
   tenyoRireki: ['あり', 'なし', '未確認'],
-  shimatsusho: ['必要', '不要', '未確認'],                  // 無断転用の始末書（顛末書）の提出（農業委員会に確認）                  // 転用済みの物件：過去の転用届出（市街化）・転用許可（調整区域等）の履歴
+  shimatsusho: ['必要', '不要', '未確認'],                  // 無断転用の始末書（顛末書）の提出（農業委員会に確認）
+  saiShinsei: ['必要', '不要', '未確認'],                   // 許可・届出済みで現況が未転用の場合、改めて許可・届出が必要か（農業委員会に確認）
   kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
@@ -524,6 +525,8 @@ const LOT_COLUMNS = [
   { key: 'shimatsuStamp', header: '始末書の押印' },
   { key: 'shimatsuNote', header: '始末書の備考（押印者・印の種類など）' },
   { key: 'chimokuHenko', header: '地目変更登記が必要' },
+  { key: 'saiShinsei', header: '再度の許可・届出（許可・届出済みで未転用）' },
+  { key: 'saiShinseiNote', header: '再度の許可・届出の備考' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
@@ -928,6 +931,7 @@ function submitCase(form, requestInvestigation) {
       prefecture: l.prefecture, purpose: l.purpose,
       tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
       shimatsusho: l.shimatsusho, shimatsuStamp: l.shimatsuStamp, shimatsuNote: l.shimatsuNote,
+      saiShinsei: l.saiShinsei, saiShinseiNote: l.saiShinseiNote,
       chimokuHenko: l.chimokuHenko ? 'はい' : '',
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
@@ -1160,15 +1164,20 @@ function normalizeLot_(l, prefecture, master) {
   if (place.indexOf(prefecture) === 0) place = place.slice(prefecture.length).trim();
   if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
   const split = splitLotNumber_(place);
-  const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
+  const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
+  // 過去の転用許可・届出の履歴（現況にかかわらず聞く）。履歴があれば以降（除外・見込み・土地改良区など）は聞かない。
+  // ただし現況が未転用で、農業委員会から「再度の許可・届出が必要」と回答があった場合は続ける
+  const rirekiAns = pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki);
+  const rirekiOn = rirekiAns === 'あり';
+  const saiShinsei = rirekiOn && !convOn ? pick_(l.saiShinsei, FORM_OPTIONS.saiShinsei) : '';
+  const go = !rirekiOn || saiShinsei === '必要';
+  const kairyoOn = go && pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
   const benefitOn = kairyoOn && pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) === '該当する';
-  const permitZone = PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
-  const jogaiOn = pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
+  const permitZone = go && PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
+  const jogaiOn = go && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
     ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
   const purpose = pick_(l.zone, FORM_OPTIONS.zones) === '市街化調整区域' ? pick_(l.purpose, FORM_OPTIONS.purposes) : '';
-  const drainOn = purpose === '分家住宅';
-  const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
-  const rirekiOn = convOn && pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) === 'あり';
+  const drainOn = go && purpose === '分家住宅';
   const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
@@ -1189,7 +1198,7 @@ function normalizeLot_(l, prefecture, master) {
     // シートには「選択肢（補足）」の形で保存する
     landUseText: landUseOther ? (landUse ? landUse + '（' + landUseOther + '）' : landUseOther) : landUse,
     isConverted: pick_(l.isConverted, FORM_OPTIONS.yesNo),
-    landImprovement: pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown),
+    landImprovement: go ? pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) : '',
     readFromTohon: l.readFromTohon === true,
     chimokuHenko: l.chimokuHenko === true,
     // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
@@ -1211,7 +1220,7 @@ function normalizeLot_(l, prefecture, master) {
     kairyoFeeAmount: benefitOn ? numOrZero_(l.kairyoFeeAmount) : 0,
     kairyoFeeUnit: pick_(l.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
-    iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
+    iinStamp: go ? pick_(l.iinStamp, FORM_OPTIONS.iinStamp) : '',
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],
     // 地元関係者の同意（土地改良区へ確認。「必要」のときだけ氏名・住所・電話を保存）
     localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
@@ -1219,7 +1228,9 @@ function normalizeLot_(l, prefecture, master) {
     // 転用の見込み（許可が必要な区域で農業委員会に確認）
     purpose: purpose,
     // 転用済みの物件：過去の届出受理・許可の履歴（「あり」のときだけ年月日・番号・内容）
-    tenyoRireki: convOn ? pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) : '',
+    tenyoRireki: rirekiAns,
+    saiShinsei: saiShinsei,
+    saiShinseiNote: saiShinsei ? str_(l.saiShinseiNote, 200) : '',
     rirekiDate: rirekiOn ? dateText_(l.rirekiDate) : '',
     rirekiNo: rirekiOn ? str_(l.rirekiNo, 50) : '',
     rirekiNote: rirekiOn ? str_(l.rirekiNote, 200) : '',
@@ -1650,16 +1661,19 @@ function getFeeSettings_() {
  */
 function calculateEstimate_(input) {
   const fees = getFeeSettings_();
-  const lots = input.lots || [];
+  const allLots = input.lots || [];
+  // 許可・届出の履歴がある物件は、改めて許可・届出が必要と回答があった場合以外は計上しない（物件番号は元のまま）
+  const lots = allLots.map(function (l, i) { return Object.assign({}, l, { __i: i }); })
+    .filter(function (l) { return !(l.tenyoRireki === 'あり' && l.saiShinsei !== '必要'); });
   const items = [];
   const notes = [];
   const item = function (key, times) {
     const n = times || 1;
     return { label: fees[key].label + (n > 1 ? ' × ' + n : ''), amount: fees[key].amount * n };
   };
-  const lotName = function (lot, i) { return '物件' + (i + 1) + (lot.lotNumber ? '（' + lot.lotNumber + '）' : ''); };
+  const lotName = function (lot, i) { return lotName_(lot, i); };
 
-  if (!lots.length || lots.some(function (l) { return !l.zone; })) {
+  if (!allLots.length || allLots.some(function (l) { return !l.zone; })) {
     return { ok: false, total: 0, items: [], notes: ['すべての物件の区域区分を選択すると概算見積が表示されます。'] };
   }
 
@@ -1809,19 +1823,22 @@ function calculateEstimate_(input) {
   const tax = Math.floor(feeSubtotal * TAX_RATE);
   const total = feeSubtotal + tax + costTotal;
   notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
+  if (!lots.length) notes.push('すべての物件に許可・届出の履歴があるため、農地転用の手続きは計上していません。');
   // 始末書（無断転用）の提出が必要な物件
-  lots.forEach(function (l, i) {
+  allLots.forEach(function (l, i) {
     if (l.shimatsusho !== '必要') return;
     notes.push(lotName(l, i) + '：農業委員会より始末書の提出が必要との回答があります' +
       (l.shimatsuStamp === '必要' ? '（押印が必要' + (l.shimatsuNote ? '：' + l.shimatsuNote : '') + '）' : l.shimatsuNote ? '（' + l.shimatsuNote + '）' : '') + '。');
   });
-  // 最後に：過去の転用届出・許可の履歴がある物件（新たな手続きが不要な場合がある）
-  lots.forEach(function (l, i) {
+  // 最後に：過去の転用届出・許可の履歴がある物件（計上の有無も示す）
+  allLots.forEach(function (l, i) {
     if (l.tenyoRireki !== 'あり') return;
     const kind = l.zone === '市街化区域' ? '転用届出の受理' : l.zone === '分からない' ? '転用届出の受理または転用許可' : '転用許可';
     const detail = [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・');
     notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
-      '。新たな手続きが不要な場合があります。');
+      (l.saiShinsei === '必要' ? '。現況が未転用のため、改めて許可・届出が必要との回答です' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : l.saiShinsei === '不要' ? '。改めての許可・届出は不要との回答のため、見積に計上していません' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : '。許可・届出済みのため、見積に計上していません（改めて必要な場合は加算）。'));
   });
   return { ok: true, total: total, feeSubtotal: feeSubtotal, tax: tax, taxRate: TAX_RATE, feeTotal: feeSubtotal + tax,
     costTotal: costTotal, items: items, notes: notes };
@@ -1829,7 +1846,7 @@ function calculateEstimate_(input) {
 
 /** 物件の呼び名（物件1（123番1）） */
 function lotName_(l, i) {
-  return '物件' + (i + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+  return '物件' + ((l.__i !== undefined ? l.__i : i) + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
 }
 
 /** 見積の行を「実費」にする */
@@ -1851,7 +1868,7 @@ function addActualCosts_(lots, items, notes) {
     const name = l.kairyoName || '土地改良区';
     // 決済金（筆ごと）
     if (l.settlementAmount > 0) {
-      const lotLabel = '物件' + (i + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+      const lotLabel = lotName_(l, i);
       if (l.settlementUnit === '総額') {
         items.push(cost({ label: '地区除外決済金 ' + lotLabel, amount: Math.round(l.settlementAmount) }));
       } else if (l.area > 0) {
@@ -2349,6 +2366,9 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
     if (l.tenyoRireki) {
       lines.push('　　過去の転用届出・許可の履歴：' + l.tenyoRireki +
         (l.tenyoRireki === 'あり' ? '（' + [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・') + '）' : ''));
+    }
+    if (l.saiShinsei) {
+      lines.push('　　再度の許可・届出（未転用）：' + l.saiShinsei + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : ''));
     }
     if (l.shimatsusho) {
       lines.push('　　始末書の提出：' + l.shimatsusho + (l.shimatsuStamp ? '／押印 ' + l.shimatsuStamp : '') + (l.shimatsuNote ? '（' + l.shimatsuNote + '）' : ''));

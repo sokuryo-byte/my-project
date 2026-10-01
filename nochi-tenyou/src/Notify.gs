@@ -68,6 +68,9 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
       lines.push('　　過去の転用届出・許可の履歴：' + l.tenyoRireki +
         (l.tenyoRireki === 'あり' ? '（' + [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・') + '）' : ''));
     }
+    if (l.saiShinsei) {
+      lines.push('　　再度の許可・届出（未転用）：' + l.saiShinsei + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : ''));
+    }
     if (l.shimatsusho) {
       lines.push('　　始末書の提出：' + l.shimatsusho + (l.shimatsuStamp ? '／押印 ' + l.shimatsuStamp : '') + (l.shimatsuNote ? '（' + l.shimatsuNote + '）' : ''));
     }

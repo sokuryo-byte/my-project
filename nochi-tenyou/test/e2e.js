@@ -75,6 +75,17 @@ const OUT = path.join(__dirname, 'out');
     .items.filter((it) => it.label.indexOf('筆数加算') === 0).map((it) => it.label));
   assert.deepStrictEqual(split, ['筆数加算・許可（1筆あたり） × 2', '筆数加算・届出（1筆あたり）']);
 
+  // 許可・届出の履歴がある物件は計上しない（改めて許可・届出が必要と回答があった場合だけ計上）
+  const granted = await p.evaluate(() => {
+    const base = { zone: '市街化調整区域', landUse: '耕作中' };
+    const g = Object.assign({}, base, { tenyoRireki: 'あり', isConverted: 'いいえ' });
+    const e1 = calculateEstimate_({ lots: [g] });
+    const e2 = calculateEstimate_({ lots: [Object.assign({}, g, { saiShinsei: '必要' })] });
+    const e3 = calculateEstimate_({ lots: [base, g] });
+    return [e1.total, e2.total > 0, e3.total === calculateEstimate_({ lots: [base] }).total, e3.notes.some((n) => n.indexOf('物件2') === 0 && n.indexOf('計上していません') > 0)];
+  });
+  assert.deepStrictEqual(granted, [0, true, true, true]);
+
   // 地目変更登記：チェックした物件があれば 48,000（税抜）を1回 → +52,800
   await p.check('.lot [data-f=chimokuHenko]');
   await p.waitForTimeout(500);

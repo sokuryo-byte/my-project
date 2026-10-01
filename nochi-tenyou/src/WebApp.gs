@@ -230,6 +230,7 @@ function submitCase(form, requestInvestigation) {
       prefecture: l.prefecture, purpose: l.purpose,
       tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
       shimatsusho: l.shimatsusho, shimatsuStamp: l.shimatsuStamp, shimatsuNote: l.shimatsuNote,
+      saiShinsei: l.saiShinsei, saiShinseiNote: l.saiShinseiNote,
       chimokuHenko: l.chimokuHenko ? 'はい' : '',
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
@@ -462,15 +463,20 @@ function normalizeLot_(l, prefecture, master) {
   if (place.indexOf(prefecture) === 0) place = place.slice(prefecture.length).trim();
   if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
   const split = splitLotNumber_(place);
-  const kairyoOn = pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
+  const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
+  // 過去の転用許可・届出の履歴（現況にかかわらず聞く）。履歴があれば以降（除外・見込み・土地改良区など）は聞かない。
+  // ただし現況が未転用で、農業委員会から「再度の許可・届出が必要」と回答があった場合は続ける
+  const rirekiAns = pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki);
+  const rirekiOn = rirekiAns === 'あり';
+  const saiShinsei = rirekiOn && !convOn ? pick_(l.saiShinsei, FORM_OPTIONS.saiShinsei) : '';
+  const go = !rirekiOn || saiShinsei === '必要';
+  const kairyoOn = go && pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
   const benefitOn = kairyoOn && pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) === '該当する';
-  const permitZone = PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
-  const jogaiOn = pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
+  const permitZone = go && PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
+  const jogaiOn = go && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
     ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
   const purpose = pick_(l.zone, FORM_OPTIONS.zones) === '市街化調整区域' ? pick_(l.purpose, FORM_OPTIONS.purposes) : '';
-  const drainOn = purpose === '分家住宅';
-  const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
-  const rirekiOn = convOn && pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) === 'あり';
+  const drainOn = go && purpose === '分家住宅';
   const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
@@ -491,7 +497,7 @@ function normalizeLot_(l, prefecture, master) {
     // シートには「選択肢（補足）」の形で保存する
     landUseText: landUseOther ? (landUse ? landUse + '（' + landUseOther + '）' : landUseOther) : landUse,
     isConverted: pick_(l.isConverted, FORM_OPTIONS.yesNo),
-    landImprovement: pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown),
+    landImprovement: go ? pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) : '',
     readFromTohon: l.readFromTohon === true,
     chimokuHenko: l.chimokuHenko === true,
     // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
@@ -513,7 +519,7 @@ function normalizeLot_(l, prefecture, master) {
     kairyoFeeAmount: benefitOn ? numOrZero_(l.kairyoFeeAmount) : 0,
     kairyoFeeUnit: pick_(l.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり',
     // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
-    iinStamp: pick_(l.iinStamp, FORM_OPTIONS.iinStamp),
+    iinStamp: go ? pick_(l.iinStamp, FORM_OPTIONS.iinStamp) : '',
     iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],
     // 地元関係者の同意（土地改良区へ確認。「必要」のときだけ氏名・住所・電話を保存）
     localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
@@ -521,7 +527,9 @@ function normalizeLot_(l, prefecture, master) {
     // 転用の見込み（許可が必要な区域で農業委員会に確認）
     purpose: purpose,
     // 転用済みの物件：過去の届出受理・許可の履歴（「あり」のときだけ年月日・番号・内容）
-    tenyoRireki: convOn ? pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki) : '',
+    tenyoRireki: rirekiAns,
+    saiShinsei: saiShinsei,
+    saiShinseiNote: saiShinsei ? str_(l.saiShinseiNote, 200) : '',
     rirekiDate: rirekiOn ? dateText_(l.rirekiDate) : '',
     rirekiNo: rirekiOn ? str_(l.rirekiNo, 50) : '',
     rirekiNote: rirekiOn ? str_(l.rirekiNote, 200) : '',

@@ -44,16 +44,19 @@ function getFeeSettings_() {
  */
 function calculateEstimate_(input) {
   const fees = getFeeSettings_();
-  const lots = input.lots || [];
+  const allLots = input.lots || [];
+  // 許可・届出の履歴がある物件は、改めて許可・届出が必要と回答があった場合以外は計上しない（物件番号は元のまま）
+  const lots = allLots.map(function (l, i) { return Object.assign({}, l, { __i: i }); })
+    .filter(function (l) { return !(l.tenyoRireki === 'あり' && l.saiShinsei !== '必要'); });
   const items = [];
   const notes = [];
   const item = function (key, times) {
     const n = times || 1;
     return { label: fees[key].label + (n > 1 ? ' × ' + n : ''), amount: fees[key].amount * n };
   };
-  const lotName = function (lot, i) { return '物件' + (i + 1) + (lot.lotNumber ? '（' + lot.lotNumber + '）' : ''); };
+  const lotName = function (lot, i) { return lotName_(lot, i); };
 
-  if (!lots.length || lots.some(function (l) { return !l.zone; })) {
+  if (!allLots.length || allLots.some(function (l) { return !l.zone; })) {
     return { ok: false, total: 0, items: [], notes: ['すべての物件の区域区分を選択すると概算見積が表示されます。'] };
   }
 
@@ -203,19 +206,22 @@ function calculateEstimate_(input) {
   const tax = Math.floor(feeSubtotal * TAX_RATE);
   const total = feeSubtotal + tax + costTotal;
   notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
+  if (!lots.length) notes.push('すべての物件に許可・届出の履歴があるため、農地転用の手続きは計上していません。');
   // 始末書（無断転用）の提出が必要な物件
-  lots.forEach(function (l, i) {
+  allLots.forEach(function (l, i) {
     if (l.shimatsusho !== '必要') return;
     notes.push(lotName(l, i) + '：農業委員会より始末書の提出が必要との回答があります' +
       (l.shimatsuStamp === '必要' ? '（押印が必要' + (l.shimatsuNote ? '：' + l.shimatsuNote : '') + '）' : l.shimatsuNote ? '（' + l.shimatsuNote + '）' : '') + '。');
   });
-  // 最後に：過去の転用届出・許可の履歴がある物件（新たな手続きが不要な場合がある）
-  lots.forEach(function (l, i) {
+  // 最後に：過去の転用届出・許可の履歴がある物件（計上の有無も示す）
+  allLots.forEach(function (l, i) {
     if (l.tenyoRireki !== 'あり') return;
     const kind = l.zone === '市街化区域' ? '転用届出の受理' : l.zone === '分からない' ? '転用届出の受理または転用許可' : '転用許可';
     const detail = [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・');
     notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
-      '。新たな手続きが不要な場合があります。');
+      (l.saiShinsei === '必要' ? '。現況が未転用のため、改めて許可・届出が必要との回答です' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : l.saiShinsei === '不要' ? '。改めての許可・届出は不要との回答のため、見積に計上していません' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : '。許可・届出済みのため、見積に計上していません（改めて必要な場合は加算）。'));
   });
   return { ok: true, total: total, feeSubtotal: feeSubtotal, tax: tax, taxRate: TAX_RATE, feeTotal: feeSubtotal + tax,
     costTotal: costTotal, items: items, notes: notes };
@@ -223,7 +229,7 @@ function calculateEstimate_(input) {
 
 /** 物件の呼び名（物件1（123番1）） */
 function lotName_(l, i) {
-  return '物件' + (i + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+  return '物件' + ((l.__i !== undefined ? l.__i : i) + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
 }
 
 /** 見積の行を「実費」にする */
@@ -245,7 +251,7 @@ function addActualCosts_(lots, items, notes) {
     const name = l.kairyoName || '土地改良区';
     // 決済金（筆ごと）
     if (l.settlementAmount > 0) {
-      const lotLabel = '物件' + (i + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+      const lotLabel = lotName_(l, i);
       if (l.settlementUnit === '総額') {
         items.push(cost({ label: '地区除外決済金 ' + lotLabel, amount: Math.round(l.settlementAmount) }));
       } else if (l.area > 0) {
