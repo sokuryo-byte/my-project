@@ -445,19 +445,24 @@
     }).replace(/\r?\n/g, '<br>');
   }
 
-  /** 項目名/値の表（2組ずつ横に並べる。値が空の組は出さない。wide は1行を使う） */
-  function kvTable(pairs) {
+  /** 項目名/値の表（2組ずつ横に並べる。値が空の組は出さない。長い値は1行を使う）。縦の罫線は引かない */
+  function kvTable(pairs, limit, titleRow) {
     var list = pairs.filter(function (p) { return has(p[1]); });
-    if (!list.length) return '';
-    var html = '<table class="kv">', half = [];
+    if (!list.length && !titleRow) return '';
+    var html = '<table class="kv"><colgroup><col class="k"><col class="v"><col class="k"><col class="v"></colgroup>' + (titleRow || ''), half = [];
+    var cell = function (p) { return '<th>' + esc(p[0]) + '</th><td' + (p[2] === 'bad' ? ' class="bad"' : '') + '>' + esc(p[1]) + '</td>'; };
     var flush = function () {
       if (!half.length) return;
-      html += '<tr>' + half.map(function (p) { return '<th>' + esc(p[0]) + '</th><td>' + esc(p[1]) + '</td>'; }).join('') +
-        (half.length === 1 ? '<th></th><td></td>' : '') + '</tr>';
+      html += '<tr>' + half.map(cell).join('') + (half.length === 1 ? '<th></th><td></td>' : '') + '</tr>';
       half = [];
     };
     list.forEach(function (p) {
-      if (p[2] === 'wide' || String(p[1]).length > 18 || String(p[1]).indexOf(String.fromCharCode(10)) >= 0) { flush(); html += '<tr><th>' + esc(p[0]) + '</th><td colspan="3">' + esc(p[1]) + '</td></tr>'; return; }
+      var v = String(p[1]);
+      if (p[2] === 'wide' || v.length > (limit || 22) || v.indexOf(String.fromCharCode(10)) >= 0) {
+        flush();
+        html += '<tr><th>' + esc(p[0]) + '</th><td colspan="3"' + (p[2] === 'bad' ? ' class="bad"' : '') + '>' + esc(p[1]) + '</td></tr>';
+        return;
+      }
       half.push(p);
       if (half.length === 2) flush();
     });
@@ -467,107 +472,136 @@
 
   function buildPrintHtml(c, lots) {
     var formal = has(c.formalEstimate);
+    var CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
+    // Apps Script の HTML→PDF 変換向け：表組みのみ、幅は table-layout:fixed で固定（右端のはみ出し防止）、
+    // 改ページ指定は行単位だけ（ブロック単位の指定は丸ごと次ページに送られて空白ができるため使わない）
+    var G = '#2f6b3f', G2 = '#e8f0e6', INK = '#1f2a22', MUTED = '#6b786d', LINE = '#dfe5dd';
     var css = [
-      '@page { size: A4; margin: 14mm 12mm; }',
-      'body { font-family: "Noto Sans JP", "Noto Sans CJK JP", sans-serif; font-size: 9.5pt; color: #1f2a22; line-height: 1.5; margin: 0; }',
-      'h1 { font-size: 15pt; margin: 0 0 2px; }',
-      'h2 { font-size: 10.5pt; color: #2f6b3f; border-bottom: 1.5px solid #2f6b3f; padding-bottom: 2px; margin: 14px 0 6px; page-break-after: avoid; }',
-      'h3 { font-size: 10pt; margin: 10px 0 4px; background: #e3eee3; padding: 3px 6px; }',
-      'h4 { font-size: 9pt; color: #2f6b3f; margin: 6px 0 2px; }',
-      'table { width: 100%; border-collapse: collapse; page-break-inside: auto; }',
+      '@page { size: A4; margin: 12mm 12mm 14mm; }',
+      'body { font-family: "Noto Sans JP", "Noto Sans CJK JP", sans-serif; font-size: 9pt; color: ' + INK + '; line-height: 1.55; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }',
+      '.page { width: 98%; }',
+      'table { width: 100%; border-collapse: collapse; table-layout: fixed; }',
       'tr { page-break-inside: avoid; }',
-      'table.kv th, table.kv td { border: 1px solid #c9d3c8; padding: 3px 6px; vertical-align: top; text-align: left; }',
-      'table.kv th { background: #f3f5f1; color: #5d6b60; font-weight: normal; width: 17%; font-size: 8.5pt; }',
-      'table.kv td { width: 33%; }',
-      'table.head td { border: none; padding: 0; vertical-align: top; }',
-      '.meta { color: #5d6b60; font-size: 8.5pt; }',
-      '.amt { text-align: right; }',
-      '.amt b { font-size: 16pt; }',
-      'table.est td { border-bottom: 1px solid #d3dbd2; padding: 3px 6px; }',
-      'table.est td.y { text-align: right; width: 22%; white-space: nowrap; }',
-      'table.est tr.grp td { color: #2f6b3f; font-weight: bold; font-size: 8.5pt; border-bottom: 1.5px solid #e3eee3; padding-top: 6px; }',
-      'table.est tr.sub td { color: #5d6b60; }',
-      'table.est tr.sum td { font-weight: bold; font-size: 11pt; border-top: 1.5px solid #1f2a22; border-bottom: none; }',
-      'ul { margin: 4px 0 0; padding-left: 1.2em; color: #5d6b60; font-size: 8.5pt; }',
-      '.tags { font-size: 8.5pt; color: #5d6b60; margin: 0 0 4px; }',
-      '.bad { color: #b3261e; font-weight: bold; }',
-      '.none { color: #5d6b60; font-size: 8.5pt; }',
-      '.foot { margin-top: 16px; border-top: 1px solid #d3dbd2; padding-top: 4px; color: #5d6b60; font-size: 8pt; text-align: right; }'
+      'td, th { overflow-wrap: break-word; word-break: break-all; }',
+      // 見出しの帯
+      'table.band td { background: ' + G + '; color: #fff; padding: 10px 14px; vertical-align: middle; }',
+      'table.band .kind { font-size: 8pt; letter-spacing: .15em; opacity: .85; }',
+      'table.band .name { font-size: 16pt; font-weight: bold; line-height: 1.3; }',
+      'table.band td.no { text-align: right; width: 34%; }',
+      'table.band .no b { font-size: 15pt; letter-spacing: .05em; }',
+      // 要点（4マス）
+      'table.facts { margin-top: 6px; }',
+      'table.facts td { border: 1px solid ' + LINE + '; padding: 6px 10px; vertical-align: top; width: 25%; }',
+      'table.facts .l { font-size: 7.5pt; color: ' + MUTED + '; }',
+      'table.facts .v { font-size: 11pt; font-weight: bold; }',
+      'table.facts td.money { background: ' + G2 + '; }',
+      'table.facts td.money .v { font-size: 14pt; color: ' + G + '; }',
+      // 見出し
+      'h2 { font-size: 10.5pt; margin: 16px 0 6px; padding: 2px 0 2px 8px; border-left: 4px solid ' + G + '; page-break-after: avoid; }',
+      'h2 small { font-weight: normal; color: ' + MUTED + '; font-size: 8pt; margin-left: 6px; }',
+      // 項目と値
+      'table.kv col.k { width: 15%; } table.kv col.v { width: 35%; }',
+      'table.kv th, table.kv td { border-bottom: 1px solid ' + LINE + '; padding: 4px 6px; text-align: left; vertical-align: top; }',
+      'table.kv th { color: ' + MUTED + '; font-weight: normal; font-size: 8pt; }',
+      'td.bad { color: #b3261e; font-weight: bold; }',
+      '.memo { background: #f6f8f5; border-left: 3px solid ' + G + '; padding: 6px 10px; margin: 0; }',
+      // 見積
+      'table.est td { padding: 3px 8px; border-bottom: 1px solid ' + LINE + '; }',
+      'table.est td.y { text-align: right; width: 24%; }',
+      'table.est tr.grp td { color: ' + G + '; font-weight: bold; font-size: 8pt; border-bottom: 1.5px solid ' + G + '; padding-top: 8px; }',
+      'table.est tr.sub td { color: ' + MUTED + '; }',
+      'table.est tr.sum td { background: ' + G2 + '; font-weight: bold; font-size: 11pt; border-bottom: none; padding: 6px 8px; }',
+      '.notes { margin: 6px 0 0; padding: 0; font-size: 8pt; color: ' + MUTED + '; }',
+      '.notes div { padding-left: 1em; text-indent: -1em; }',
+      // 物件
+      'table.kv tr.lot td { background: ' + G2 + '; padding: 5px 10px; font-weight: bold; font-size: 10pt; border-bottom: none; }',
+      'table.kv tr.lot td.tag { text-align: right; font-weight: normal; font-size: 8pt; color: ' + G + '; }',
+      'tr.lot { page-break-after: avoid; }',
+      'table.step { margin-top: 2px; }',
+      'table.step td.sn { width: 21%; vertical-align: top; padding: 5px 6px; color: ' + G + '; font-weight: bold; font-size: 8.5pt; border-bottom: 1px solid ' + LINE + '; }',
+      'table.step td.sv { vertical-align: top; padding: 0; border-bottom: 1px solid ' + LINE + '; }',
+      'table.step table.kv th, table.step table.kv td { border-bottom: none; padding: 3px 6px; }',
+      'table.step table.kv col.k { width: 20%; } table.step table.kv col.v { width: 30%; }',
+      '.none { color: ' + MUTED + '; font-size: 8pt; padding: 4px 6px; }',
+      '.gap { height: 10px; }',
+      '.foot { margin-top: 18px; border-top: 1px solid ' + LINE + '; padding-top: 4px; color: ' + MUTED + '; font-size: 7.5pt; }',
+      '.foot td.r { text-align: right; }'
     ].join('\n');
 
-    var h = [];
-    h.push('<table class="head"><tr><td>');
-    h.push('<h1>農地転用 案件詳細</h1>');
-    h.push('<div class="meta">受付番号 ' + esc(c.caseNo || c.id) + '　受付 ' + esc(c.receivedAt || '―') + '　' +
-      esc(c.requestFlag === true ? '見積調査依頼' : '保存のみ') + '</div>');
-    h.push('<div style="font-size:12pt;font-weight:bold;margin-top:4px">' + esc(c.requesterName || '（依頼者名なし）') + ' 様</div>');
-    h.push('</td><td class="amt">');
-    h.push('<div class="meta">' + (formal ? '正式見積' : '概算見積') + '</div><b>' + esc(yen(formal ? c.formalEstimate : c.estimate)) + '</b>');
-    if (formal) h.push('<div class="meta">概算 ' + esc(yen(c.estimate)) + '</div>');
-    h.push('</td></tr></table>');
+    var h = ['<div class="page">'];
+    // ---- 見出しの帯 ----
+    h.push('<table class="band"><tr><td><div class="kind">農地転用 案件詳細</div><div class="name">' + esc(c.requesterName || '（依頼者名なし）') + ' 様</div></td>' +
+      '<td class="no"><div class="kind">受付番号</div><b>' + esc(c.caseNo || c.id) + '</b></td></tr></table>');
+    // ---- 要点 ----
+    h.push('<table class="facts"><tr>' +
+      '<td><div class="l">対応状況</div><div class="v">' + esc(c.status || '―') + '</div></td>' +
+      '<td><div class="l">担当者</div><div class="v">' + esc(c.assignee || '未定') + '</div></td>' +
+      '<td><div class="l">受付日時</div><div class="v" style="font-size:9.5pt">' + esc(c.receivedAt || '―') + '</div><div class="l">' +
+        esc(c.requestFlag === true ? '見積調査依頼' : '保存のみ') + '</div></td>' +
+      '<td class="money"><div class="l">' + (formal ? '正式見積' : '概算見積') + '</div><div class="v">' + esc(yen(formal ? c.formalEstimate : c.estimate)) + '</div>' +
+        (formal ? '<div class="l">概算 ' + esc(yen(c.estimate)) + '</div>' : '') + '</td>' +
+      '</tr></table>');
 
-    h.push('<h2>対応状況</h2>');
-    h.push(kvTable([
-      ['対応状況', c.status || '―'], ['担当者', c.assignee || '未定'],
-      ['入力者', c.submittedBy], ['最終更新', c.updatedAt],
-      ['正式見積の提示', c.estimatePdfAt], ['正式見積の報告', c.reportResult],
-      ['対応メモ', c.adminMemo, 'wide']
-    ]));
+    if (has(c.adminMemo)) h.push('<h2>対応メモ</h2><p class="memo">' + esc(c.adminMemo) + '</p>');
 
     h.push('<h2>依頼の概要</h2>');
     h.push(kvTable([
       ['物件', lots.length ? lots.length + '筆（' + (c.prefecture || '―') + '）' : ''], ['面積合計', has(c.area) ? c.area + ' ㎡' : ''],
       ['区域区分', c.zone], ['転用目的', c.purpose],
-      ['信託手続きに付随', c.trust === true ? 'はい' : ''], ['資料', c.documents],
+      ['信託手続き', c.trust === true ? '付随する' : ''], ['資料', c.documents],
+      ['入力者', c.submittedBy], ['最終更新', c.updatedAt],
       ['今後の転用計画', c.plan, 'wide'],
       ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(has).join('\n'), 'wide']
     ]));
 
     var est = parseEstimateText(c.estimateDetail);
     if (est.rows.length || est.notes.length) {
-      h.push('<h2>概算見積の内訳（依頼時の自動計算）</h2>');
+      h.push('<h2>概算見積の内訳<small>依頼時の自動計算</small></h2>');
       if (est.rows.length) {
         h.push('<table class="est">' + est.rows.map(function (r) {
           return '<tr' + (r[0] ? ' class="' + r[0] + '"' : '') + '><td>' + esc(r[1]) + '</td><td class="y">' + esc(r[2]) + '</td></tr>';
         }).join('') + '</table>');
       }
-      if (est.notes.length) h.push('<ul>' + est.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>');
+      if (est.notes.length) h.push('<div class="notes">' + est.notes.map(function (n) { return '<div>※ ' + esc(n) + '</div>'; }).join('') + '</div>');
     }
 
-    h.push('<h2>物件と電話確認の結果（' + lots.length + '筆）</h2>');
-    if (!lots.length) h.push('<p class="none">物件明細がありません。</p>');
-    lots.forEach(function (l) {
-      h.push('<div style="page-break-inside:avoid">');
-      h.push('<h3>物件' + esc(l.no) + '　' + esc([l.address, l.lotNumber].filter(has).join(' ') || '（所在未入力）') + '</h3>');
+    h.push('<h2>物件と電話確認の結果<small>' + lots.length + '筆</small></h2>');
+    if (!lots.length) h.push('<div class="none">物件明細がありません。</div>');
+    lots.forEach(function (l, li) {
+      if (li) h.push('<div class="gap"></div>');
+      var tags = [l.chimoku, has(l.area) ? l.area + '㎡' : '', l.zone].filter(has).join('　');
+      // 物件名の帯は表の1行目にする（帯だけがページ末尾に残らないように）
+      var title = '<tr class="lot"><td colspan="2">物件' + esc(l.no) + '　' + esc([l.address, l.lotNumber].filter(has).join(' ') || '（所在未入力）') +
+        '</td><td colspan="2" class="tag">' + esc(tags) + '</td></tr>';
       h.push(kvTable([
         ['都道府県', l.prefecture], ['市区町村', l.municipality],
-        ['登記地目', l.chimoku], ['面積（登記地積）', has(l.area) ? l.area + ' ㎡' : ''],
+        ['登記地目', l.chimoku], ['面積', has(l.area) ? l.area + ' ㎡（登記地積）' : ''],
         ['区域区分', l.zone], ['農振農用地', has(l.isNoshin) ? boolText(l.isNoshin) : ''],
         ['現況利用', l.landUse], ['既に転用済み', has(l.isConverted) ? boolText(l.isConverted) : ''],
         ['転用目的', l.purpose], ['土地改良区', l.landImprovement],
         ['地目変更登記', has(l.chimokuHenko) ? '必要' : ''], ['入力方法', l.readFromTohon === true || l.readFromTohon === '謄本から読取' ? '謄本から読取' : '']
-      ]));
-      var n = 0;
+      ], 22, title));
+      var rows = [];
       lotSteps(l).forEach(function (st) {
-        var t = kvTable(st[1]);
+        var t = kvTable(st[1], 13);
         if (!t) return;
-        if (st[1].some(function (p) { return p[2] === 'bad' && has(p[1]); })) t = t.replace(/<td>難しい<\/td>/g, '<td class="bad">難しい</td>');
-        h.push('<h4>' + (++n) + '. ' + esc(st[0]) + '</h4>' + t);
+        rows.push('<tr><td class="sn">' + CIRCLED.charAt(rows.length) + ' ' + esc(st[0]) + '</td><td class="sv">' + t + '</td></tr>');
       });
-      if (!n) h.push('<p class="none">電話確認の記録はありません。</p>');
-      h.push('</div>');
+      h.push(rows.length ? '<table class="step">' + rows.join('') + '</table>' : '<div class="none">電話確認の記録はありません。</div>');
     });
 
     h.push('<h2>記録</h2>');
     h.push(kvTable([
       ['Chat通知', c.notifyResult], ['資料', c.folderUrl ? 'アップロード資料 ' + (c.fileCount || 0) + '件' : ''],
+      ['正式見積の提示', c.estimatePdfAt], ['正式見積の報告', c.reportResult],
       ['資料フォルダ', c.folderUrl, 'wide'], ['正式見積PDF', c.estimatePdfUrl, 'wide']
     ]));
 
     var now = new Date();
     var pad = function (x) { return ('0' + x).slice(-2); };
-    h.push('<div class="foot">出力 ' + now.getFullYear() + '/' + pad(now.getMonth() + 1) + '/' + pad(now.getDate()) + ' ' +
-      pad(now.getHours()) + ':' + pad(now.getMinutes()) + '　' + esc($('userInfo').textContent) + '</div>');
+    h.push('<table class="foot"><tr><td>農地転用 見積・調査支援システム</td><td class="r">出力 ' + now.getFullYear() + '/' + pad(now.getMonth() + 1) + '/' +
+      pad(now.getDate()) + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + '　' + esc($('userInfo').textContent) + '</td></tr></table>');
+    h.push('</div>');
 
     return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><style>' + css + '</style></head><body>' + h.join('\n') + '</body></html>';
   }
