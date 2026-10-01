@@ -49,6 +49,9 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
     '依頼者名：' + (input.requesterName || '（未入力）') + (input.trust ? '（信託手続きに付随）' : ''),
     '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
   ];
+  // 地目変更登記は登記担当へ連絡するため、物件の明細より前に目立たせて出す
+  const chimoku = chimokuHenkoText_(input.lots);
+  if (chimoku) lines.push('*【地目変更登記あり・登記担当へ連絡】' + chimoku.replace(/^あり/, '') + '*');
   input.lots.forEach(function (l, i) {
     lines.push('　' + (i + 1) + '. ' + (l.address || '（所在未入力）') + ' ' + l.lotNumber +
       '／' + (l.chimoku || '地目-') + (l.area !== null ? ' ' + l.area + '㎡' : '') +

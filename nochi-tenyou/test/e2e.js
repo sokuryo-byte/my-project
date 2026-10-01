@@ -60,6 +60,10 @@ const OUT = path.join(__dirname, 'out');
   await p.waitForTimeout(800);
   assert.strictEqual(await p.textContent('#estimateTotal'), '¥679,300'); // 報酬(235,000+58,000+300,000)+消費税10% 59,300 + 調査実費 25,000+2,000
 
+  // 地目変更登記：案件一覧の列とChatに「登記担当へ連絡」を目立たせて出す
+  const chimokuNote = await p.evaluate(() => [chimokuHenkoText_([{ address: '豊田市○○町', lotNumber: '1番', chimokuHenko: true }, { address: '豊田市○○町', lotNumber: '2番' }])]);
+  assert.deepStrictEqual(chimokuNote, ['あり（1筆）：物件1 豊田市○○町 1番']);
+
   // 筆数加算：2筆以上で表示。チェックしたときだけ（同じ区域の2筆目以降）加算
   assert.strictEqual(await p.$eval('#extraLotWrap', (e) => e.classList.contains('hidden')), false);
   const extra = await p.evaluate(() => {
@@ -173,6 +177,11 @@ const OUT = path.join(__dirname, 'out');
   await a.click('#rows .case-card');
   await a.waitForSelector('#detail .lot-card');
   assert.strictEqual((await a.$$('#detail .lot-card')).length, 2);
+  // 地目変更登記の物件があれば、詳細の上部に帯、案件リストに札
+  await a.evaluate(() => { state.lotsByCase[state.cases[0].id][1].chimokuHenko = 'はい'; renderRows(); renderDetail(state.cases[0].id); });
+  assert.ok((await a.textContent('#detail .chimoku-alert')).includes('地目変更登記あり（1筆）'));
+  assert.ok(await a.$('#rows .chimoku-badge'));
+  assert.ok((await a.evaluate(() => buildPrintHtml(state.cases[0], state.lotsByCase[state.cases[0].id]))).includes('登記担当へ連絡'));
   await a.selectOption('#aStatus', '調査中');
   await a.click('#detail .primary');
   await a.waitForFunction(() => document.querySelector('#rows .pill').textContent === '調査中', null, { timeout: 5000 });

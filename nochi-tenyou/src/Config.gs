@@ -463,7 +463,8 @@ const CASE_COLUMNS = [
   { key: 'estimatePdfAt', header: '正式見積の提示日時' },
   { key: 'reportResult', header: '正式見積の報告結果' },
   { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' },
-  { key: 'extraLotFee', header: '筆数加算' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'extraLotFee', header: '筆数加算' },
+  { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**

@@ -466,7 +466,8 @@ const CASE_COLUMNS = [
   { key: 'estimatePdfAt', header: '正式見積の提示日時' },
   { key: 'reportResult', header: '正式見積の報告結果' },
   { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' },
-  { key: 'extraLotFee', header: '筆数加算' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'extraLotFee', header: '筆数加算' },
+  { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**
@@ -1016,6 +1017,8 @@ function summarizeLots_(lots) {
     localConsent: any('localConsent', '必要') ? '必要' : any('localConsent', '未確認') ? '未確認' : uniq('localConsent'),
     localContacts: lots.map(function (l) { return contactsToText_(l.localContacts); })
       .filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('\n'),
+    // 地目変更登記が必要な物件（登記担当へ連絡するため、案件一覧の1列で分かるように）
+    chimokuHenkoSummary: chimokuHenkoText_(lots),
   };
 }
 
@@ -1094,6 +1097,14 @@ function monthlyText_(from, to) {
   const d = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n + '日' : ''; };
   const t = rangeText_(d(from), d(to));
   return t ? '毎月' + t : '';
+}
+
+/** 地目変更登記が必要な物件「あり（2筆）：物件1 ○○町 123番1、物件3 ○○町 125番」（なければ空） */
+function chimokuHenkoText_(lots) {
+  const list = (lots || []).map(function (l, i) {
+    return l.chimokuHenko === true ? '物件' + (i + 1) + ' ' + [l.address, l.lotNumber].filter(String).join(' ') : '';
+  }).filter(String);
+  return list.length ? 'あり（' + list.length + '筆）：' + list.join('、') : '';
 }
 
 /** 連絡先の配列 → 「氏名／住所／電話」を1行ずつ並べた文字列 */
@@ -2408,6 +2419,9 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
     '依頼者名：' + (input.requesterName || '（未入力）') + (input.trust ? '（信託手続きに付随）' : ''),
     '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
   ];
+  // 地目変更登記は登記担当へ連絡するため、物件の明細より前に目立たせて出す
+  const chimoku = chimokuHenkoText_(input.lots);
+  if (chimoku) lines.push('*【地目変更登記あり・登記担当へ連絡】' + chimoku.replace(/^あり/, '') + '*');
   input.lots.forEach(function (l, i) {
     lines.push('　' + (i + 1) + '. ' + (l.address || '（所在未入力）') + ' ' + l.lotNumber +
       '／' + (l.chimoku || '地目-') + (l.area !== null ? ' ' + l.area + '㎡' : '') +

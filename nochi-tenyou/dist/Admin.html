@@ -218,6 +218,12 @@
     .dhead h2 { margin: 0; font-size: 1.2rem; padding: 0; border: none; }
     .dhead .meta { font-size: .8rem; color: var(--muted); flex-basis: 100%; }
     .pdf-btn { padding: 2px 12px; font-size: .8rem; }
+    /* 地目変更登記（登記担当へ連絡） */
+    .chimoku-badge { margin-left: 6px; font-size: .68rem; font-weight: 700; color: #7a3d00; background: #ffe2c2; border-radius: 4px; padding: 0 6px; vertical-align: 2px; }
+    .chimoku-alert { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; background: #fff1e0; border: 1px solid #f0b46e; border-left: 6px solid #d9822b; border-radius: 6px; padding: 8px 12px; }
+    .chimoku-alert b { color: #7a3d00; font-size: .95rem; }
+    .chimoku-alert .to { font-size: .75rem; font-weight: 700; color: #fff; background: #d9822b; border-radius: 999px; padding: 1px 10px; }
+    .chimoku-alert .cl-list { font-size: .85rem; color: #4a3520; }
     .pdf-note { display: inline-flex; align-items: center; gap: 8px; }
     .pdf-note .pdf-save { padding: 2px 12px; font-size: .8rem; }
     .dhead .amt { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: .75rem; color: var(--muted); }
@@ -481,7 +487,9 @@
       l1.appendChild(el('span', {}, (c.caseNo || '#' + c.id) + '　' + String(c.receivedAt || '').slice(5)));
       l1.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―'));
       card.appendChild(l1);
-      card.appendChild(el('div', { 'class': 'l2' }, c.requesterName || '（依頼者名なし）'));
+      var l2 = el('div', { 'class': 'l2' }, c.requesterName || '（依頼者名なし）');
+      if (chimokuLots(state.lotsByCase[c.id] || []).length) l2.appendChild(el('span', { 'class': 'chimoku-badge' }, '地目変更'));
+      card.appendChild(l2);
       card.appendChild(el('div', { 'class': 'l3' }, [c.address, c.lotNumber].filter(String).join(' ') || '―'));
       var l4 = el('div', { 'class': 'l4' });
       l4.appendChild(el('span', {}, [c.zone, c.assignee ? '担当 ' + c.assignee : '担当未定'].filter(String).join('・')));
@@ -610,6 +618,9 @@
     var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     return Number(m[2]) + '/' + Number(m[3]) + '(' + '日月火水木金土'.charAt(d.getDay()) + ')' + (m[4] ? ' ' + m[4] : '');
   }
+
+  /** 地目変更登記が必要な物件（登記担当へ連絡） */
+  function chimokuLots(lots) { return (lots || []).filter(function (l) { return l.chimokuHenko === 'はい' || l.chimokuHenko === true; }); }
 
   function buildContacts(lots) {
     var list = [], byKey = {};
@@ -868,7 +879,10 @@
       '.none { color: ' + MUTED + '; font-size: 8pt; padding: 4px 6px; }',
       '.gap { height: 10px; }',
       '.foot { margin-top: 18px; border-top: 1px solid ' + LINE + '; padding-top: 4px; color: ' + MUTED + '; font-size: 7.5pt; }',
-      '.foot td.r { text-align: right; }'
+      '.foot td.r { text-align: right; }',
+      'table.chimoku { margin-top: 6px; } table.chimoku td { background: #fff1e0; border: 1px solid #f0b46e; padding: 6px 10px; vertical-align: middle; }',
+      'table.chimoku td.t { width: 34%; border-left: 6px solid #d9822b; color: #7a3d00; font-weight: bold; font-size: 10.5pt; }',
+      'table.chimoku td.t span { display: inline-block; margin-left: 6px; background: #d9822b; color: #fff; font-size: 7.5pt; padding: 1px 8px; }'
     ].join('\n');
 
     var h = ['<div class="page">'];
@@ -884,6 +898,13 @@
       '<td class="money"><div class="l">' + (formal ? '正式見積' : '概算見積') + '</div><div class="v">' + esc(yen(formal ? c.formalEstimate : c.estimate)) + '</div>' +
         (formal ? '<div class="l">概算 ' + esc(yen(c.estimate)) + '</div>' : '') + '</td>' +
       '</tr></table>');
+
+    // ---- 地目変更登記（登記担当へ連絡）：要点のすぐ下に目立たせる ----
+    var cl = chimokuLots(lots);
+    if (cl.length) {
+      h.push('<table class="chimoku"><tr><td class="t">地目変更登記あり（' + cl.length + '筆）<span>登記担当へ連絡</span></td><td>' +
+        esc(cl.map(function (l) { return '物件' + l.no + ' ' + [l.address, l.lotNumber].filter(has).join(' ') + (l.chimoku ? '（登記地目：' + l.chimoku + '）' : ''); }).join(String.fromCharCode(10))) + '</td></tr></table>');
+    }
 
     // ---- 連絡先・訪問先（外出先で一目で分かるように最初に置く） ----
     var contacts = buildContacts(lots);
@@ -1098,6 +1119,14 @@
       flow.appendChild(el('li', { 'class': i < cur ? 'done' : i === cur ? 'done now' : '' }, s === '新規' ? '受付' : s));
     });
     head.appendChild(flow);
+    var cl = chimokuLots(lots);
+    if (cl.length) {
+      var alertBox = el('div', { 'class': 'chimoku-alert', role: 'note' });
+      alertBox.appendChild(el('b', {}, '地目変更登記あり（' + cl.length + '筆）'));
+      alertBox.appendChild(el('span', { 'class': 'to' }, '登記担当へ連絡'));
+      alertBox.appendChild(el('span', { 'class': 'cl-list' }, cl.map(function (l) { return '物件' + l.no + ' ' + [l.address, l.lotNumber].filter(has).join(' '); }).join('、')));
+      head.appendChild(alertBox);
+    }
     box.appendChild(head);
 
     var body = el('div', { 'class': 'dbody' });
