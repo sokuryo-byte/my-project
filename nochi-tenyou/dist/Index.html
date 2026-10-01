@@ -909,7 +909,8 @@ function calculateEstimate_(input) {
   }
 
   // --- 5b. 地目変更登記：チェックした物件があれば1回（2筆以上の筆数加算は都度調整） ---
-  const chimokuLots = lots.filter(function (l) { return l.chimokuHenko === true; });
+  // 地目変更登記は農地転用とは別の手続きのため、許可・届出の履歴がある物件も含めて数える
+  const chimokuLots = allLots.filter(function (l) { return l.chimokuHenko === true; });
   if (chimokuLots.length) {
     items.push(item('ADD_CHIMOKU'));
     if (chimokuLots.length > 1) notes.push('地目変更登記は' + chimokuLots.length + '筆です。筆数加算は都度調整します。');
