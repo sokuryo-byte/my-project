@@ -53,8 +53,6 @@
     .chimoku-alert b { color: #7a3d00; font-size: .95rem; }
     .chimoku-alert .to { font-size: .75rem; font-weight: 700; color: #fff; background: #d9822b; border-radius: 999px; padding: 1px 10px; }
     .chimoku-alert .cl-list { font-size: .85rem; color: #4a3520; }
-    .pdf-note { display: inline-flex; align-items: center; gap: 8px; }
-    .pdf-note .pdf-save { padding: 2px 12px; font-size: .8rem; }
     .dhead .amt { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: .75rem; color: var(--muted); }
     .dhead .amt b { display: block; font-size: 1.35rem; color: var(--fg); font-variant-numeric: tabular-nums; }
     /* 対応の流れ（対応状況の進み具合） */
@@ -236,6 +234,16 @@
     </section>
   </div>
 </div>
+
+<dialog class="modal" id="pdfDialog" aria-labelledby="pdfTitle">
+  <h2 id="pdfTitle">PDF出力</h2>
+  <p id="pdfName" style="overflow-wrap:anywhere"></p>
+  <p class="saved err" id="pdfErr" role="alert"></p>
+  <div class="btns">
+    <button type="button" class="ghost" id="pdfCancel">キャンセル</button>
+    <button type="button" class="primary" id="pdfGo">出力</button>
+  </div>
+</dialog>
 
 <script>
   var state = { cases: [], lotsByCase: {}, statuses: [], filter: '', selectedId: Number('<?= initialId ?>') || 0 };
@@ -813,33 +821,35 @@
     return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><style>' + css + '</style></head><body>' + h.join('\n') + '</body></html>';
   }
 
-  function exportPdf(c, btn) {
+  /**
+   * PDF出力：小窓（ファイル名と［出力］［キャンセル］）を出し、［出力］でPDFを作って保存し、小窓を閉じる。
+   */
+  function exportPdf(c) {
+    var d = $('pdfDialog');
     var lots = state.lotsByCase[c.id] || [];
     var name = '農地転用_案件詳細_' + (c.caseNo || c.id) + '_' + String(c.requesterName || '').replace(/[\\\/:*?"<>|\s]/g, '') + '.pdf';
-    btn.disabled = true; btn.textContent = 'PDF作成中…';
-    google.script.run
-      .withSuccessHandler(function (r) {
-        btn.disabled = false; btn.textContent = 'PDF出力';
-        var bin = atob(r.data), bytes = new Uint8Array(bin.length);
-        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-        // 自動では保存しない。ボタンの横に「保存する」を出し、押したときだけダウンロードする（小窓は出さない）
-        var note = btn.parentNode.querySelector('.pdf-note');
-        note.innerHTML = '';
-        var save = el('button', { type: 'button', 'class': 'primary pdf-save' }, '保存する');
-        var msg = el('span', { 'class': 'saved' });
-        save.addEventListener('click', function () {
+    $('pdfName').textContent = name;
+    $('pdfErr').textContent = '';
+    var go = $('pdfGo'), cancel = $('pdfCancel');
+    go.disabled = false; go.textContent = '出力';
+    cancel.onclick = function () { d.close(); };
+    go.onclick = function () {
+      go.disabled = true; go.textContent = '作成中…';
+      google.script.run
+        .withSuccessHandler(function (r) {
+          var bin = atob(r.data), bytes = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
           var a = el('a', { href: url, download: r.name });
           document.body.appendChild(a); a.click(); a.remove();
-          msg.textContent = '保存しました（' + r.name + '）';
-          save.textContent = 'もう一度保存';
-        });
-        note.appendChild(save);
-        note.appendChild(msg);
-        save.focus();
-      })
-      .withFailureHandler(function (err) { btn.disabled = false; btn.textContent = 'PDF出力'; alert('PDFの作成に失敗しました：' + err.message); })
-      .exportCasePdf(buildPrintHtml(c, lots), name);
+          setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+          d.close();
+        })
+        .withFailureHandler(function (err) { go.disabled = false; go.textContent = '出力'; $('pdfErr').textContent = 'PDFの作成に失敗しました：' + err.message; })
+        .exportCasePdf(buildPrintHtml(c, lots), name);
+    };
+    d.showModal();
+    go.focus();
   }
 
   /** 正式見積の提示：見積書PDFをドラッグ → 金額を確認 → 提示 */
@@ -928,9 +938,8 @@
     top.appendChild(el('h2', {}, c.requesterName || '（依頼者名なし）'));
     top.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―'));
     var pdfBtn = el('button', { type: 'button', 'class': 'ghost pdf-btn' }, 'PDF出力');
-    pdfBtn.addEventListener('click', function () { exportPdf(c, pdfBtn); });
+    pdfBtn.addEventListener('click', function () { exportPdf(c); });
     top.appendChild(pdfBtn);
-    top.appendChild(el('span', { 'class': 'pdf-note', role: 'status' }));
     top.appendChild(el('span', { 'class': 'meta' }, '受付番号 ' + (c.caseNo || c.id) + '　受付 ' + (c.receivedAt || '―') + '　入力者 ' + (c.submittedBy || '―') +
       '　' + (c.requestFlag === true ? '見積調査依頼' : '保存のみ')));
     var amt = el('div', { 'class': 'amt' });

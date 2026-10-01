@@ -216,14 +216,14 @@ const OUT = path.join(__dirname, 'out');
   await a.screenshot({ path: path.join(OUT, 'admin_estimate.png'), fullPage: true });
 
   // PDF出力：帳票HTMLをサーバーでPDFにしてダウンロード
-  // PDF出力を押しただけでは保存されない（「保存する」を押したときだけ）
+  // PDF出力：小窓が出る（この時点では保存しない）→［出力］で保存し、小窓が閉じる
   let autoDl = false; const onDl = () => { autoDl = true; }; a.on('download', onDl);
   await a.click('#detail .pdf-btn');
-  await a.waitForSelector('#detail .pdf-save', { timeout: 5000 });
-  await a.waitForTimeout(500); a.off('download', onDl);
+  await a.waitForSelector('#pdfDialog[open]', { timeout: 5000 });
+  await a.waitForTimeout(300); a.off('download', onDl);
   assert.strictEqual(autoDl, false, 'PDF出力を押しただけで保存された');
-  const [dl] = await Promise.all([a.waitForEvent('download', { timeout: 5000 }), a.click('#detail .pdf-save')]);
-  await a.waitForFunction(() => document.querySelector('#detail .pdf-note').textContent.includes('保存しました'));
+  const [dl] = await Promise.all([a.waitForEvent('download', { timeout: 5000 }), a.click('#pdfGo')]);
+  await a.waitForFunction(() => !document.querySelector('#pdfDialog').open, null, { timeout: 5000 });
   assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
   const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
   for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥811,500', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
