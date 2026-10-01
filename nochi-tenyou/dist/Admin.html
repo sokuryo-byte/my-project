@@ -41,6 +41,11 @@
   .callbox .muted { color: var(--muted); font-weight: 400; font-size: .8rem; }
   .callbox .script { margin: 0; padding: 6px 10px; background: var(--surface); border-radius: 4px; border: 1px dashed var(--line); line-height: 1.7; }
   .callbox .script p { margin: 0; }
+  /* 質問（トーク例）は入力欄の直前に1つずつ。空の質問・非表示の設定では出さない */
+  .callbox .script.q { padding: 4px 10px; border-style: solid; border-color: transparent; border-left: 3px solid var(--accent-soft); background: var(--surface); font-size: .84rem; }
+  .callbox .script.q-empty { display: none; }
+  .hide-talk .callbox .script { display: none !important; }
+  .talk-toggle { margin-left: auto; font-size: .82rem; font-weight: 400; min-height: 0; }
   .callbox .step1 { display: grid; gap: 8px; }
   .caution { margin: 0; font-size: .8rem; color: var(--warn-fg); } /* 注意は控えめな※の一行 */
   .contacts { display: grid; gap: 6px; }

@@ -94,6 +94,15 @@
     $('saveOnlyBtn').addEventListener('click', function () { submit(false); });
     $('toDetail').addEventListener('click', function () { $('detail').scrollIntoView({ block: 'start' }); });
     $('againBtn').addEventListener('click', resetForm);
+    // トーク例の表示・非表示（この端末に記憶）
+    var showTalk = true;
+    try { showTalk = localStorage.getItem('nochi.showTalk') !== '0'; } catch (e) { /* 記憶できない環境では常に表示 */ }
+    $('showTalk').checked = showTalk;
+    document.body.classList.toggle('hide-talk', !showTalk);
+    $('showTalk').addEventListener('change', function () {
+      document.body.classList.toggle('hide-talk', !this.checked);
+      try { localStorage.setItem('nochi.showTalk', this.checked ? '1' : '0'); } catch (e) { /* 無視 */ }
+    });
     bindNonFarmDialog();
     // 枠の外にファイルを落としてもブラウザでファイルが開かないようにする
     window.addEventListener('dragover', function (e) { e.preventDefault(); });
@@ -505,6 +514,7 @@
     var rd = el('div', { 'class': 'row rireki-detail hidden' });
     rd.appendChild(field('受理・許可年月日', el('input', { type: 'date', id: id('rirekiDate'), 'data-f': 'rirekiDate' })));
     rd.appendChild(field('受理・許可番号', el('input', { type: 'text', id: id('rirekiNo'), maxlength: '50', placeholder: '例）○○指令第123号', 'data-f': 'rirekiNo' })));
+    rb.appendChild(qEl('q-rireki-detail'));
     rb.appendChild(rd);
     var rn = field('内容（転用目的・面積など）', el('input', { type: 'text', id: id('rirekiNote'), maxlength: '200', placeholder: '例）5条許可・駐車場', 'data-f': 'rirekiNote' }));
     rn.classList.add('rireki-note', 'hidden');
@@ -514,8 +524,8 @@
     var rp = el('div', { 'class': 'reapply-block hidden', style: 'display:grid;gap:8px' });
     var rpc = el('div', { 'class': 'choices' });
     renderChoices(rpc, id('saiShinsei'), o.saiShinsei);
-    rp.appendChild(radioField('再度の許可・届出（許可・届出済みで未転用）', rpc,
-      el('p', { 'class': 'help' }, '「必要」の場合だけ、以降の確認（除外・見込み・土地改良区など）に進みます')));
+    rp.appendChild(prependQ(radioField('再度の許可・届出（許可・届出済みで未転用）', rpc,
+      el('p', { 'class': 'help' }, '「必要」の場合だけ、以降の確認（除外・見込み・土地改良区など）に進みます')), 'q-sai'));
     rp.appendChild(field('再度の許可・届出の備考', el('input', { type: 'text', id: id('saiShinseiNote'), maxlength: '200',
       placeholder: '例）許可から3年以上経過のため再申請が必要、計画変更の届出で足りる など', 'data-f': 'saiShinseiNote' })));
     rb.appendChild(rp);
@@ -525,12 +535,10 @@
     renderChoices(sh, id('shimatsusho'), o.shimatsusho);
     var st = el('div', { 'class': 'choices' });
     renderChoices(st, id('shimatsuStamp'), o.shimatsusho);
-    var stf = radioField('始末書の押印', st);
+    var stf = prependQ(radioField('始末書の押印', st), 'q-shimatsu-stamp');
     stf.classList.add('shimatsu-stamp', 'hidden');
-    var rs = el('div', { 'class': 'row' });
-    rs.appendChild(radioField('始末書（顛末書）の提出', sh));
-    rs.appendChild(stf);
-    sb.appendChild(rs);
+    sb.appendChild(prependQ(radioField('始末書（顛末書）の提出', sh), 'q-shimatsu'));
+    sb.appendChild(stf);
     var snf = field('始末書の備考', el('input', { type: 'text', id: id('shimatsuNote'), maxlength: '200', placeholder: '例）所有者・転用者の実印、印鑑証明書を添付 など', 'data-f': 'shimatsuNote' }));
     snf.classList.add('shimatsu-note', 'hidden');
     sb.appendChild(snf);
@@ -543,19 +551,21 @@
     renderChoices(hojo, id('hojoKuiki'), o.hojoKuiki);
     var h8 = el('div', { 'class': 'choices' });
     renderChoices(h8, id('hojo8nen'), o.hojo8nen);
-    var h8f = radioField('事業完了から8年', h8);
+    var h8f = prependQ(radioField('事業完了から8年', h8), 'q-hojo8');
     h8f.classList.add('hojo8-field', 'hidden');
-    var rh = el('div', { 'class': 'row' });
-    rh.appendChild(radioField('ほ場整備等の事業区域', hojo));
+    var rh = el('div', { style: 'display:grid;gap:8px' }); // 質問と回答を1対1で縦に並べる
+    rh.appendChild(prependQ(radioField('ほ場整備等の事業区域', hojo), 'q-hojo'));
     rh.appendChild(h8f);
     jb.appendChild(rh);
     var jis = el('div', { 'class': 'choices' });
     renderChoices(jis, id('jogaiJisseki'), o.jogaiJisseki);
     var jk = el('div', { 'class': 'choices' });
     renderChoices(jk, id('jogaiKanou'), o.tenyoKanou);
-    var rj = el('div', { 'class': 'row' });
-    rj.appendChild(radioField('近隣の除外実績', jis));
-    rj.appendChild(radioField('農振除外の見込み', jk));
+    var rj = el('div', { style: 'display:grid;gap:8px' });
+    rj.appendChild(prependQ(radioField('近隣の除外実績', jis), 'q-jisseki'));
+    var jkf = radioField('農振除外の見込み', jk);
+    jkf.appendChild(qEl('q-jogai-fb'));
+    rj.appendChild(jkf);
     jb.appendChild(rj);
     var jn = field('指摘事項', el('textarea', { id: id('jogaiNote'), rows: '2', maxlength: '300', placeholder: '例）事前相談が必要（担当：○○様）など', 'data-f': 'jogaiNote' }));
     jn.classList.add('jogai-note');
@@ -569,8 +579,10 @@
     var kanou = el('div', { 'class': 'choices' });
     renderChoices(kanou, id('tenyoKanou'), o.tenyoKanou);
     var rk = el('div', { style: 'display:grid;gap:8px' }); // 農地区分は選択肢が多いので全幅で縦に並べる（折り返し防止）
-    rk.appendChild(radioField('農地区分', kubun));
-    rk.appendChild(radioField('転用の見込み', kanou));
+    rk.appendChild(prependQ(radioField('農地区分', kubun), 'q-kubun'));
+    var tkf = radioField('転用の見込み', kanou);
+    tkf.appendChild(qEl('q-kanou-fb')); // 結論は審査次第と言われたときの切り返し
+    rk.appendChild(tkf);
     kb.appendChild(rk);
     var kn = field('指摘事項', el('textarea', { id: id('kanouNote'), rows: '2', maxlength: '300', placeholder: '例）事前相談が必要（担当：○○様）など', 'data-f': 'kanouNote' }));
     kn.classList.add('kanou-note');
@@ -630,7 +642,7 @@
     holRow.appendChild(hol);
     tuWrap.appendChild(holRow);
     tuWrap.appendChild(ukeNote);
-    var tuf = field('農地転用の受付・締切', monthly.children[1], null, false, tuWrap);
+    var tuf = prependQ(field('農地転用の受付・締切', monthly.children[1], null, false, tuWrap), 'q-tenyo-uke');
     var ju = el('div', { 'class': 'inline-inputs' });
     ju.appendChild(el('span', {}, '年'));
     ju.appendChild(el('input', { type: 'number', min: '1', max: '12', inputmode: 'numeric', id: id('jogaiKaisu'), 'data-f': 'jogaiKaisu', 'aria-label': '年間の受付回数' }));
@@ -638,7 +650,7 @@
     var jiki = el('input', { type: 'text', id: id('jogaiJiki'), maxlength: '100', placeholder: '例）5月・11月（各月末締切）', 'data-f': 'jogaiJiki', 'aria-label': '受付時期' });
     jiki.style.flex = '1'; jiki.style.minWidth = '12em';
     ju.appendChild(jiki);
-    var juf = field('農振除外の受付', ju.children[1], null, false, ju);
+    var juf = prependQ(field('農振除外の受付', ju.children[1], null, false, ju), 'q-jogai-uke');
     juf.classList.add('jogai-uke', 'hidden');
     ub.appendChild(tuf);   // 選択肢と入力欄が横に長いので、それぞれ全幅で縦に並べる
     ub.appendChild(juf);
@@ -650,10 +662,10 @@
     renderChoices(iin, id('iinStamp'), o.iinStamp);
     // （ア）土地改良区 →（イ）地元委員の押印 の順に、縦に並べる（（ア）で「はい」→②へ進んで（イ）を聞き漏らさないように）
     var r0 = el('div', { 'class': 'main-checks', style: 'display:grid;gap:8px' });
-    r0.appendChild(radioField('（ア）土地改良区にかかっているか', kairyo));
-    r0.appendChild(radioField('（イ）地元の農業委員・推進委員の押印', iin, el('p', { 'class': 'help' }, '（ア）の回答にかかわらず、同じ電話で必ず確認してください')));
+    r0.appendChild(prependQ(radioField('（ア）土地改良区にかかっているか', kairyo), 'q-kairyo'));
+    r0.appendChild(prependQ(radioField('（イ）地元の農業委員・推進委員の押印', iin, el('p', { 'class': 'help' }, '（ア）の回答にかかわらず、同じ電話で必ず確認してください')), 'q-iin'));
     s1.appendChild(r0);
-    s1.appendChild(contactList('iinContacts', '押印が必要な委員', '例）山田 一郎（農業委員）'));
+    s1.appendChild(prependQ(contactList('iinContacts', '押印が必要な委員', '例）山田 一郎（農業委員）'), 'q-iin-contacts'));
     box.appendChild(s1);
     // ② 土地改良区（「はい」のときだけ表示）
     var s2 = el('div', { 'class': 'step2 hidden' });
@@ -665,6 +677,7 @@
     var r1 = el('div', { 'class': 'row' });
     r1.appendChild(field('土地改良区名', el('input', { type: 'text', id: id('kairyoName'), maxlength: '100', placeholder: '例）○○土地改良区', 'data-f': 'kairyoName' })));
     r1.appendChild(field('土地改良区の電話番号', el('input', { type: 'tel', id: id('kairyoTel'), maxlength: '20', placeholder: '例）0565-00-0000', 'data-f': 'kairyoTel' })));
+    s2.appendChild(qEl('q-kairyo-name'));
     s2.appendChild(r1);
     s2.appendChild(el('div', { 'class': 'script script2' }));
     var benefit = el('div', { 'class': 'choices' });
@@ -673,11 +686,11 @@
     renderChoices(settle, id('kairyoSettlement'), o.kairyoSettlement);
     var proc = el('div', { 'class': 'choices' });
     renderChoices(proc, id('kairyoProcedure'), o.kairyoProcedure);
-    s2.appendChild(radioField('受益地に該当するか', benefit));
+    s2.appendChild(prependQ(radioField('受益地に該当するか', benefit), 'q-benefit'));
     var kd = el('div', { 'class': 'kairyo-detail hidden', style: 'display:grid;gap:8px' });
-    var r2 = el('div', { 'class': 'row' });
-    r2.appendChild(radioField('地区除外の手続き', proc, el('p', { 'class': 'help' }, '決済金がなくても手続きが必要な場合があります')));
-    r2.appendChild(radioField('地区除外の決済金', settle));
+    var r2 = el('div', { style: 'display:grid;gap:8px' });
+    r2.appendChild(prependQ(radioField('地区除外の手続き', proc, el('p', { 'class': 'help' }, '決済金がなくても手続きが必要な場合があります')), 'q-proc'));
+    r2.appendChild(prependQ(radioField('地区除外の決済金', settle), 'q-settle'));
     kd.appendChild(r2);
     var snBox = el('div', { 'class': 'inline-inputs' });
     snBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('kairyoSettlementNote'), 'data-f': 'kairyoSettlementNote', style: 'width:11em;text-align:right' }));
@@ -700,13 +713,13 @@
     var feeNote = el('input', { type: 'text', id: id('kairyoFeeNote'), maxlength: '100', placeholder: '内容（例：事務手数料）', 'data-f': 'kairyoFeeNote', 'aria-label': '手数料などの内容' });
     feeNote.style.flex = '1'; feeNote.style.minWidth = '12em';
     feeBox.appendChild(feeNote);
-    kd.appendChild(field('手数料など（決済金以外）', feeBox.firstChild, null, false, feeBox));
+    kd.appendChild(prependQ(field('手数料など（決済金以外）', feeBox.firstChild, null, false, feeBox), 'q-fee'));
     s2.appendChild(kd);
     var consent = el('div', { 'class': 'choices' });
     renderChoices(consent, id('localConsent'), o.localConsent);
-    s2.appendChild(radioField('地元関係者の同意（押印）', consent,
-      el('p', { 'class': 'help' }, '自治会長・水利組合・農事組合・地元の委員や理事など、説明や同意書への押印が必要な方がいるか')));
-    s2.appendChild(contactList('localContacts', '同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'));
+    s2.appendChild(prependQ(radioField('地元関係者の同意（押印）', consent,
+      el('p', { 'class': 'help' }, '自治会長・水利組合・農事組合・地元の委員や理事など、説明や同意書への押印が必要な方がいるか')), 'q-local'));
+    s2.appendChild(prependQ(contactList('localContacts', '同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-local-contacts'));
     box.appendChild(s2);
     // ③ 排水先（転用目的が分家住宅のとき）
     var s3 = el('div', { 'class': 'step3 step2 hidden' });
@@ -718,14 +731,15 @@
     renderChoices(adj, id('drainAdjacent'), o.drainAdjacent);
     var dc = el('div', { 'class': 'choices' });
     renderChoices(dc, id('drainConsent'), o.drainConsent);
-    var r3 = el('div', { 'class': 'row' });
-    r3.appendChild(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')));
-    r3.appendChild(radioField('排水承諾の要否', dc, el('p', { 'class': 'help' }, '農業用水（用排水路など）へ排水する場合など')));
+    var r3 = el('div', { style: 'display:grid;gap:8px' });
+    r3.appendChild(prependQ(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')), 'q-adj'));
+    r3.appendChild(prependQ(radioField('排水承諾の要否', dc, el('p', { 'class': 'help' }, '農業用水（用排水路など）へ排水する場合など')), 'q-dc'));
     s3.appendChild(r3);
     var s3b = el('div', { 'class': 'step3b hidden', style: 'display:grid;gap:8px' });
     var r4 = el('div', { 'class': 'row' });
     r4.appendChild(field('用水（管理者）名', el('input', { type: 'text', id: id('drainName'), maxlength: '100', placeholder: '例）○○用水 水利組合', 'data-f': 'drainName' })));
     r4.appendChild(field('用水の電話番号', el('input', { type: 'tel', id: id('drainTel'), maxlength: '20', placeholder: '例）0565-00-0000', 'data-f': 'drainTel' })));
+    s3b.appendChild(qEl('q-dname'));
     s3b.appendChild(r4);
     var h3b = el('div', { 'class': 'step-h' });
     h3b.appendChild(el('span', {}, '用水へ確認'));
@@ -738,11 +752,11 @@
     var dfNote = el('input', { type: 'text', id: id('drainFeeNote'), maxlength: '100', placeholder: '内容（例：排水負担金）', 'data-f': 'drainFeeNote', 'aria-label': '手数料の内容' });
     dfNote.style.flex = '1'; dfNote.style.minWidth = '12em';
     dfBox.appendChild(dfNote);
-    s3b.appendChild(field('手数料（負担金）', dfBox.firstChild, null, false, dfBox));
+    s3b.appendChild(prependQ(field('手数料（負担金）', dfBox.firstChild, null, false, dfBox), 'q-dfee'));
     var dl = el('div', { 'class': 'choices' });
     renderChoices(dl, id('drainLocalConsent'), o.localConsent);
-    s3b.appendChild(radioField('地元承諾（押印）', dl));
-    s3b.appendChild(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'));
+    s3b.appendChild(prependQ(radioField('地元承諾（押印）', dl), 'q-dlocal'));
+    s3b.appendChild(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'));
     s3.appendChild(s3b);
     box.appendChild(s3);
     return box;
@@ -809,6 +823,18 @@
     return d && d.tel ? d : null;
   }
 
+  /** 質問（トーク例）1つ分の枠。入力欄の直前に置き、質問と回答を1対1で並べる */
+  function qEl(cls) { return el('div', { 'class': 'script q ' + cls }); }
+  function prependQ(fieldEl, cls) { fieldEl.insertBefore(qEl(cls), fieldEl.firstChild); return fieldEl; }
+  /** 質問の文を入れる（空なら枠ごと隠す） */
+  function setQ(card, cls, lines) {
+    var b = card.querySelector('.' + cls);
+    if (!b) return;
+    lines = [].concat(lines).filter(Boolean);
+    scriptLines(b, lines);
+    b.classList.toggle('q-empty', !lines.length);
+  }
+
   function scriptLines(box, lines) {
     box.innerHTML = '';
     lines.forEach(function (t) { box.appendChild(el('p', {}, t)); });
@@ -861,36 +887,36 @@
       : ['【青地かどうか】', '「農用地区域（青地）に入っていますでしょうか、白地でしょうか。」']);
     scriptLines(card.querySelector('.script-rireki'), [
       '【過去の転用の履歴】',
-      '「過去にこの土地で' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」',
-      '→ 履歴がある場合：「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」',
-      '　→ まだ転用していない（現況が農地）場合：「許可（届出）の後、まだ転用していないのですが、改めて許可（届出）が必要でしょうか。」',
-      '　※ 許可・届出済みの場合、以降（除外・見込み・土地改良区など）の確認は不要です（改めて必要との回答の場合だけ続けます）。',
-      '→ 履歴がなく、現況が農地以外（駐車場など）の場合：「無断で転用している状態になるかと思いますが、手続きにあたって始末書（顛末書）の提出は必要でしょうか。」',
-      '　→ 必要な場合：「始末書には押印が必要でしょうか。必要でしたら、どなたの、どの印鑑（実印など）が必要か、印鑑証明書の添付も要るかお教えいただけますでしょうか。」'
+      '「過去にこの土地で' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」'
     ]);
+    setQ(card, 'q-rireki-detail', rirekiAns === 'あり' ? '「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」' : '');
+    setQ(card, 'q-sai', '「許可（届出）の後、まだ転用していないのですが、改めて許可（届出）が必要でしょうか。」');
+    setQ(card, 'q-shimatsu', '「無断で転用している状態になるかと思いますが、手続きにあたって始末書（顛末書）の提出は必要でしょうか。」');
+    setQ(card, 'q-shimatsu-stamp', '「始末書には押印が必要でしょうか。必要でしたら、どなたの、どの印鑑（実印など）が必要か、印鑑証明書の添付も要るかお教えいただけますでしょうか。」');
     var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
     card.querySelector('.kanou-block').classList.toggle('hidden', !permit);
     // 転用の見込み：意見ではなく事実（農地区分など）を聞く。前置きは短く、逃げられたときだけ切り返す
-    var n = 0;
-    var q = function (t) { n++; return '「' + (n === 2 ? 'また、' : '') + t + '」'; };
-    var kanouLines = ['【転用の見込み】'];
-    kanouLines.push(q('農地区分は、甲種・第1種・第2種・第3種のどれにあたりますでしょうか。'));
-    kanouLines.push(q('農地転用の申請の受付は、毎月いつまででしょうか。締切が土日祝日に重なる場合は、前後どちらの日になりますでしょうか。'));
-    kanouLines.push('→ 月ごとに締切が違う（年間計画）場合：「年間の予定表があれば、いただけますでしょうか。」');
-    kanouLines.push('→ 結論は審査次第と言われたら：「もちろん、結論は審査でのご判断と承知しています。農地区分だけでも教えていただけると、準備がしやすくなります。」');
-    kanouLines.push('→ それでも回答が得られない場合：「では、事前相談はどちらの窓口で、どのように予約すればよろしいでしょうか。ご担当の方のお名前もお教えいただけますか。」');
-    scriptLines(card.querySelector('.script-kanou'), kanouLines);
+    scriptLines(card.querySelector('.script-kanou'), ['【転用の見込み】']);
+    setQ(card, 'q-kubun', '「農地区分は、甲種・第1種・第2種・第3種のどれにあたりますでしょうか。」');
+    setQ(card, 'q-kanou-fb', [
+      '→ 結論は審査次第と言われたら：「もちろん、結論は審査でのご判断と承知しています。農地区分だけでも教えていただけると、準備がしやすくなります。」',
+      '→ それでも回答が得られない場合：「では、事前相談はどちらの窓口で、どのように予約すればよろしいでしょうか。ご担当の方のお名前もお教えいただけますか。」'
+    ]);
+    setQ(card, 'q-tenyo-uke', [
+      '「農地転用の申請の受付は、毎月いつまででしょうか。締切が土日祝日に重なる場合は、前後どちらの日になりますでしょうか。」',
+      '→ 月ごとに締切が違う（年間計画）場合：「年間の予定表があれば、いただけますでしょうか。」'
+    ]);
     // 青地（農用地区域）の場合：除外の見込み（事業区域・8年・近隣実績・受付時期という事実を聞く）
     card.querySelector('.jogai-block').classList.toggle('hidden', !jogai);
     scriptLines(card.querySelector('.script-jogai'), [
       '【農振除外の見込み】' + (noshin === '分からない' ? '（青地と分かった場合）' : ''),
-      '「青地とのことですので、農振除外の申出について何点か確認させてください。」',
-      '「ほ場整備などの土地改良事業の区域に入っていますでしょうか。」',
-      '　→ 入っている場合：「事業の完了から8年以上たっていますでしょうか。あわせて、事業を行った土地改良区の名称とお電話番号を教えてください。」（②の欄に記入）',
-      '「また、近くで過去に除外が認められた土地はございますでしょうか。」',
-      '「除外の申出の受付は年に何回で、いつでしょうか。」',
-      '→ 結論は審議次第と言われたら：「もちろん、結論は審議でのご判断と承知しています。事業区域かどうかや、これまでの除外の状況だけでも教えていただけると、準備がしやすくなります。」'
+      '「青地とのことですので、農振除外の申出について何点か確認させてください。」'
     ]);
+    setQ(card, 'q-hojo', '「ほ場整備などの土地改良事業の区域に入っていますでしょうか。」');
+    setQ(card, 'q-hojo8', '「事業の完了から8年以上たっていますでしょうか。あわせて、事業を行った土地改良区の名称とお電話番号を教えてください。」（②の欄に記入）');
+    setQ(card, 'q-jisseki', '「近くで過去に除外が認められた土地はございますでしょうか。」');
+    setQ(card, 'q-jogai-uke', '「除外の申出の受付は年に何回で、いつでしょうか。」');
+    setQ(card, 'q-jogai-fb', '→ 結論は審議次第と言われたら：「もちろん、結論は審議でのご判断と承知しています。事業区域かどうかや、これまでの除外の状況だけでも教えていただけると、準備がしやすくなります。」');
     card.querySelector('.hojo8-field').classList.toggle('hidden', getRadio(card, 'hojoKuiki') !== '区域内');
     // 受付期間の欄と、指摘事項の見出し（「難しい」を選んだときは理由を書く欄として示す）
     card.querySelector('.uketsuke-block').classList.toggle('hidden', !(permit || jogai));
@@ -906,15 +932,13 @@
     var hojoIn = jogai && getRadio(card, 'hojoKuiki') === '区域内';
     var hojoOut = jogai && getRadio(card, 'hojoKuiki') === '区域外';
     if (hojoIn && !getRadio(card, 'landImprovement')) setRadio(card, 'landImprovement', 'はい'); // ほ場整備の区域内＝土地改良区にかかっている
-    scriptLines(card.querySelector('.script-main'), [
-      '【土地改良区と地元委員】',
-      hojoIn ? '（ア）ほ場整備の区域内のため、土地改良区にかかっています（名称・電話番号を聞いていなければ確認）。'
-        : hojoOut ? '（ア）「ほ場整備の区域外とのことですが、用排水などで土地改良区の区域にかかっておりますでしょうか。」'
-        : '（ア）「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」',
-      '　→ かかっている場合：「土地改良区の名称と、お電話番号をお教えいただけますでしょうか。」（土地改良区へは、この電話のあと②で確認）',
-      '（イ）「また、申請にあたり地元の農業委員さんや農地利用最適化推進委員さんの押印は必要でしょうか。」',
-      '　→ 必要な場合：「委員さんのお名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
-    ]);
+    scriptLines(card.querySelector('.script-main'), ['【土地改良区と地元委員】']);
+    setQ(card, 'q-kairyo', hojoIn ? '（ほ場整備の区域内のため、土地改良区にかかっています）'
+      : hojoOut ? '「ほ場整備の区域外とのことですが、用排水などで土地改良区の区域にかかっておりますでしょうか。」'
+      : '「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」');
+    setQ(card, 'q-kairyo-name', '（農業委員会に）「土地改良区の名称と、お電話番号をお教えいただけますでしょうか。」');
+    setQ(card, 'q-iin', '「また、申請にあたり地元の農業委員さんや農地利用最適化推進委員さんの押印は必要でしょうか。」');
+    setQ(card, 'q-iin-contacts', '「委員さんのお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
     card.querySelector('[data-contacts=iinContacts]').classList.toggle('hidden', getRadio(card, 'iinStamp') !== '必要');
     // ③ 排水先（分家住宅）
     var bunke = purpose === '分家住宅';
@@ -925,18 +949,17 @@
     card.querySelector('[data-contacts=drainContacts]').classList.toggle('hidden', !(dOn && getRadio(card, 'drainLocalConsent') === '必要'));
     telLink(card.querySelector('.drain-tel'), lotInput(card, 'drainTel').value.trim());
     var dname = lotInput(card, 'drainName').value.trim();
-    scriptLines(card.querySelector('.script3a'), [
-      '（農業委員会、または市の道路・下水の担当課へ）',
-      '「' + where + 'で分家住宅を予定しております。排水先についてお伺いします。隣接の水路へ排水してもよろしいでしょうか。」',
-      '→ 水路がない場合：「側溝への排水になるかと思います。」',
-      '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」',
-      '→ 必要な場合：「用水の管理者（水利組合・土地改良区など）の名称とご連絡先をお教えいただけますでしょうか。」'
-    ]);
+    scriptLines(card.querySelector('.script3a'), ['（農業委員会、または市の道路・下水の担当課へ）']);
+    setQ(card, 'q-adj', ['「' + where + 'で分家住宅を予定しております。隣接の水路へ排水してもよろしいでしょうか。」',
+      '→ 水路がない場合：「側溝への排水になるかと思います。」']);
+    setQ(card, 'q-dc', '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
+    setQ(card, 'q-dname', '「用水の管理者（水利組合・土地改良区など）の名称とご連絡先をお教えいただけますでしょうか。」');
     scriptLines(card.querySelector('.script3b'), [
-      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'で分家住宅を予定しており、排水承諾の件でお電話いたしました。」',
-      '「' + (dname || '貴用水') + 'への排水承諾の手続きと、手数料（負担金）はございますでしょうか。ある場合は金額の目安をお教えいただけますでしょうか。」',
-      '「また、地元の承諾（押印）が必要な方はいらっしゃいますでしょうか。いらっしゃる場合は、お名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
+      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'で分家住宅を予定しており、排水承諾の件でお電話いたしました。」'
     ]);
+    setQ(card, 'q-dfee', '「' + (dname || '貴用水') + 'への排水承諾の手続きと、手数料（負担金）はございますでしょうか。ある場合は金額の目安をお教えいただけますでしょうか。」');
+    setQ(card, 'q-dlocal', '「また、地元の承諾（押印）が必要な方はいらっしゃいますでしょうか。」');
+    setQ(card, 'q-dcontacts', '「お名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
     card.querySelector('[data-contacts=localContacts]').classList.toggle('hidden', getRadio(card, 'localConsent') !== '必要');
     // 見込みが「難しい」なら、その先（土地改良区・地元委員・排水）は聞かない
     // 許可・届出済み（履歴あり）なら以降は聞かない。現況が未転用なら「再度の許可・届出」を確認し、「必要」のときだけ続ける
@@ -979,13 +1002,14 @@
     var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
     telLink(card.querySelector('.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
     scriptLines(card.querySelector('.script2'), [
-      '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。」',
-      '「' + where + 'の土地で農地転用を予定しております。' + (kname === '土地改良区' ? '貴改良区の' : kname + 'の') + '受益地に該当しますでしょうか。」',
-      '→ 該当する場合：「地区除外の手続きは必要でしょうか。また、決済金は必要でしょうか。必要な場合は、金額の目安をお教えいただけますでしょうか。」',
-      '　「決済金とは別に、手数料などはかかりますでしょうか。」',
-      '「また、地元の自治会長さんや水利組合、地元の委員・理事の方など、ご説明や同意書への押印が必要な方はいらっしゃいますでしょうか。」',
-      '→ いらっしゃる場合：「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
+      '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。' + where + 'の土地で農地転用を予定しております。」'
     ]);
+    setQ(card, 'q-benefit', '「' + (kname === '土地改良区' ? '貴改良区の' : kname + 'の') + '受益地に該当しますでしょうか。」');
+    setQ(card, 'q-proc', '「地区除外の手続きは必要でしょうか。」');
+    setQ(card, 'q-settle', '「決済金は必要でしょうか。必要な場合は、金額の目安（㎡単価など）をお教えいただけますでしょうか。」');
+    setQ(card, 'q-fee', '「決済金とは別に、手数料などはかかりますでしょうか。」');
+    setQ(card, 'q-local', '「また、地元の自治会長さんや水利組合、地元の委員・理事の方など、ご説明や同意書への押印が必要な方はいらっしゃいますでしょうか。」');
+    setQ(card, 'q-local-contacts', '「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
   }
 
   /**
