@@ -395,7 +395,10 @@ const FORM_OPTIONS = {
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（市街化調整区域の物件のみ。分家住宅は排水先の確認を行う）
-  tenyoUkeModes: ['毎月の期間', '毎月の締切日', '締切日を指定'], // 農地転用の受付：毎月○日～○日／毎月○日締切／特定の日
+  tenyoUkeModes: ['毎月の期間', '毎月の締切日', '毎月第○週', '月ごとに異なる（年間計画）', '締切日を指定'], // 農地転用の受付・締切の決め方
+  tenyoUkeWeeks: ['第1週', '第2週', '第3週', '第4週', '最終週'],
+  weekdays: ['月曜', '火曜', '水曜', '木曜', '金曜', '曜日指定なし'],
+  tenyoUkeHolidays: ['前の営業日', '次の営業日', 'その他（備考に記入）', '未確認'], // 締切が土日祝と重なる場合
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
   noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
   hojoKuiki: ['区域内', '区域外', '未確認'],               // ほ場整備などの土地改良事業の区域か
@@ -1028,9 +1031,24 @@ function rangeText_(a, b) {
 function tenyoUketsukeText_(l) {
   const mode = pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes);
   const day = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n : 0; };
-  if (mode === '締切日を指定') return dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
-  if (mode === '毎月の締切日') return day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
-  return monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+  let base = '';
+  if (mode === '締切日を指定') base = dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
+  else if (mode === '毎月の締切日') base = day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
+  else if (mode === '毎月第○週') {
+    const w = pick_(l.tenyoUkeWeek, FORM_OPTIONS.tenyoUkeWeeks);
+    const wd = pick_(l.tenyoUkeWeekday, FORM_OPTIONS.weekdays);
+    base = w ? '毎月' + w + (wd && wd !== '曜日指定なし' ? 'の' + wd : '') + '締切' : '';
+  } else if (mode === '月ごとに異なる（年間計画）') {
+    const months = ['4', '5', '6', '7', '8', '9', '10', '11', '12', '1', '2', '3'];
+    const list = (Array.isArray(l.tenyoUkeMonths) ? l.tenyoUkeMonths : []).map(function (v, i) {
+      return i < 12 && day(v) ? months[i] + '/' + day(v) : '';
+    }).filter(String);
+    base = list.length ? '月ごとの締切 ' + list.join('・') : '月ごとに締切が異なる（年間計画）';
+  } else base = monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+  const hol = pick_(l.tenyoUkeHoliday, FORM_OPTIONS.tenyoUkeHolidays);
+  const holText = hol === '前の営業日' || hol === '次の営業日' ? '土日祝は' + hol : hol === '未確認' ? '土日祝の扱い未確認' : '';
+  const note = str_(l.tenyoUkeNote, 200);
+  return [base, holText, note].filter(String).join('／');
 }
 
 /** 農振除外の受付：「年2回（5月・11月）」 */

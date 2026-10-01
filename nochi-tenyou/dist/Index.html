@@ -147,6 +147,18 @@
   /* 物件カード（複数） */
   .lots { display: grid; gap: 12px; }
   .lot { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 14px; background: var(--bg); }
+  /* 物件の2段：1 電話の前に入力 ／ 2 ここからヒアリング */
+  .lot-sec { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  .lot-sec b { font-size: .95rem; }
+  .lot-sec .lot-sec-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--muted); color: #fff; font-size: .78rem; font-weight: 700; }
+  .lot-sec .lot-sec-help { color: var(--muted); font-size: .8rem; }
+  .lot-sec.hear { margin-top: 10px; border-bottom-color: var(--accent); }
+  .lot-sec.hear .lot-sec-n { background: var(--accent); }
+  .lot-sec.hear b { color: var(--accent); }
+  .uke-year { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px 8px; }
+  .uke-month { display: inline-flex; align-items: center; gap: 3px; font-weight: 400; font-size: .82rem; }
+  .uke-month input { width: 3.6em; padding: 4px 6px; }
+  @media (max-width: 560px) { .uke-year { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   .lot-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .lot-head b { font-size: 1rem; }
   .lot-head .spacer { flex: 1; }
@@ -553,7 +565,10 @@ const FORM_OPTIONS = {
   iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
   localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
   purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（市街化調整区域の物件のみ。分家住宅は排水先の確認を行う）
-  tenyoUkeModes: ['毎月の期間', '毎月の締切日', '締切日を指定'], // 農地転用の受付：毎月○日～○日／毎月○日締切／特定の日
+  tenyoUkeModes: ['毎月の期間', '毎月の締切日', '毎月第○週', '月ごとに異なる（年間計画）', '締切日を指定'], // 農地転用の受付・締切の決め方
+  tenyoUkeWeeks: ['第1週', '第2週', '第3週', '第4週', '最終週'],
+  weekdays: ['月曜', '火曜', '水曜', '木曜', '金曜', '曜日指定なし'],
+  tenyoUkeHolidays: ['前の営業日', '次の営業日', 'その他（備考に記入）', '未確認'], // 締切が土日祝と重なる場合
   tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
   noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
   hojoKuiki: ['区域内', '区域外', '未確認'],               // ほ場整備などの土地改良事業の区域か
@@ -1320,9 +1335,24 @@ function rangeText_(a, b) {
 function tenyoUketsukeText_(l) {
   const mode = pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes);
   const day = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n : 0; };
-  if (mode === '締切日を指定') return dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
-  if (mode === '毎月の締切日') return day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
-  return monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+  let base = '';
+  if (mode === '締切日を指定') base = dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
+  else if (mode === '毎月の締切日') base = day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
+  else if (mode === '毎月第○週') {
+    const w = pick_(l.tenyoUkeWeek, FORM_OPTIONS.tenyoUkeWeeks);
+    const wd = pick_(l.tenyoUkeWeekday, FORM_OPTIONS.weekdays);
+    base = w ? '毎月' + w + (wd && wd !== '曜日指定なし' ? 'の' + wd : '') + '締切' : '';
+  } else if (mode === '月ごとに異なる（年間計画）') {
+    const months = ['4', '5', '6', '7', '8', '9', '10', '11', '12', '1', '2', '3'];
+    const list = (Array.isArray(l.tenyoUkeMonths) ? l.tenyoUkeMonths : []).map(function (v, i) {
+      return i < 12 && day(v) ? months[i] + '/' + day(v) : '';
+    }).filter(String);
+    base = list.length ? '月ごとの締切 ' + list.join('・') : '月ごとに締切が異なる（年間計画）';
+  } else base = monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+  const hol = pick_(l.tenyoUkeHoliday, FORM_OPTIONS.tenyoUkeHolidays);
+  const holText = hol === '前の営業日' || hol === '次の営業日' ? '土日祝は' + hol : hol === '未確認' ? '土日祝の扱い未確認' : '';
+  const note = str_(l.tenyoUkeNote, 200);
+  return [base, holText, note].filter(String).join('／');
 }
 
 /** 農振除外の受付：「年2回（5月・11月）」 */
@@ -1892,6 +1922,13 @@ function getUserEmail_() { return ''; }
     head.appendChild(del);
     card.appendChild(head);
 
+    // ===== 電話の前に入力（謄本・課税明細書・現地で分かること） =====
+    var pre = el('div', { 'class': 'lot-sec' });
+    pre.appendChild(el('span', { 'class': 'lot-sec-n' }, '1'));
+    pre.appendChild(el('b', {}, '電話の前に入力'));
+    pre.appendChild(el('span', { 'class': 'lot-sec-help' }, '謄本・課税明細書・現地で分かること'));
+    card.appendChild(pre);
+
     // 市区町村・所在地番
     var pref = el('select', { id: id('prefecture'), 'data-f': 'prefecture' });
     state.prefs.forEach(function (p) { pref.appendChild(new Option(p, p)); });
@@ -1965,9 +2002,9 @@ function getUserEmail_() { return ''; }
     // 農振
     var noshin = el('div', { 'class': 'choices' });
     renderChoices(noshin, id('isNoshin'), o.yesNoUnknown);
-    var noshinHelp = el('p', { 'class': 'help' }, '農振図でご確認ください。市街化区域の場合は「いいえ」が初期選択されます。');
+    var noshinHelp = el('p', { 'class': 'help' }, '市街化区域は「いいえ」が初期選択されます。農振図で分かる場合も、念のため電話で確認してください。');
     noshinHelp.appendChild(el('a', { 'class': 'hidden noshin-link', target: '_blank', rel: 'noopener' }, ' この市区町村の農振図を開く'));
-    card.appendChild(radioField('農振農用地（青地）かどうか', noshin, noshinHelp));
+    var noshinField = radioField('農振農用地（青地）かどうか', noshin, noshinHelp); // ヒアリングで聞く（buildCallBox で配置）
 
     // 現況
     var landUse = el('select', { id: id('landUse'), 'data-f': 'landUse' });
@@ -1981,9 +2018,10 @@ function getUserEmail_() { return ''; }
     // 転用済み
     var converted = el('div', { 'class': 'choices' });
     renderChoices(converted, id('isConverted'), o.yesNo);
-    var convField = radioField('既に転用済みかどうか', converted, el('p', { 'class': 'help' }, '無許可で駐車場等に利用している場合は「はい」'));
+    var convField = radioField('既に転用済みかどうか', converted,
+      el('p', { 'class': 'help' }, '履歴と現況から判断。許可・届出がなく駐車場等に利用している場合も「はい」'));
     convField.appendChild(el('p', { 'class': 'caution conv-warn hidden', role: 'alert' }));
-    card.appendChild(convField);
+    // 転用済みは、過去の許可・届出の履歴を聞いた後に判断する（buildCallBox で配置）
 
     // 地目変更登記
     var chimokuHenko = el('label', { 'class': 'check-line' });
@@ -1994,11 +2032,13 @@ function getUserEmail_() { return ''; }
     // 土地改良区（農業委員会 → 土地改良区 の順に電話確認）
     var kairyo = el('div', { 'class': 'choices' });
     renderChoices(kairyo, id('landImprovement'), ['はい', 'いいえ', '分からない']);
-    var callField = el('div', { 'class': 'field' });
-    callField.appendChild(el('span', { 'class': 'lbl' }, '電話確認（農業委員会・関係先）'));
-    callField.appendChild(el('p', { 'class': 'help' }, 'トーク例に沿ってお電話でご確認のうえ、回答を選択・入力してください。'));
-    callField.appendChild(buildCallBox(card, id, o, kairyo));
-    card.appendChild(callField);
+    // ===== ここからヒアリング（電話で確認） =====
+    var hear = el('div', { 'class': 'lot-sec hear' });
+    hear.appendChild(el('span', { 'class': 'lot-sec-n' }, '2'));
+    hear.appendChild(el('b', {}, 'ここからヒアリング'));
+    hear.appendChild(el('span', { 'class': 'lot-sec-help' }, 'トーク例に沿って電話で確認し、回答を選択・入力してください'));
+    card.appendChild(hear);
+    card.appendChild(buildCallBox(card, id, o, kairyo, noshinField, convField));
 
     $('lots').appendChild(card);
 
@@ -2140,6 +2180,11 @@ function getUserEmail_() { return ''; }
       tenyoUkeDate: lotInput(card, 'tenyoUkeDate').value,
       tenyoUkeFrom: lotInput(card, 'tenyoUkeFrom').value,
       tenyoUkeTo: lotInput(card, 'tenyoUkeTo').value,
+      tenyoUkeWeek: lotInput(card, 'tenyoUkeWeek').value,
+      tenyoUkeWeekday: lotInput(card, 'tenyoUkeWeekday').value,
+      tenyoUkeMonths: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(function (i) { return lotInput(card, 'tenyoUkeM' + i).value; }),
+      tenyoUkeHoliday: getRadio(card, 'tenyoUkeHoliday'),
+      tenyoUkeNote: lotInput(card, 'tenyoUkeNote').value,
       jogaiNote: lotInput(card, 'jogaiNote').value,
       drainAdjacent: getRadio(card, 'drainAdjacent'),
       drainConsent: getRadio(card, 'drainConsent'),
@@ -2166,13 +2211,19 @@ function getUserEmail_() { return ''; }
   // ---------------------------------------------------------
   // 土地改良区の電話確認（農業委員会の番号とトーク例）
   // ---------------------------------------------------------
-  function buildCallBox(card, id, o, kairyo) {
+  function buildCallBox(card, id, o, kairyo, noshinField, convField) {
     var box = el('div', { 'class': 'callbox' });
-    // ① 農業委員会（土地改良区・地元委員の押印）
+    // ① 農業委員会（青地 → 転用の履歴 → 除外・転用の見込み → 受付 → 土地改良区・地元委員）
     var s1 = el('div', { 'class': 'step1' });
     s1.appendChild(el('div', { 'class': 'step-h nogyo-h' }));
-    // 転用済みの物件：過去の転用届出（市街化）・転用許可（調整区域など）の履歴を最初に確認
-    var rb = el('div', { 'class': 'rireki-block hidden', style: 'display:grid;gap:8px' });
+    s1.appendChild(el('div', { 'class': 'script script-open' }));
+    // 青地かどうか（聞かないと分からないので、ヒアリングの最初に聞く）
+    var nb = el('div', { 'class': 'noshin-block', style: 'display:grid;gap:8px' });
+    nb.appendChild(el('div', { 'class': 'script script-noshin' }));
+    nb.appendChild(noshinField);
+    s1.appendChild(nb);
+    // 過去の転用許可・届出の履歴 → 既に転用済みか（履歴を聞いてから判断）→ 無断転用なら始末書
+    var rb = el('div', { 'class': 'rireki-block', style: 'display:grid;gap:8px' });
     rb.appendChild(el('div', { 'class': 'script script-rireki' }));
     var rireki = el('div', { 'class': 'choices' });
     renderChoices(rireki, id('tenyoRireki'), o.tenyoRireki);
@@ -2184,6 +2235,7 @@ function getUserEmail_() { return ''; }
     var rn = field('内容（転用目的・面積など）', el('input', { type: 'text', id: id('rirekiNote'), maxlength: '200', placeholder: '例）5条許可・駐車場', 'data-f': 'rirekiNote' }));
     rn.classList.add('rireki-note', 'hidden');
     rb.appendChild(rn);
+    rb.appendChild(convField);
     // 履歴がない（無断転用）場合：始末書の提出と押印
     var sb = el('div', { 'class': 'shimatsu-block hidden', style: 'display:grid;gap:8px' });
     var sh = el('div', { 'class': 'choices' });
@@ -2262,7 +2314,40 @@ function getUserEmail_() { return ''; }
     var deadline = el('span', { 'class': 'inline-inputs uke-date hidden' });
     deadline.appendChild(el('input', { type: 'date', id: id('tenyoUkeDate'), 'data-f': 'tenyoUkeDate', 'aria-label': '受付締切日' }));
     tu.appendChild(deadline);
-    var tuf = field('農地転用の受付', monthly.children[1], null, false, tu);
+    // 毎月第○週の○曜日
+    var weekly = el('span', { 'class': 'inline-inputs uke-week hidden' });
+    weekly.appendChild(el('span', {}, '毎月'));
+    var wk = el('select', { id: id('tenyoUkeWeek'), 'data-f': 'tenyoUkeWeek', 'aria-label': '第何週', style: 'width:auto' });
+    o.tenyoUkeWeeks.forEach(function (w) { wk.appendChild(new Option(w, w)); });
+    weekly.appendChild(wk);
+    var wd = el('select', { id: id('tenyoUkeWeekday'), 'data-f': 'tenyoUkeWeekday', 'aria-label': '曜日', style: 'width:auto' });
+    o.weekdays.forEach(function (w) { wd.appendChild(new Option(w, w)); });
+    weekly.appendChild(wd);
+    weekly.appendChild(el('span', {}, '締切'));
+    tu.appendChild(weekly);
+    // 月ごとに異なる（年間計画）：4月〜3月の締切日
+    var yearly = el('div', { 'class': 'uke-year hidden' });
+    ['4', '5', '6', '7', '8', '9', '10', '11', '12', '1', '2', '3'].forEach(function (m, i) {
+      var cell = el('label', { 'class': 'uke-month' });
+      cell.appendChild(el('span', {}, m + '月'));
+      cell.appendChild(el('input', { type: 'number', min: '1', max: '31', inputmode: 'numeric', 'data-f': 'tenyoUkeM' + i, 'aria-label': m + '月の締切日' }));
+      cell.appendChild(el('span', {}, '日'));
+      yearly.appendChild(cell);
+    });
+    // 締切が土日祝と重なる場合
+    var hol = el('div', { 'class': 'choices uke-holiday' });
+    renderChoices(hol, id('tenyoUkeHoliday'), o.tenyoUkeHolidays);
+    var ukeNote = el('input', { type: 'text', id: id('tenyoUkeNote'), maxlength: '200', 'data-f': 'tenyoUkeNote',
+      placeholder: '例）8月は休会、12月は20日締切、年間計画表あり など' });
+    var tuWrap = el('div', { style: 'display:grid;gap:6px' });
+    tuWrap.appendChild(tu);
+    tuWrap.appendChild(yearly);
+    var holRow = el('div', { 'class': 'inline-inputs' });
+    holRow.appendChild(el('span', { 'class': 'help', style: 'margin:0' }, '締切が土日祝と重なる場合'));
+    holRow.appendChild(hol);
+    tuWrap.appendChild(holRow);
+    tuWrap.appendChild(ukeNote);
+    var tuf = field('農地転用の受付・締切', monthly.children[1], null, false, tuWrap);
     var ju = el('div', { 'class': 'inline-inputs' });
     ju.appendChild(el('span', {}, '年'));
     ju.appendChild(el('input', { type: 'number', min: '1', max: '12', inputmode: 'numeric', id: id('jogaiKaisu'), 'data-f': 'jogaiKaisu', 'aria-label': '年間の受付回数' }));
@@ -2469,25 +2554,33 @@ function getUserEmail_() { return ''; }
     var purpose = zone === '市街化調整区域' ? getRadio(card, 'purpose') : '';
     var purposeText = purpose && purpose !== 'その他' ? purpose : '住宅等';
     var noshin = getRadio(card, 'isNoshin');
-    // 転用済み（「はい」）なら、最初に過去の届出・許可の履歴を確認する
-    var rirekiOn = getRadio(card, 'isConverted') === 'はい';
+    var converted = getRadio(card, 'isConverted') === 'はい';
     var kindText = zone === '市街化区域' ? '農地転用の届出（農地法第4条・第5条）の受理'
       : zone === '分からない' || !zone ? '農地転用の届出の受理、または転用許可' : '農地転用の許可（農地法第4条・第5条）';
     var dateText = zone === '市街化区域' ? '受理年月日と受理番号' : zone === '分からない' || !zone ? '受理（許可）年月日と番号' : '許可年月日と許可番号（指令番号）';
-    card.querySelector('.rireki-block').classList.toggle('hidden', !rirekiOn);
     card.querySelector('.rireki-detail').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
     card.querySelector('.rireki-note').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
     var rirekiAns = getRadio(card, 'tenyoRireki');
-    var shimatsuShow = rirekiOn && rirekiAns !== 'あり';
+    var shimatsuShow = converted && rirekiAns !== 'あり'; // 転用済みで許可・届出の履歴がない＝無断転用
     card.querySelector('.shimatsu-block').classList.toggle('hidden', !shimatsuShow);
     var shimatsuNeed = getRadio(card, 'shimatsusho') === '必要';
     card.querySelector('.shimatsu-stamp').classList.toggle('hidden', !shimatsuNeed);
     card.querySelector('.shimatsu-note').classList.toggle('hidden', !shimatsuNeed);
+    // 冒頭のあいさつ（1回だけ）
+    scriptLines(card.querySelector('.script-open'), [
+      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の土地で' + (zone === '市街化調整区域' ? purposeText + 'への' : '') +
+        '農地転用を検討しています。申請の準備を進める前に、何点か確認させてください。」'
+    ]);
+    // 青地かどうか（市街化区域は確認不要）
+    var urban = zone === '市街化区域';
+    scriptLines(card.querySelector('.script-noshin'), urban
+      ? ['【青地かどうか】市街化区域のため、農用地区域（青地）ではありません（確認不要）。']
+      : ['【青地かどうか】', '「農用地区域（青地）に入っていますでしょうか、白地でしょうか。」']);
     scriptLines(card.querySelector('.script-rireki'), [
-      '【最初に：過去の転用の履歴】（既に転用済みの土地）',
-      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の土地について、現在は農地以外に使われているのですが、過去に' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」',
+      '【過去の転用の履歴】',
+      '「過去にこの土地で' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」',
       '→ 履歴がある場合：「' + dateText + '、あわせて当時の転用目的をお教えいただけますでしょうか。」',
-      '→ 履歴がない場合：「無断で転用している状態になるかと思いますが、手続きにあたって始末書（顛末書）の提出は必要でしょうか。」',
+      '→ 履歴がなく、現況が農地以外（駐車場など）の場合：「無断で転用している状態になるかと思いますが、手続きにあたって始末書（顛末書）の提出は必要でしょうか。」',
       '　→ 必要な場合：「始末書には押印が必要でしょうか。必要でしたら、どなたの、どの印鑑（実印など）が必要か、印鑑証明書の添付も要るかお教えいただけますでしょうか。」'
     ]);
     var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
@@ -2495,20 +2588,18 @@ function getUserEmail_() { return ''; }
     // 転用の見込み：意見ではなく事実（農地区分など）を聞く。前置きは短く、逃げられたときだけ切り返す
     var n = 0;
     var q = function (t) { n++; return '「' + (n === 2 ? 'また、' : '') + t + '」'; };
-    var kanouLines = ['【' + (jogai || rirekiOn ? '続けて' : '最初に') + '：転用の見込み】'];
-    if (!jogai && !rirekiOn) kanouLines.push('「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地で、' + purposeText + 'への転用を検討しています。申請の準備を進める前に、何点か確認させてください。」');
-    if (!jogai && !noshin) kanouLines.push(q('農用地区域（青地）でしょうか、白地でしょうか。'));
+    var kanouLines = ['【転用の見込み】'];
     kanouLines.push(q('農地区分は、甲種・第1種・第2種・第3種のどれにあたりますでしょうか。'));
-    kanouLines.push(q('農地転用の申請の受付期間（毎月何日から何日まで）も教えてください。'));
+    kanouLines.push(q('農地転用の申請の受付は、毎月いつまででしょうか。締切が土日祝日に重なる場合は、前後どちらの日になりますでしょうか。'));
+    kanouLines.push('→ 月ごとに締切が違う（年間計画）場合：「年間の予定表があれば、いただけますでしょうか。」');
     kanouLines.push('→ 結論は審査次第と言われたら：「もちろん、結論は審査でのご判断と承知しています。農地区分だけでも教えていただけると、準備がしやすくなります。」');
     kanouLines.push('→ それでも回答が得られない場合：「では、事前相談はどちらの窓口で、どのように予約すればよろしいでしょうか。ご担当の方のお名前もお教えいただけますか。」');
     scriptLines(card.querySelector('.script-kanou'), kanouLines);
     // 青地（農用地区域）の場合：除外の見込み（事業区域・8年・近隣実績・受付時期という事実を聞く）
     card.querySelector('.jogai-block').classList.toggle('hidden', !jogai);
     scriptLines(card.querySelector('.script-jogai'), [
-      '【' + (rirekiOn ? '続けて' : '最初に') + '：農振除外の見込み】' + (noshin === '分からない' ? '（青地と分かった場合）' : ''),
-      rirekiOn ? '「続けて、農振除外についても何点か確認させてください。」'
-        : '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の農地で' + purposeText + 'への転用を考えており、農振除外の申出を検討しています。申請の準備を進める前に、何点か確認させてください。」',
+      '【農振除外の見込み】' + (noshin === '分からない' ? '（青地と分かった場合）' : ''),
+      '「青地とのことですので、農振除外の申出について何点か確認させてください。」',
       '「ほ場整備などの土地改良事業の区域に入っていますでしょうか。」',
       '　→ 入っている場合：「事業の完了から8年以上たっていますでしょうか。あわせて、事業を行った土地改良区の名称とお電話番号を教えてください。」（②の欄に記入）',
       '「また、近くで過去に除外が認められた土地はございますでしょうか。」',
@@ -2523,13 +2614,15 @@ function getUserEmail_() { return ''; }
     card.querySelector('.uke-monthly').classList.toggle('hidden', mode !== '毎月の期間');
     card.querySelector('.uke-day').classList.toggle('hidden', mode !== '毎月の締切日');
     card.querySelector('.uke-date').classList.toggle('hidden', mode !== '締切日を指定');
+    card.querySelector('.uke-week').classList.toggle('hidden', mode !== '毎月第○週');
+    card.querySelector('.uke-year').classList.toggle('hidden', mode !== '月ごとに異なる（年間計画）');
     card.querySelector('.kanou-note label').textContent = getRadio(card, 'tenyoKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
     card.querySelector('.jogai-note label').textContent = getRadio(card, 'jogaiKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
     var hojoIn = jogai && getRadio(card, 'hojoKuiki') === '区域内';
     var hojoOut = jogai && getRadio(card, 'hojoKuiki') === '区域外';
     if (hojoIn && !getRadio(card, 'landImprovement')) setRadio(card, 'landImprovement', 'はい'); // ほ場整備の区域内＝土地改良区にかかっている
     scriptLines(card.querySelector('.script-main'), [
-      permit || jogai || rirekiOn ? '【続けて：土地改良区と地元委員】' : '「お世話になっております。（会社名）の（お名前）と申します。農地転用の件でお伺いします。」',
+      '【土地改良区と地元委員】',
       hojoIn ? '（ア）ほ場整備の区域内のため、土地改良区にかかっています（名称・電話番号を聞いていなければ確認）。'
         : hojoOut ? '（ア）「ほ場整備の区域外とのことですが、用排水などで土地改良区の区域にかかっておりますでしょうか。」'
         : '（ア）「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」',

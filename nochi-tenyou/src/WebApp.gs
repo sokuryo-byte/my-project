@@ -337,9 +337,24 @@ function rangeText_(a, b) {
 function tenyoUketsukeText_(l) {
   const mode = pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes);
   const day = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n : 0; };
-  if (mode === '締切日を指定') return dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
-  if (mode === '毎月の締切日') return day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
-  return monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+  let base = '';
+  if (mode === '締切日を指定') base = dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
+  else if (mode === '毎月の締切日') base = day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
+  else if (mode === '毎月第○週') {
+    const w = pick_(l.tenyoUkeWeek, FORM_OPTIONS.tenyoUkeWeeks);
+    const wd = pick_(l.tenyoUkeWeekday, FORM_OPTIONS.weekdays);
+    base = w ? '毎月' + w + (wd && wd !== '曜日指定なし' ? 'の' + wd : '') + '締切' : '';
+  } else if (mode === '月ごとに異なる（年間計画）') {
+    const months = ['4', '5', '6', '7', '8', '9', '10', '11', '12', '1', '2', '3'];
+    const list = (Array.isArray(l.tenyoUkeMonths) ? l.tenyoUkeMonths : []).map(function (v, i) {
+      return i < 12 && day(v) ? months[i] + '/' + day(v) : '';
+    }).filter(String);
+    base = list.length ? '月ごとの締切 ' + list.join('・') : '月ごとに締切が異なる（年間計画）';
+  } else base = monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+  const hol = pick_(l.tenyoUkeHoliday, FORM_OPTIONS.tenyoUkeHolidays);
+  const holText = hol === '前の営業日' || hol === '次の営業日' ? '土日祝は' + hol : hol === '未確認' ? '土日祝の扱い未確認' : '';
+  const note = str_(l.tenyoUkeNote, 200);
+  return [base, holText, note].filter(String).join('／');
 }
 
 /** 農振除外の受付：「年2回（5月・11月）」 */
