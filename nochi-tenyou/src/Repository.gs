@@ -80,6 +80,43 @@ function appendLots_(caseId, lots) {
   }
 }
 
+/**
+ * 保存した案件を上書きする（受付番号・ID・受付日時・行政班の対応欄はそのまま）。物件明細は入れ替える。
+ * @param {number} caseId
+ * @param {Object} record CASE_COLUMNS の key を持つオブジェクト（書く列だけ）
+ * @param {Array<Object>} lots appendLots_ と同じ形
+ */
+function replaceCase_(caseId, record, lots) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  let result;
+  try {
+    const sheet = getSheet_(SHEET_NAMES.CASES);
+    if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    const keep = ['id', 'caseNo', 'receivedAt', 'status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote',
+      'estimatePdfUrl', 'estimatePdfAt', 'reportResult'];
+    const current = sheet.getRange(row, 1, 1, CASE_COLUMNS.length).getValues()[0];
+    const next = CASE_COLUMNS.map(function (c, i) {
+      return keep.indexOf(c.key) < 0 && record[c.key] !== undefined ? toCellValue_(record[c.key]) : current[i];
+    });
+    sheet.getRange(row, 1, 1, CASE_COLUMNS.length).setValues([next]);
+    // 物件明細：この案件の行を下から消して入れ直す
+    const ls = getSheet_(SHEET_NAMES.LOTS);
+    if (ls.getLastRow() >= 2) {
+      const ids = ls.getRange(2, 1, ls.getLastRow() - 1, 1).getValues();
+      for (let i = ids.length - 1; i >= 0; i--) if (Number(ids[i][0]) === Number(caseId)) ls.deleteRow(i + 2);
+    }
+    SpreadsheetApp.flush();
+    result = { id: Number(caseId), caseNo: current[colIndexOf_('caseNo') - 1], row: row, url: buildRowUrl_(sheet, row) };
+  } finally {
+    lock.releaseLock();
+  }
+  appendLots_(caseId, lots); // appendLots_ は自分でロックを取る
+  return result;
+}
+
 /** 物件明細を案件IDごとにまとめて返す { 案件ID: [物件, ...] } */
 function getLotsByCase_() {
   const sheet = getSheet_(SHEET_NAMES.LOTS);

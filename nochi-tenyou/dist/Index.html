@@ -129,6 +129,13 @@
   .check-line input { width: 18px; height: 18px; margin: 0; }
   a.ghost { display: inline-block; text-decoration: none; }
   .portal-link { font-size: .85rem; white-space: nowrap; }
+  .head-links { display: inline-flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .saved-open { padding: 4px 12px; font-size: .82rem; }
+  .edit-banner { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; background: var(--warn-bg); color: var(--warn-fg); border-radius: 6px; padding: 8px 12px; font-size: .88rem; margin-top: 8px; }
+  .saved-list { display: grid; gap: 6px; max-height: 50vh; overflow-y: auto; }
+  .saved-item { text-align: left; font: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; cursor: pointer; display: grid; gap: 2px; color: var(--fg); }
+  .saved-item:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .saved-item small { color: var(--muted); }
   .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .primary, .ghost { font-weight: 700; border-radius: 6px; padding: 10px 18px; cursor: pointer; }
   .primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
@@ -653,7 +660,8 @@ const CASE_COLUMNS = [
   { key: 'extraLotFee', header: '筆数加算' },
   { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' },
   { key: 'localFee', header: '地元協力金等（円・管理画面で入力）' },
-  { key: 'localFeeNote', header: '地元協力金等の内容' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'localFeeNote', header: '地元協力金等の内容' },
+  { key: 'formData', header: '（自動）入力内容・保存した案件の再編集用・変更しない' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**
@@ -1393,7 +1401,9 @@ function readTohon(fileId) {
  * @param {Object} form 画面の入力値
  * @param {boolean} requestInvestigation true=見積調査依頼（通知あり） / false=保存のみ
  */
-function submitCase(form, requestInvestigation) {
+function submitCase(form, requestInvestigation, editId) {
+  // 保存した案件の続き（上書き）：本人が保存し、まだ見積調査依頼していない案件だけ
+  const editing = editId ? getEditableSavedCase_(editId) : null;
   const input = normalizeInput_(form);
   const errors = validateInput_(input);
   if (errors.length) {
@@ -1405,7 +1415,7 @@ function submitCase(form, requestInvestigation) {
   const summary = summarizeLots_(input.lots);
 
   // 1) 保存（通知より先に保存し、以降が失敗しても記録が残るようにする）
-  const saved = appendCase_(Object.assign({}, summary, {
+  const record = Object.assign({}, summary, {
     receivedAt: new Date(),
     requesterName: input.requesterName,
     plan: input.plan,
@@ -1424,8 +1434,10 @@ function submitCase(form, requestInvestigation) {
     status: CASE_STATUSES[0],
     updatedAt: new Date(),
     lotCount: input.lots.length,
-  }));
-  appendLots_(saved.id, input.lots.map(function (l) {
+    formData: savedFormJson_(form),
+  });
+  if (editing) record.documents = mergeList_(editing.documents, input.documents).join(',');
+  const lotRows = input.lots.map(function (l) {
     return {
       address: l.address, lotNumber: l.lotNumber, chimoku: l.chimoku, area: l.area === null ? '' : l.area,
       zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
@@ -1451,13 +1463,24 @@ function submitCase(form, requestInvestigation) {
       drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
     };
-  }));
+  });
+  let saved;
+  if (editing) {
+    saved = replaceCase_(editing.id, record, lotRows);
+  } else {
+    saved = appendCase_(record);
+    appendLots_(saved.id, lotRows);
+  }
 
   // 2) 資料フォルダの作成とファイル移動（失敗しても案件は残す）
   let attach = { folderUrl: '', count: 0, errors: [] };
   try {
-    attach = attachFilesToCase_(saved.caseNo, input);
-    updateCaseCells_(saved.row, { folderUrl: attach.folderUrl, fileCount: attach.count });
+    if (editing && !input.attachments.length && editing.folderUrl) {
+      attach = { folderUrl: editing.folderUrl, count: 0, errors: [] }; // 追加の資料なし：これまでのフォルダのまま
+    } else {
+      attach = attachFilesToCase_(saved.caseNo, input, editing ? editing.folderUrl : '');
+    }
+    updateCaseCells_(saved.row, { folderUrl: attach.folderUrl, fileCount: (editing ? Number(editing.fileCount) || 0 : 0) + attach.count });
   } catch (e) {
     attach.errors.push('資料フォルダの作成に失敗：' + (e && e.message || e));
   }
@@ -1472,12 +1495,103 @@ function submitCase(form, requestInvestigation) {
   return {
     id: saved.id,
     caseNo: saved.caseNo,
+    edited: !!editing,
     estimate: estimate,
     notified: notify.ok,
     notifyMessage: notify.message,
     fileCount: attach.count,
     attachErrors: attach.errors,
   };
+}
+
+/** 保存用の入力内容（資料のファイルIDは除く。再編集で画面に戻すため） */
+function savedFormJson_(form) {
+  const f = Object.assign({}, form || {});
+  delete f.attachments;
+  return JSON.stringify(f);
+}
+
+function mergeList_(csv, list) {
+  const out = String(csv || '').split(',').filter(String);
+  (list || []).forEach(function (x) { if (out.indexOf(x) < 0) out.push(x); });
+  return out;
+}
+
+/** 呼び出せる保存案件か確認して返す（本人が保存し、まだ依頼していない。管理者は全員分） */
+function getEditableSavedCase_(caseId) {
+  const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+  if (!c) throw new Error('保存した案件が見つかりません（削除された可能性があります）。');
+  if (c.requestFlag === true) throw new Error('受付番号 ' + c.caseNo + ' はすでに見積調査依頼済みのため、ここからは変更できません（行政班へご連絡ください）。');
+  const me = getUserEmail_().toLowerCase();
+  if (String(c.submittedBy || '').toLowerCase() !== me && !isAdmin_()) throw new Error('ご自身が保存した案件だけ呼び出せます。');
+  return c;
+}
+
+/** 保存した案件（まだ見積調査依頼していないもの）の一覧。本人の分（管理者は全員分）、新しい順 */
+function listSavedCases() {
+  const me = getUserEmail_().toLowerCase();
+  const admin = isAdmin_();
+  return getAllCases_().filter(function (c) {
+    return c.requestFlag !== true && (admin || String(c.submittedBy || '').toLowerCase() === me);
+  }).map(function (c) {
+    return { id: c.id, caseNo: c.caseNo, requesterName: c.requesterName, address: c.address, lotNumber: c.lotNumber,
+      updatedAt: c.updatedAt, submittedBy: c.submittedBy, mine: String(c.submittedBy || '').toLowerCase() === me };
+  });
+}
+
+/** 保存した案件を画面に戻すための入力内容。保存時の入力が無い（この機能より前の）案件はシートから組み立てる */
+function getSavedCase(caseId) {
+  const c = getEditableSavedCase_(caseId);
+  let form = null;
+  try { form = c.formData ? JSON.parse(c.formData) : null; } catch (e) { form = null; }
+  const rebuilt = !form;
+  if (!form) {
+    const lots = (getLotsByCase_()[c.id] || []).map(lotRowToFormLot_);
+    form = { requesterName: c.requesterName, trust: c.trust === true, extraLotFee: c.extraLotFee === 'あり', plan: c.plan, lots: lots,
+      prefecture: lots.length ? lots[0].prefecture : c.prefecture };
+  }
+  return { id: c.id, caseNo: c.caseNo, form: form, rebuilt: rebuilt, fileCount: Number(c.fileCount) || 0, folderUrl: c.folderUrl || '', documents: c.documents || '' };
+}
+
+/** 物件明細シートの1行 → 依頼画面の入力の形（保存時の入力が無い案件用。受付期間などは文字のまま備考に入れる） */
+function lotRowToFormLot_(r) {
+  const s = function (v) { return v === undefined || v === null ? '' : String(v); };
+  const bool = function (v) { return v === true ? 'はい' : v === false ? 'いいえ' : v === '不明' ? '分からない' : s(v); };
+  const yen = function (t) { const m = s(t).match(/([\d,]+)円/); return m ? m[1].replace(/,/g, '') : ''; };
+  const after = function (t) { const i = s(t).indexOf('／'); return i >= 0 ? s(t).slice(i + 1) : ''; };
+  const city = s(r.municipality);
+  const place = s(r.address).indexOf(city) === 0 ? s(r.address).slice(city.length) : s(r.address);
+  const use = s(r.landUse), base = use.replace(/（.*$/, ''), other = (use.match(/（(.*)）$/) || [])[1] || '';
+  const st = s(r.kairyoSettlementNote), fee = s(r.kairyoFee);
+  const date = s(r.rirekiDate).replace(/\//g, '-');
+  let extra = [];
+  try { extra = JSON.parse(r.kairyoExtraData || '[]'); } catch (e) { extra = []; }
+  const lot = {
+    prefecture: s(r.prefecture), municipality: city, address: [place, s(r.lotNumber)].filter(String).join(' '),
+    chimoku: s(r.chimoku), area: s(r.area), isNoshin: bool(r.isNoshin), isConverted: bool(r.isConverted),
+    landUse: FORM_OPTIONS.landUses.indexOf(base) >= 0 ? base : '', landUseOther: FORM_OPTIONS.landUses.indexOf(base) >= 0 ? other : use,
+    chimokuHenko: r.chimokuHenko === 'はい' || r.chimokuHenko === true,
+    kairyoSettlementNote: yen(st), kairyoSettlementUnit: /^1㎡あたり/.test(st) ? '㎡あたり' : /^1haあたり/.test(st) ? 'haあたり' : '総額',
+    kairyoFeeAmount: yen(fee), kairyoFeeUnit: /^1筆あたり/.test(fee) ? '1筆あたり' : '1申請あたり', kairyoFeeNote: after(fee),
+    iinContacts: contactLines_(r.iinContacts), localContacts: contactLines_(r.localContacts), drainContacts: contactLines_(r.drainContacts),
+    rirekiDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '',
+    hinochiDocs: s(r.hinochiDocs).split('・').filter(String),
+    drainFeeAmount: yen(r.drainFee), drainFeeNote: after(r.drainFee),
+    tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke),
+    readFromTohon: s(r.readFromTohon) === '謄本から読取',
+    kairyoExtra: extra.map(function (e) {
+      return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
+        kairyoSettlement: e.kairyoSettlement, kairyoSettlementNote: e.settlementAmount ? String(e.settlementAmount) : '', kairyoSettlementUnit: e.settlementUnit,
+        kairyoFeeAmount: e.kairyoFeeAmount ? String(e.kairyoFeeAmount) : '', kairyoFeeUnit: e.kairyoFeeUnit, kairyoFeeNote: after(e.kairyoFee),
+        localConsent: e.localConsent, localContacts: e.localContacts || [] };
+    }),
+  };
+  ['zone', 'landImprovement', 'kairyoName', 'kairyoTel', 'kairyoBenefit', 'kairyoProcedure', 'kairyoSettlement', 'iinStamp', 'localConsent', 'purpose',
+    'tenyoRireki', 'rirekiNo', 'rirekiNote', 'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'saiShinsei', 'saiShinseiNote',
+    'hinochi', 'hinochiYears', 'hinochiNote', 'zeseiKyoka', 'zeseiNote', 'tenyoKanou', 'noutiKubun', 'kanouNote', 'jogaiKanou',
+    'hojoKuiki', 'hojo8nen', 'jogaiJisseki', 'jogaiNote', 'drainAdjacent', 'drainConsent', 'drainName', 'drainTel', 'drainLocalConsent']
+    .forEach(function (k) { lot[k] = s(r[k]); });
+  return lot;
 }
 
 /**
@@ -1900,7 +2014,13 @@ function getUserEmail_() { return ''; }
 <body>
 <div class="wrap">
   <header>
-    <div class="page-head"><h1>農地転用 見積・調査依頼フォーム</h1><a class="portal-link" href="<?= portalUrl ?>" target="_top">← 社内ポータル</a></div>
+    <div class="page-head"><h1>農地転用 見積・調査依頼フォーム</h1>
+      <span class="head-links"><button type="button" class="ghost saved-open" id="savedOpen">保存した案件を開く</button>
+      <a class="portal-link" href="<?= portalUrl ?>" target="_top">← 社内ポータル</a></span></div>
+    <div class="edit-banner hidden" id="editBanner" role="status">
+      <span>受付番号 <b id="editNo"></b> の続きを入力中です。送信するとこの案件に上書き保存されます。<span id="editFiles"></span></span>
+      <button type="button" class="linkbtn" id="editCancel">新しい案件の入力に切り替える</button>
+    </div>
     <p class="lead">
       ご入力内容に応じて、画面下部に概算見積を表示します。
       送信後、行政班より正式なお見積りをご連絡いたします。
@@ -1917,6 +2037,14 @@ function getUserEmail_() { return ''; }
       <button type="button" class="ghost" id="nfFix">地目を修正する</button>
       <button type="button" class="primary" id="nfConfirm">農地以外で間違いない</button>
     </div>
+  </dialog>
+
+  <!-- 保存した案件の一覧 -->
+  <dialog class="modal" id="savedDialog" aria-labelledby="savedTitle" style="max-width:min(560px, calc(100vw - 32px))">
+    <h2 id="savedTitle">保存した案件</h2>
+    <p class="help" style="margin:0 0 8px">「保存のみ」で保存し、まだ見積調査依頼していない案件です。選ぶと続きを入力できます。</p>
+    <div id="savedList" class="saved-list"><p class="help">読み込み中…</p></div>
+    <div class="btns"><button type="button" class="ghost" id="savedClose">閉じる</button></div>
   </dialog>
 
   <!-- 送信結果（送信後にフォームの代わりに表示） -->
@@ -2110,6 +2238,9 @@ function getUserEmail_() { return ''; }
     $('saveOnlyBtn').addEventListener('click', function () { submit(false); });
     $('toDetail').addEventListener('click', function () { $('detail').scrollIntoView({ block: 'start' }); });
     $('againBtn').addEventListener('click', resetForm);
+    $('savedOpen').addEventListener('click', openSavedList);
+    $('savedClose').addEventListener('click', function () { $('savedDialog').close(); });
+    $('editCancel').addEventListener('click', function () { if (confirm('入力中の内容を消して、新しい案件の入力に切り替えますか？')) resetForm(); });
     // トーク例の表示・非表示（この端末に記憶）
     var showTalk = true;
     try { showTalk = localStorage.getItem('nochi.showTalk') !== '0'; } catch (e) { /* 記憶できない環境では常に表示 */ }
@@ -3698,7 +3829,7 @@ function getUserEmail_() { return ''; }
     google.script.run
       .withSuccessHandler(function (res) { setBusy(false); onSubmitted(res, isRequest, f.lots.length); })
       .withFailureHandler(function (err) { setBusy(false); showErrors(['送信に失敗しました：' + err.message]); })
-      .submitCase(f, isRequest);
+      .submitCase(f, isRequest, state.editing ? state.editing.id : null);
   }
 
   function onSubmitted(res, isRequest, lotCount) {
@@ -3718,6 +3849,10 @@ function getUserEmail_() { return ''; }
       }
     }
     lines.push('概算見積金額：' + (res.estimate.ok ? yen(res.estimate.total) : '算出不可') + '（目安）');
+    if (res.edited) lines.unshift('（保存していた案件に上書きしました）');
+    if (!isRequest) lines.push('続きは、画面右上の「保存した案件を開く」から入力できます。');
+    state.editing = null;
+    $('editBanner').classList.add('hidden');
 
     $('resultBox').className = 'result ' + type;
     $('resultTitle').textContent = isRequest ? '見積調査依頼を送信しました' : '保存しました';
@@ -3727,7 +3862,92 @@ function getUserEmail_() { return ''; }
     window.scrollTo(0, 0);
   }
 
+  // ---------------------------------------------------------
+  // 保存した案件の呼び出し
+  // ---------------------------------------------------------
+  function openSavedList() {
+    var list = $('savedList');
+    list.innerHTML = '';
+    list.appendChild(el('p', { 'class': 'help' }, '読み込み中…'));
+    $('savedDialog').showModal();
+    google.script.run
+      .withSuccessHandler(function (items) {
+        list.innerHTML = '';
+        if (!items.length) { list.appendChild(el('p', { 'class': 'help' }, '保存した案件はありません。')); return; }
+        items.forEach(function (c) {
+          var b = el('button', { type: 'button', 'class': 'saved-item' });
+          b.appendChild(el('b', {}, (c.caseNo || '#' + c.id) + '　' + (c.requesterName || '（依頼者名なし）')));
+          b.appendChild(el('span', {}, [c.address, c.lotNumber].filter(Boolean).join(' ') || '―'));
+          b.appendChild(el('small', {}, '保存 ' + (c.updatedAt || '') + (c.mine ? '' : '　入力者 ' + c.submittedBy)));
+          b.addEventListener('click', function () { loadSaved(c.id); });
+          list.appendChild(b);
+        });
+      })
+      .withFailureHandler(function (err) { list.innerHTML = ''; list.appendChild(el('p', { 'class': 'saved err' }, '読み込めませんでした：' + err.message)); })
+      .listSavedCases();
+  }
+
+  function loadSaved(id) {
+    var dirty = $('requesterName').value.trim() || qsa('.lot').some(function (k) { return lotInput(k, 'address').value.trim(); });
+    if (dirty && !confirm('入力中の内容を消して、保存した案件を開きますか？')) return;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        $('savedDialog').close();
+        fillForm(res.form);
+        state.editing = { id: res.id, caseNo: res.caseNo };
+        $('editNo').textContent = res.caseNo || ('#' + res.id);
+        $('editFiles').textContent = (res.fileCount ? '（保存済みの資料 ' + res.fileCount + '件はそのまま残ります）' : '') +
+          (res.rebuilt ? '※ この案件は保存時の入力が残っていないため、シートの内容から戻しました。受付期間などは備考欄に文字で入っています。確認してください。' : '');
+        $('editBanner').classList.remove('hidden');
+        window.scrollTo(0, 0);
+      })
+      .withFailureHandler(function (err) { alert('開けませんでした：' + err.message); })
+      .getSavedCase(id);
+  }
+
+  /** 保存した入力内容を画面に戻す */
+  function fillForm(f) {
+    resetForm();
+    $('requesterName').value = f.requesterName || '';
+    $('trust').checked = !!f.trust;
+    $('plan').value = f.plan || '';
+    if ($('documentsOther') && f.documentsOther) $('documentsOther').value = f.documentsOther;
+    var lots = f.lots && f.lots.length ? f.lots : [{}];
+    $('lots').innerHTML = '';
+    lots.forEach(function (d) { var card = addLot(); if (card) fillLot(card, d); });
+    $('extraLotFee').checked = !!f.extraLotFee;
+    renumberLots();
+    updatePlanRequired();
+    schedulePreview();
+  }
+
+  function fillLot(card, d) {
+    if (d.prefecture) lotInput(card, 'prefecture').value = d.prefecture;
+    Object.keys(d).forEach(function (k) {
+      var v = d[k];
+      if (k === 'kairyoExtra' || k === 'lotNumber' || k === 'prefecture') return;
+      if (k === 'readFromTohon') {
+        if (v) { card.setAttribute('data-tohon', '1'); card.querySelector('.badge').classList.remove('hidden'); }
+        return;
+      }
+      if (k === 'iinContacts' || k === 'localContacts' || k === 'drainContacts') { setContacts(card, k, v || []); return; }
+      if (k === 'tenyoUkeMonths') { (v || []).forEach(function (x, i) { var e = lotInput(card, 'tenyoUkeM' + i); if (e) e.value = x; }); return; }
+      if (k === 'hinochiDocs') { qsa('.hinochi-docs input[data-doc]', card).forEach(function (x) { x.checked = (v || []).indexOf(x.value) >= 0; }); return; }
+      var e = lotInput(card, k);
+      if (e) { if (e.type === 'checkbox') e.checked = !!v; else e.value = v === null || v === undefined ? '' : v; return; }
+      setRadio(card, k, v);
+    });
+    if (d.isNoshin) card.removeAttribute('data-noshin-auto');
+    (d.kairyoExtra || []).forEach(function (x) { addKairyoExtra(card, x); });
+    updateLotLinks(card);
+    updateCallBox(card);
+    updateConvertedWarn(card);
+    updateTaxNote(card);
+  }
+
   function resetForm() {
+    state.editing = null;
+    $('editBanner').classList.add('hidden');
     $('caseForm').reset();
     $('lots').innerHTML = '';
     state.uploads = [];

@@ -78,12 +78,14 @@ function trashPendingFile_(fileId) {
  * @param {Object} input normalizeInput_() の結果
  * @return {{folderUrl:string, count:number, errors:string[]}}
  */
-function attachFilesToCase_(caseNo, input) {
+function attachFilesToCase_(caseNo, input, existingFolderUrl) {
   const first = input.lots[0] || { municipality: '', address: '', lotNumber: '' };
   const folderName = [caseNo, first.municipality || first.address.slice(0, 20),
     first.lotNumber + (input.lots.length > 1 ? '他' + (input.lots.length - 1) + '筆' : '')]
     .filter(String).join('_');
-  const folder = getRootFolder_().createFolder(sanitizeFileName_(folderName));
+  // 保存した案件の上書きでは、すでにある資料フォルダに追加する
+  const folder = existingFolderUrl ? getCaseFolder_({ folderUrl: existingFolderUrl, caseNo: caseNo }).folder
+    : getRootFolder_().createFolder(sanitizeFileName_(folderName));
   const errors = [];
   let count = 0;
 

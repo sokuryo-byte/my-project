@@ -475,7 +475,8 @@ const CASE_COLUMNS = [
   { key: 'extraLotFee', header: '筆数加算' },
   { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' },
   { key: 'localFee', header: '地元協力金等（円・管理画面で入力）' },
-  { key: 'localFeeNote', header: '地元協力金等の内容' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'localFeeNote', header: '地元協力金等の内容' },
+  { key: 'formData', header: '（自動）入力内容・保存した案件の再編集用・変更しない' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**

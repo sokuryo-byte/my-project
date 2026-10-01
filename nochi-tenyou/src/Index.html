@@ -9,7 +9,13 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="page-head"><h1>農地転用 見積・調査依頼フォーム</h1><a class="portal-link" href="<?= portalUrl ?>" target="_top">← 社内ポータル</a></div>
+    <div class="page-head"><h1>農地転用 見積・調査依頼フォーム</h1>
+      <span class="head-links"><button type="button" class="ghost saved-open" id="savedOpen">保存した案件を開く</button>
+      <a class="portal-link" href="<?= portalUrl ?>" target="_top">← 社内ポータル</a></span></div>
+    <div class="edit-banner hidden" id="editBanner" role="status">
+      <span>受付番号 <b id="editNo"></b> の続きを入力中です。送信するとこの案件に上書き保存されます。<span id="editFiles"></span></span>
+      <button type="button" class="linkbtn" id="editCancel">新しい案件の入力に切り替える</button>
+    </div>
     <p class="lead">
       ご入力内容に応じて、画面下部に概算見積を表示します。
       送信後、行政班より正式なお見積りをご連絡いたします。
@@ -26,6 +32,14 @@
       <button type="button" class="ghost" id="nfFix">地目を修正する</button>
       <button type="button" class="primary" id="nfConfirm">農地以外で間違いない</button>
     </div>
+  </dialog>
+
+  <!-- 保存した案件の一覧 -->
+  <dialog class="modal" id="savedDialog" aria-labelledby="savedTitle" style="max-width:min(560px, calc(100vw - 32px))">
+    <h2 id="savedTitle">保存した案件</h2>
+    <p class="help" style="margin:0 0 8px">「保存のみ」で保存し、まだ見積調査依頼していない案件です。選ぶと続きを入力できます。</p>
+    <div id="savedList" class="saved-list"><p class="help">読み込み中…</p></div>
+    <div class="btns"><button type="button" class="ghost" id="savedClose">閉じる</button></div>
   </dialog>
 
   <!-- 送信結果（送信後にフォームの代わりに表示） -->

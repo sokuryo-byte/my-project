@@ -94,6 +94,9 @@
     $('saveOnlyBtn').addEventListener('click', function () { submit(false); });
     $('toDetail').addEventListener('click', function () { $('detail').scrollIntoView({ block: 'start' }); });
     $('againBtn').addEventListener('click', resetForm);
+    $('savedOpen').addEventListener('click', openSavedList);
+    $('savedClose').addEventListener('click', function () { $('savedDialog').close(); });
+    $('editCancel').addEventListener('click', function () { if (confirm('入力中の内容を消して、新しい案件の入力に切り替えますか？')) resetForm(); });
     // トーク例の表示・非表示（この端末に記憶）
     var showTalk = true;
     try { showTalk = localStorage.getItem('nochi.showTalk') !== '0'; } catch (e) { /* 記憶できない環境では常に表示 */ }
@@ -1682,7 +1685,7 @@
     google.script.run
       .withSuccessHandler(function (res) { setBusy(false); onSubmitted(res, isRequest, f.lots.length); })
       .withFailureHandler(function (err) { setBusy(false); showErrors(['送信に失敗しました：' + err.message]); })
-      .submitCase(f, isRequest);
+      .submitCase(f, isRequest, state.editing ? state.editing.id : null);
   }
 
   function onSubmitted(res, isRequest, lotCount) {
@@ -1702,6 +1705,10 @@
       }
     }
     lines.push('概算見積金額：' + (res.estimate.ok ? yen(res.estimate.total) : '算出不可') + '（目安）');
+    if (res.edited) lines.unshift('（保存していた案件に上書きしました）');
+    if (!isRequest) lines.push('続きは、画面右上の「保存した案件を開く」から入力できます。');
+    state.editing = null;
+    $('editBanner').classList.add('hidden');
 
     $('resultBox').className = 'result ' + type;
     $('resultTitle').textContent = isRequest ? '見積調査依頼を送信しました' : '保存しました';
@@ -1711,7 +1718,92 @@
     window.scrollTo(0, 0);
   }
 
+  // ---------------------------------------------------------
+  // 保存した案件の呼び出し
+  // ---------------------------------------------------------
+  function openSavedList() {
+    var list = $('savedList');
+    list.innerHTML = '';
+    list.appendChild(el('p', { 'class': 'help' }, '読み込み中…'));
+    $('savedDialog').showModal();
+    google.script.run
+      .withSuccessHandler(function (items) {
+        list.innerHTML = '';
+        if (!items.length) { list.appendChild(el('p', { 'class': 'help' }, '保存した案件はありません。')); return; }
+        items.forEach(function (c) {
+          var b = el('button', { type: 'button', 'class': 'saved-item' });
+          b.appendChild(el('b', {}, (c.caseNo || '#' + c.id) + '　' + (c.requesterName || '（依頼者名なし）')));
+          b.appendChild(el('span', {}, [c.address, c.lotNumber].filter(Boolean).join(' ') || '―'));
+          b.appendChild(el('small', {}, '保存 ' + (c.updatedAt || '') + (c.mine ? '' : '　入力者 ' + c.submittedBy)));
+          b.addEventListener('click', function () { loadSaved(c.id); });
+          list.appendChild(b);
+        });
+      })
+      .withFailureHandler(function (err) { list.innerHTML = ''; list.appendChild(el('p', { 'class': 'saved err' }, '読み込めませんでした：' + err.message)); })
+      .listSavedCases();
+  }
+
+  function loadSaved(id) {
+    var dirty = $('requesterName').value.trim() || qsa('.lot').some(function (k) { return lotInput(k, 'address').value.trim(); });
+    if (dirty && !confirm('入力中の内容を消して、保存した案件を開きますか？')) return;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        $('savedDialog').close();
+        fillForm(res.form);
+        state.editing = { id: res.id, caseNo: res.caseNo };
+        $('editNo').textContent = res.caseNo || ('#' + res.id);
+        $('editFiles').textContent = (res.fileCount ? '（保存済みの資料 ' + res.fileCount + '件はそのまま残ります）' : '') +
+          (res.rebuilt ? '※ この案件は保存時の入力が残っていないため、シートの内容から戻しました。受付期間などは備考欄に文字で入っています。確認してください。' : '');
+        $('editBanner').classList.remove('hidden');
+        window.scrollTo(0, 0);
+      })
+      .withFailureHandler(function (err) { alert('開けませんでした：' + err.message); })
+      .getSavedCase(id);
+  }
+
+  /** 保存した入力内容を画面に戻す */
+  function fillForm(f) {
+    resetForm();
+    $('requesterName').value = f.requesterName || '';
+    $('trust').checked = !!f.trust;
+    $('plan').value = f.plan || '';
+    if ($('documentsOther') && f.documentsOther) $('documentsOther').value = f.documentsOther;
+    var lots = f.lots && f.lots.length ? f.lots : [{}];
+    $('lots').innerHTML = '';
+    lots.forEach(function (d) { var card = addLot(); if (card) fillLot(card, d); });
+    $('extraLotFee').checked = !!f.extraLotFee;
+    renumberLots();
+    updatePlanRequired();
+    schedulePreview();
+  }
+
+  function fillLot(card, d) {
+    if (d.prefecture) lotInput(card, 'prefecture').value = d.prefecture;
+    Object.keys(d).forEach(function (k) {
+      var v = d[k];
+      if (k === 'kairyoExtra' || k === 'lotNumber' || k === 'prefecture') return;
+      if (k === 'readFromTohon') {
+        if (v) { card.setAttribute('data-tohon', '1'); card.querySelector('.badge').classList.remove('hidden'); }
+        return;
+      }
+      if (k === 'iinContacts' || k === 'localContacts' || k === 'drainContacts') { setContacts(card, k, v || []); return; }
+      if (k === 'tenyoUkeMonths') { (v || []).forEach(function (x, i) { var e = lotInput(card, 'tenyoUkeM' + i); if (e) e.value = x; }); return; }
+      if (k === 'hinochiDocs') { qsa('.hinochi-docs input[data-doc]', card).forEach(function (x) { x.checked = (v || []).indexOf(x.value) >= 0; }); return; }
+      var e = lotInput(card, k);
+      if (e) { if (e.type === 'checkbox') e.checked = !!v; else e.value = v === null || v === undefined ? '' : v; return; }
+      setRadio(card, k, v);
+    });
+    if (d.isNoshin) card.removeAttribute('data-noshin-auto');
+    (d.kairyoExtra || []).forEach(function (x) { addKairyoExtra(card, x); });
+    updateLotLinks(card);
+    updateCallBox(card);
+    updateConvertedWarn(card);
+    updateTaxNote(card);
+  }
+
   function resetForm() {
+    state.editing = null;
+    $('editBanner').classList.add('hidden');
     $('caseForm').reset();
     $('lots').innerHTML = '';
     state.uploads = [];
