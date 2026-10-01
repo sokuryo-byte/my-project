@@ -43,6 +43,13 @@ function updateCaseByAdmin(caseId, patch) {
     if (s !== '' && (isNaN(n) || n < 0)) throw new Error('正式見積金額は数値で入力してください。');
     values.formalEstimate = s === '' ? '' : n;
   }
+  if (p.localFee !== undefined) {
+    const s = String(p.localFee).replace(/[,，¥円\s]/g, '');
+    const n = Number(s);
+    if (s !== '' && (isNaN(n) || n < 0)) throw new Error('地元協力金等は数値で入力してください。');
+    values.localFee = s === '' ? '' : Math.round(n);
+  }
+  if (p.localFeeNote !== undefined) values.localFeeNote = String(p.localFeeNote).trim().slice(0, 100);
   Object.keys(values).forEach(function (k) {
     if (ADMIN_EDITABLE_KEYS.indexOf(k) < 0) delete values[k]; // 念のため
   });
@@ -54,6 +61,11 @@ function updateCaseByAdmin(caseId, patch) {
     const row = findCaseRow_(caseId);
     if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
     updateCaseCells_(row, values);
+    // 地元協力金等を変えたら、正式見積の提示前（新規・調査中）の案件は概算も計算し直す
+    if (values.localFee !== undefined || values.localFeeNote !== undefined) {
+      const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+      if (c && RECALC_STATUSES.indexOf(c.status) >= 0) recalcCaseEstimate_(c, getLotsByCase_()[c.id]);
+    }
   } finally {
     lock.releaseLock();
   }

@@ -764,6 +764,7 @@
       ['物件', lots.length ? lots.length + '筆（' + (c.prefecture || '―') + '）' : ''], ['面積合計', has(c.area) ? c.area + ' ㎡' : ''],
       ['区域区分', c.zone], ['転用目的', c.purpose],
       ['信託手続き', c.trust === true ? '付随する' : ''], ['筆数加算', c.extraLotFee], ['資料', c.documents],
+      ['地元協力金等', has(c.localFee) ? yen(c.localFee) + (c.localFeeNote ? '（' + c.localFeeNote + '）' : '') : ''],
       ['入力者', c.submittedBy], ['最終更新', c.updatedAt],
       ['今後の転用計画', c.plan, 'wide'],
       ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(has).join('\n'), 'wide']
@@ -981,6 +982,7 @@
       ['転用目的', c.purpose],
       ['信託手続きに付随', c.trust === true ? 'はい' : ''],
       ['筆数加算', c.extraLotFee],
+      ['地元協力金等', has(c.localFee) ? yen(c.localFee) + (c.localFeeNote ? '（' + c.localFeeNote + '）' : '') : ''],
       ['資料', c.documents],
       ['今後の転用計画', c.plan, 'wide'],
       ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(has).join('\n'), 'wide']
@@ -1015,6 +1017,15 @@
     var est = el('input', { type: 'text', id: 'aEstimate', inputmode: 'numeric', placeholder: '概算 ' + yen(c.estimate) });
     est.value = c.formalEstimate === '' ? '' : c.formalEstimate;
     act.appendChild(field('正式見積金額（円）', est));
+    // 地元協力金等（地域によってかかる。実費として概算に入る）
+    var lf = el('input', { type: 'text', id: 'aLocalFee', inputmode: 'numeric', placeholder: '例）30000' });
+    lf.value = has(c.localFee) ? c.localFee : '';
+    var lfn = el('input', { type: 'text', id: 'aLocalFeeNote', maxlength: '100', placeholder: '内容（例：○○区 協力金）' });
+    lfn.value = c.localFeeNote || '';
+    var lfr = el('div', { 'class': 'row' });
+    lfr.appendChild(field('地元協力金等（円）', lf));
+    lfr.appendChild(field('内容', lfn));
+    act.appendChild(lfr);
     var memo = el('textarea', { id: 'aMemo', rows: '5', maxlength: '2000', placeholder: '調査結果、依頼者への連絡内容など' });
     memo.value = c.adminMemo || '';
     act.appendChild(field('対応メモ', memo));
@@ -1031,7 +1042,8 @@
           if (m) m.textContent = '更新しました（' + updated.updatedAt + '）';
         })
         .withFailureHandler(function (err) { save.disabled = false; msg.textContent = ''; alert('更新に失敗しました：' + err.message); })
-        .updateCaseByAdmin(c.id, { status: sel.value, assignee: assignee.value, formalEstimate: est.value, adminMemo: memo.value });
+        .updateCaseByAdmin(c.id, { status: sel.value, assignee: assignee.value, formalEstimate: est.value, adminMemo: memo.value,
+          localFee: lf.value, localFeeNote: lfn.value });
     });
     actions.appendChild(save); actions.appendChild(msg);
     act.appendChild(actions);

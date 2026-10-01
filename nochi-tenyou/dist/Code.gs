@@ -113,8 +113,8 @@ const DEFAULT_FEES = [
     note: '農振農用地「はい」の場合に加算（料金表 4006）' },
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 40000,
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
-  { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）', amount: 20000,
-    note: '土地改良区に確認した地元関係者の同意（押印）が「必要」「未確認」、または土地改良区が「分からない」物件がある場合に加算' },
+  { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）（1人あたり）', amount: 20000,
+    note: '同意（押印）が必要な人数分を加算（土地改良区で確認した地元関係者＋排水の地元承諾者。同じ人は1人）。人数が未確認（「未確認」「分からない」）の場合は1人分で仮計上' },
   { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 300000,
     note: '転用目的が「分家住宅」で、市街化調整区域の物件がある場合に加算（料金表 4001。開発許可（29条）となる場合は 4002）' },
   { key: 'ADD_DRAINAGE', label: '排水承諾手続', amount: 40000,
@@ -158,6 +158,7 @@ const FEE_PATCHES = {
   '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
   '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
   '2026-05': ['ADD_CHIMOKU:label'],       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
+  '2026-06': ['ADD_WATER_ASSOCIATION:label'], // 地元承諾書は人数分（名称と条件だけ更新、金額はそのまま）
 };
 
 /** 報酬にかける消費税率（実費にはかけない） */
@@ -470,7 +471,9 @@ const CASE_COLUMNS = [
   { key: 'reportResult', header: '正式見積の報告結果' },
   { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' },
   { key: 'extraLotFee', header: '筆数加算' },
-  { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' },
+  { key: 'localFee', header: '地元協力金等（円・管理画面で入力）' },
+  { key: 'localFeeNote', header: '地元協力金等の内容' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**
@@ -534,7 +537,7 @@ const LOT_COLUMNS = [
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
-const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments'];
+const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote'];
 
 /** 見積の金額設定を変えたときに概算を計算し直す案件（正式見積を提示する前の案件だけ） */
 const RECALC_STATUSES = ['新規', '調査中'];
@@ -1828,9 +1831,21 @@ function calculateEstimate_(input) {
       (l.drainConsent === '必要' && l.drainLocalConsent !== '不要'); // 排水承諾で地元承諾が必要な場合も
   });
   if (consentLots.length) {
-    items.push(item('ADD_WATER_ASSOCIATION'));
-    if (!consentLots.some(function (l) { return l.localConsent === '必要' || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })) {
-      notes.push('地元関係者の同意（押印）が未確認のため加算しています。不要な場合は減額となります。');
+    // 同意（押印）が必要な人数分（地元関係者＋排水の地元承諾者。同じ人＝氏名と電話が同じなら1人）
+    const people = {};
+    consentLots.forEach(function (l) {
+      [].concat(l.localConsent === '必要' ? l.localContacts || [] : [], l.drainLocalConsent === '必要' ? l.drainContacts || [] : [])
+        .forEach(function (p) {
+          const key = String(p.name || '').replace(/\s/g, '') + '|' + String(p.tel || '').replace(/\D/g, '');
+          if (key !== '|') people[key] = true;
+        });
+    });
+    const count = Object.keys(people).length;
+    items.push(item('ADD_WATER_ASSOCIATION', Math.max(1, count)));
+    if (!count) {
+      notes.push(consentLots.some(function (l) { return l.localConsent === '必要' || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })
+        ? '地元関係者の同意（押印）が必要な方の人数が未入力のため、1人分で計上しています。人数分の加算となります。'
+        : '地元関係者の同意（押印）が未確認のため1人分で加算しています。不要な場合は減額、複数の方が必要な場合は人数分の加算となります。');
     }
   }
 
@@ -1892,6 +1907,11 @@ function calculateEstimate_(input) {
     if (chimokuLots.length > 2) items.push(item('ADD_CHIMOKU_EXTRA', chimokuLots.length - 2));
   }
 
+  // --- 5c. 地元協力金等（管理画面で入力した金額。実費） ---
+  if (Number(input.localFee) > 0) {
+    items.push(cost({ label: '地元協力金等' + (input.localFeeNote ? '（' + input.localFeeNote + '）' : ''), amount: Math.round(Number(input.localFee)) }));
+  }
+
   // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
   addActualCosts_(lots, items, notes);
 
@@ -1942,6 +1962,8 @@ function lotRowToEstimateLot_(r) {
     kairyoFeeAmount: yen(fee),
     kairyoFeeUnit: /^1筆あたり/.test(fee) ? '1筆あたり' : '1申請あたり',
     drainFeeAmount: yen(r.drainFee),
+    localContacts: contactLines_(r.localContacts),
+    drainContacts: contactLines_(r.drainContacts),
   };
   ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'localConsent', 'iinStamp', 'purpose',
     'drainConsent', 'drainLocalConsent', 'drainName', 'jogaiKanou', 'jogaiNote', 'jogaiUketsuke', 'tenyoKanou', 'kanouNote',
@@ -1952,6 +1974,14 @@ function lotRowToEstimateLot_(r) {
   return lot;
 }
 
+/** シートの「氏名／住所／電話」の行 → [{name, address, tel}] */
+function contactLines_(text) {
+  return String(text || '').split('\n').filter(function (x) { return x.trim(); }).map(function (line) {
+    const f = line.split('／');
+    return { name: f[0] || '', address: f[1] || '', tel: f[2] || '' };
+  });
+}
+
 /**
  * 1件の概算を、物件明細シートの内容と現在の金額設定で計算し直す。変わったときだけ書き込む。
  * @return {boolean} 書き込んだか
@@ -1960,6 +1990,7 @@ function recalcCaseEstimate_(c, lotRows) {
   if (!lotRows || !lotRows.length) return false;
   const est = calculateEstimate_({
     lots: lotRows.map(lotRowToEstimateLot_), trust: c.trust === true, extraLotFee: c.extraLotFee === 'あり',
+    localFee: c.localFee, localFeeNote: c.localFeeNote,
   });
   const total = est.ok ? est.total : '';
   const detail = estimateToText_(est);
@@ -2621,6 +2652,13 @@ function updateCaseByAdmin(caseId, patch) {
     if (s !== '' && (isNaN(n) || n < 0)) throw new Error('正式見積金額は数値で入力してください。');
     values.formalEstimate = s === '' ? '' : n;
   }
+  if (p.localFee !== undefined) {
+    const s = String(p.localFee).replace(/[,，¥円\s]/g, '');
+    const n = Number(s);
+    if (s !== '' && (isNaN(n) || n < 0)) throw new Error('地元協力金等は数値で入力してください。');
+    values.localFee = s === '' ? '' : Math.round(n);
+  }
+  if (p.localFeeNote !== undefined) values.localFeeNote = String(p.localFeeNote).trim().slice(0, 100);
   Object.keys(values).forEach(function (k) {
     if (ADMIN_EDITABLE_KEYS.indexOf(k) < 0) delete values[k]; // 念のため
   });
@@ -2632,6 +2670,11 @@ function updateCaseByAdmin(caseId, patch) {
     const row = findCaseRow_(caseId);
     if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
     updateCaseCells_(row, values);
+    // 地元協力金等を変えたら、正式見積の提示前（新規・調査中）の案件は概算も計算し直す
+    if (values.localFee !== undefined || values.localFeeNote !== undefined) {
+      const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+      if (c && RECALC_STATUSES.indexOf(c.status) >= 0) recalcCaseEstimate_(c, getLotsByCase_()[c.id]);
+    }
   } finally {
     lock.releaseLock();
   }

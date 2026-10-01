@@ -135,9 +135,21 @@ function calculateEstimate_(input) {
       (l.drainConsent === '必要' && l.drainLocalConsent !== '不要'); // 排水承諾で地元承諾が必要な場合も
   });
   if (consentLots.length) {
-    items.push(item('ADD_WATER_ASSOCIATION'));
-    if (!consentLots.some(function (l) { return l.localConsent === '必要' || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })) {
-      notes.push('地元関係者の同意（押印）が未確認のため加算しています。不要な場合は減額となります。');
+    // 同意（押印）が必要な人数分（地元関係者＋排水の地元承諾者。同じ人＝氏名と電話が同じなら1人）
+    const people = {};
+    consentLots.forEach(function (l) {
+      [].concat(l.localConsent === '必要' ? l.localContacts || [] : [], l.drainLocalConsent === '必要' ? l.drainContacts || [] : [])
+        .forEach(function (p) {
+          const key = String(p.name || '').replace(/\s/g, '') + '|' + String(p.tel || '').replace(/\D/g, '');
+          if (key !== '|') people[key] = true;
+        });
+    });
+    const count = Object.keys(people).length;
+    items.push(item('ADD_WATER_ASSOCIATION', Math.max(1, count)));
+    if (!count) {
+      notes.push(consentLots.some(function (l) { return l.localConsent === '必要' || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })
+        ? '地元関係者の同意（押印）が必要な方の人数が未入力のため、1人分で計上しています。人数分の加算となります。'
+        : '地元関係者の同意（押印）が未確認のため1人分で加算しています。不要な場合は減額、複数の方が必要な場合は人数分の加算となります。');
     }
   }
 
@@ -199,6 +211,11 @@ function calculateEstimate_(input) {
     if (chimokuLots.length > 2) items.push(item('ADD_CHIMOKU_EXTRA', chimokuLots.length - 2));
   }
 
+  // --- 5c. 地元協力金等（管理画面で入力した金額。実費） ---
+  if (Number(input.localFee) > 0) {
+    items.push(cost({ label: '地元協力金等' + (input.localFeeNote ? '（' + input.localFeeNote + '）' : ''), amount: Math.round(Number(input.localFee)) }));
+  }
+
   // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
   addActualCosts_(lots, items, notes);
 
@@ -249,6 +266,8 @@ function lotRowToEstimateLot_(r) {
     kairyoFeeAmount: yen(fee),
     kairyoFeeUnit: /^1筆あたり/.test(fee) ? '1筆あたり' : '1申請あたり',
     drainFeeAmount: yen(r.drainFee),
+    localContacts: contactLines_(r.localContacts),
+    drainContacts: contactLines_(r.drainContacts),
   };
   ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'localConsent', 'iinStamp', 'purpose',
     'drainConsent', 'drainLocalConsent', 'drainName', 'jogaiKanou', 'jogaiNote', 'jogaiUketsuke', 'tenyoKanou', 'kanouNote',
@@ -259,6 +278,14 @@ function lotRowToEstimateLot_(r) {
   return lot;
 }
 
+/** シートの「氏名／住所／電話」の行 → [{name, address, tel}] */
+function contactLines_(text) {
+  return String(text || '').split('\n').filter(function (x) { return x.trim(); }).map(function (line) {
+    const f = line.split('／');
+    return { name: f[0] || '', address: f[1] || '', tel: f[2] || '' };
+  });
+}
+
 /**
  * 1件の概算を、物件明細シートの内容と現在の金額設定で計算し直す。変わったときだけ書き込む。
  * @return {boolean} 書き込んだか
@@ -267,6 +294,7 @@ function recalcCaseEstimate_(c, lotRows) {
   if (!lotRows || !lotRows.length) return false;
   const est = calculateEstimate_({
     lots: lotRows.map(lotRowToEstimateLot_), trust: c.trust === true, extraLotFee: c.extraLotFee === 'あり',
+    localFee: c.localFee, localFeeNote: c.localFeeNote,
   });
   const total = est.ok ? est.total : '';
   const detail = estimateToText_(est);

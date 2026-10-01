@@ -60,6 +60,19 @@ const OUT = path.join(__dirname, 'out');
   await p.waitForTimeout(800);
   assert.strictEqual(await p.textContent('#estimateTotal'), '¥679,300'); // 報酬(235,000+58,000+300,000)+消費税10% 59,300 + 調査実費 25,000+2,000
 
+  // 地元承諾書は同意が必要な人数分（地元関係者＋排水の地元承諾者、同じ人は1人）。人数不明は1人分。地元協力金等は実費
+  const consent = await p.evaluate(() => {
+    const f = (x) => calculateEstimate_(x).items.filter((it) => it.label.indexOf('地元承諾書') === 0).map((it) => it.label + '=' + it.amount)[0];
+    const base = { zone: '市街化区域', landImprovement: 'はい', kairyoBenefit: '該当しない', localConsent: '必要' };
+    return [
+      f({ lots: [Object.assign({}, base, { localContacts: [{ name: 'A', tel: '1' }, { name: 'B', tel: '2' }] }),
+        Object.assign({}, base, { localContacts: [{ name: 'A', tel: '1' }], drainConsent: '必要', drainLocalConsent: '必要', drainContacts: [{ name: 'C', tel: '3' }] })] }),
+      f({ lots: [Object.assign({}, base, { localContacts: [] })] }),
+      calculateEstimate_({ lots: [{ zone: '市街化区域' }], localFee: 30000, localFeeNote: '○○区' }).items.filter((it) => it.kind === 'cost').map((it) => it.label + '=' + it.amount).join()
+    ];
+  });
+  assert.deepStrictEqual(consent, ['地元承諾書（区長・水利組合等）（1人あたり） × 3=60000', '地元承諾書（区長・水利組合等）（1人あたり）=20000', '調査実費（市街化区域）=2000,地元協力金等（○○区）=30000']);
+
   // 地目変更登記：案件一覧の列とChatに「登記担当へ連絡」を目立たせて出す
   const chimokuNote = await p.evaluate(() => [chimokuHenkoText_([{ address: '豊田市○○町', lotNumber: '1番', chimokuHenko: true }, { address: '豊田市○○町', lotNumber: '2番' }])]);
   assert.deepStrictEqual(chimokuNote, ['あり（1筆）：物件1 豊田市○○町 1番']);
@@ -185,6 +198,11 @@ const OUT = path.join(__dirname, 'out');
   assert.ok((await a.textContent('#detail .chimoku-alert')).includes('地目変更登記あり（1筆）'));
   assert.ok(await a.$('#rows .chimoku-badge'));
   assert.ok((await a.evaluate(() => buildPrintHtml(state.cases[0], state.lotsByCase[state.cases[0].id]))).includes('登記担当へ連絡'));
+  // 地元協力金等を入れて更新すると、新規・調査中の案件は概算に実費として入る
+  const est0 = await a.evaluate(() => state.cases[0].estimate);
+  await a.fill('#aLocalFee', '30,000'); await a.fill('#aLocalFeeNote', '○○区 協力金');
+  await a.click('#detail .side .primary');
+  await a.waitForFunction((e0) => state.cases[0].estimate === e0 + 30000, est0, { timeout: 5000 });
   await a.selectOption('#aStatus', '調査中');
   await a.click('#detail .primary');
   await a.waitForFunction(() => document.querySelector('#rows .pill').textContent === '調査中', null, { timeout: 5000 });
@@ -226,7 +244,7 @@ const OUT = path.join(__dirname, 'out');
   await a.waitForFunction(() => !document.querySelector('#pdfDialog').open, null, { timeout: 5000 });
   assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
   const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
-  for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥811,500', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
+  for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥841,500', '地元協力金等（○○区 協力金）', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
   fs.writeFileSync(path.join(OUT, 'case_print.html'), printHtml);
 
   // 電話番号は tel: リンク。連絡先・訪問先の一覧（農業委員会は市区町村から、同じ相手は物件をまとめる）

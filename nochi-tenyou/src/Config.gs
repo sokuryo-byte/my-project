@@ -110,8 +110,8 @@ const DEFAULT_FEES = [
     note: '農振農用地「はい」の場合に加算（料金表 4006）' },
   { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 40000,
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
-  { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）', amount: 20000,
-    note: '土地改良区に確認した地元関係者の同意（押印）が「必要」「未確認」、または土地改良区が「分からない」物件がある場合に加算' },
+  { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）（1人あたり）', amount: 20000,
+    note: '同意（押印）が必要な人数分を加算（土地改良区で確認した地元関係者＋排水の地元承諾者。同じ人は1人）。人数が未確認（「未確認」「分からない」）の場合は1人分で仮計上' },
   { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 300000,
     note: '転用目的が「分家住宅」で、市街化調整区域の物件がある場合に加算（料金表 4001。開発許可（29条）となる場合は 4002）' },
   { key: 'ADD_DRAINAGE', label: '排水承諾手続', amount: 40000,
@@ -155,6 +155,7 @@ const FEE_PATCHES = {
   '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
   '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
   '2026-05': ['ADD_CHIMOKU:label'],       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
+  '2026-06': ['ADD_WATER_ASSOCIATION:label'], // 地元承諾書は人数分（名称と条件だけ更新、金額はそのまま）
 };
 
 /** 報酬にかける消費税率（実費にはかけない） */
@@ -467,7 +468,9 @@ const CASE_COLUMNS = [
   { key: 'reportResult', header: '正式見積の報告結果' },
   { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' },
   { key: 'extraLotFee', header: '筆数加算' },
-  { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' },
+  { key: 'localFee', header: '地元協力金等（円・管理画面で入力）' },
+  { key: 'localFeeNote', header: '地元協力金等の内容' }, // JSON：{ 連絡先キー: { at, status, memo } }
 ];
 
 /**
@@ -531,7 +534,7 @@ const LOT_COLUMNS = [
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
-const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments'];
+const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote'];
 
 /** 見積の金額設定を変えたときに概算を計算し直す案件（正式見積を提示する前の案件だけ） */
 const RECALC_STATUSES = ['新規', '調査中'];
