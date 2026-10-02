@@ -139,7 +139,7 @@ function calculateEstimate_(input) {
   // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---
   const consentLots = lots.filter(function (l) {
     return l.landImprovement === '分からない' || kairyoEntries_(l).some(function (e) { return e.localConsent !== '不要'; }) ||
-      (l.drainConsent === '必要' && l.drainLocalConsent !== '不要'); // 排水承諾で地元承諾が必要な場合も
+      (!!l.drainLocalConsent && l.drainLocalConsent !== '不要'); // 排水に伴う地元承諾が必要・未確認の場合も
   });
   if (consentLots.length) {
     // 同意（押印）が必要な人数分（地元関係者＋排水の地元承諾者。同じ人＝氏名と電話が同じなら1人）
@@ -156,7 +156,7 @@ function calculateEstimate_(input) {
     const count = Object.keys(people).length;
     items.push(item('ADD_WATER_ASSOCIATION', Math.max(1, count)));
     if (!count) {
-      notes.push(consentLots.some(function (l) { return kairyoEntries_(l).some(function (e) { return e.localConsent === '必要'; }) || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })
+      notes.push(consentLots.some(function (l) { return kairyoEntries_(l).some(function (e) { return e.localConsent === '必要'; }) || l.drainLocalConsent === '必要'; })
         ? '地元関係者の同意（押印）が必要な方の人数が未入力のため、1人分で計上しています。人数分の加算となります。'
         : '地元関係者の同意（押印）が未確認のため1人分で加算しています。不要な場合は減額、複数の方が必要な場合は人数分の加算となります。');
     }
@@ -183,7 +183,7 @@ function calculateEstimate_(input) {
     } else if (FARMLAND_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'はい') {
       notes.push(lotName(l, i) + '：現況が農地（' + l.landUse + '）なのに「既に転用済み」が「はい」になっています。ご確認ください。');
     }
-    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') {
+    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') { // 1つだけの回答のとき（複数なら判断しない）
       notes.push(lotName(l, i) + '：' + l.noutiKubun + '農地は原則として転用が認められません（例外要件に該当する場合を除く）。');
     }
     if (l.hojo8nen === '未経過') {

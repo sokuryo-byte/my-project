@@ -663,7 +663,7 @@ function normalizeLot_(l, prefecture, master) {
   const hinochiOn = convOn && !rirekiOn && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域';
   const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
-  const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
+  const drainLocalOn = drainOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要'; // 排水に伴う地元承諾は排水承諾の要否にかかわらず聞く
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
   const landUse = pick_(l.landUse, FORM_OPTIONS.landUses);
@@ -734,7 +734,9 @@ function normalizeLot_(l, prefecture, master) {
     zeseiKyoka: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? pick_(l.zeseiKyoka, FORM_OPTIONS.zeseiKyoka) : '',
     zeseiNote: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? str_(l.zeseiNote, 300) : '',
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
-    noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
+    // 農地区分は複数選択（「第1種か第2種」のように回答が分かれることがある）
+    noutiKubun: permitZone ? (Array.isArray(l.noutiKubun) ? l.noutiKubun : String(l.noutiKubun || '').split('・'))
+      .filter(function (v, i, a) { return FORM_OPTIONS.noutiKubun.indexOf(v) >= 0 && a.indexOf(v) === i; }).join('・') : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
     // 農振除外の見込み（青地「はい」「分からない」のとき）
     jogaiKanou: jogaiOn ? pick_(l.jogaiKanou, FORM_OPTIONS.tenyoKanou) : '',
@@ -751,7 +753,7 @@ function normalizeLot_(l, prefecture, master) {
     drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',
     drainFee: drainConsentOn ? [yenText_(l.drainFeeAmount), str_(l.drainFeeNote, 100)].filter(String).join('／') : '',
     drainFeeAmount: drainConsentOn ? numOrZero_(l.drainFeeAmount) : 0,
-    drainLocalConsent: drainConsentOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
+    drainLocalConsent: drainOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
     drainContacts: drainLocalOn ? normalizeContacts_(l.drainContacts) : [],
   };
 }

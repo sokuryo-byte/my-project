@@ -1388,7 +1388,7 @@ function normalizeLot_(l, prefecture, master) {
   const hinochiOn = convOn && !rirekiOn && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域';
   const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
-  const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
+  const drainLocalOn = drainOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要'; // 排水に伴う地元承諾は排水承諾の要否にかかわらず聞く
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
   const landUse = pick_(l.landUse, FORM_OPTIONS.landUses);
@@ -1459,7 +1459,9 @@ function normalizeLot_(l, prefecture, master) {
     zeseiKyoka: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? pick_(l.zeseiKyoka, FORM_OPTIONS.zeseiKyoka) : '',
     zeseiNote: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? str_(l.zeseiNote, 300) : '',
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
-    noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
+    // 農地区分は複数選択（「第1種か第2種」のように回答が分かれることがある）
+    noutiKubun: permitZone ? (Array.isArray(l.noutiKubun) ? l.noutiKubun : String(l.noutiKubun || '').split('・'))
+      .filter(function (v, i, a) { return FORM_OPTIONS.noutiKubun.indexOf(v) >= 0 && a.indexOf(v) === i; }).join('・') : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
     // 農振除外の見込み（青地「はい」「分からない」のとき）
     jogaiKanou: jogaiOn ? pick_(l.jogaiKanou, FORM_OPTIONS.tenyoKanou) : '',
@@ -1476,7 +1478,7 @@ function normalizeLot_(l, prefecture, master) {
     drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',
     drainFee: drainConsentOn ? [yenText_(l.drainFeeAmount), str_(l.drainFeeNote, 100)].filter(String).join('／') : '',
     drainFeeAmount: drainConsentOn ? numOrZero_(l.drainFeeAmount) : 0,
-    drainLocalConsent: drainConsentOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
+    drainLocalConsent: drainOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
     drainContacts: drainLocalOn ? normalizeContacts_(l.drainContacts) : [],
   };
 }
@@ -2042,7 +2044,7 @@ function calculateEstimate_(input) {
   // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---
   const consentLots = lots.filter(function (l) {
     return l.landImprovement === '分からない' || kairyoEntries_(l).some(function (e) { return e.localConsent !== '不要'; }) ||
-      (l.drainConsent === '必要' && l.drainLocalConsent !== '不要'); // 排水承諾で地元承諾が必要な場合も
+      (!!l.drainLocalConsent && l.drainLocalConsent !== '不要'); // 排水に伴う地元承諾が必要・未確認の場合も
   });
   if (consentLots.length) {
     // 同意（押印）が必要な人数分（地元関係者＋排水の地元承諾者。同じ人＝氏名と電話が同じなら1人）
@@ -2059,7 +2061,7 @@ function calculateEstimate_(input) {
     const count = Object.keys(people).length;
     items.push(item('ADD_WATER_ASSOCIATION', Math.max(1, count)));
     if (!count) {
-      notes.push(consentLots.some(function (l) { return kairyoEntries_(l).some(function (e) { return e.localConsent === '必要'; }) || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })
+      notes.push(consentLots.some(function (l) { return kairyoEntries_(l).some(function (e) { return e.localConsent === '必要'; }) || l.drainLocalConsent === '必要'; })
         ? '地元関係者の同意（押印）が必要な方の人数が未入力のため、1人分で計上しています。人数分の加算となります。'
         : '地元関係者の同意（押印）が未確認のため1人分で加算しています。不要な場合は減額、複数の方が必要な場合は人数分の加算となります。');
     }
@@ -2086,7 +2088,7 @@ function calculateEstimate_(input) {
     } else if (FARMLAND_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'はい') {
       notes.push(lotName(l, i) + '：現況が農地（' + l.landUse + '）なのに「既に転用済み」が「はい」になっています。ご確認ください。');
     }
-    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') {
+    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') { // 1つだけの回答のとき（複数なら判断しない）
       notes.push(lotName(l, i) + '：' + l.noutiKubun + '農地は原則として転用が認められません（例外要件に該当する場合を除く）。');
     }
     if (l.hojo8nen === '未経過') {

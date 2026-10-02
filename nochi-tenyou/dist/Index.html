@@ -39,10 +39,13 @@
   .callbox .step-h { font-weight: 700; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
   .callbox .tel { font-size: 1.05rem; font-weight: 700; color: var(--accent); text-decoration: none; white-space: nowrap; }
   .callbox .muted { color: var(--muted); font-weight: 400; font-size: .8rem; }
-  .callbox .script { margin: 0; padding: 6px 10px; background: var(--surface); border-radius: 4px; border: 1px dashed var(--line); line-height: 1.7; }
+  /* トーク例は青系（入力欄＝白と見分ける）。左に「話す」の印 */
+  .callbox .script { margin: 0; padding: 6px 10px 6px 30px; background: #e8f1fb; color: #1d3b5e; border-radius: 4px; border: 1px solid #c6daf2; line-height: 1.7; position: relative; }
+  .callbox .script::before { content: '話'; position: absolute; left: 7px; top: 7px; width: 17px; height: 17px; line-height: 17px; text-align: center; border-radius: 50%; background: #4a7fc1; color: #fff; font-size: .66rem; font-weight: 700; }
   .callbox .script p { margin: 0; }
   /* 質問（トーク例）は入力欄の直前に1つずつ。空の質問・非表示の設定では出さない */
-  .callbox .script.q { padding: 4px 10px; border-style: solid; border-color: transparent; border-left: 3px solid var(--accent-soft); background: var(--surface); font-size: .84rem; }
+  .callbox .script.q { padding: 4px 10px 4px 30px; border: 1px solid #c6daf2; border-left: 3px solid #4a7fc1; background: #e8f1fb; font-size: .84rem; }
+  .callbox .script.q::before { top: 5px; }
   .callbox .script.q-empty { display: none; }
   .hide-talk .callbox .script { display: none !important; }
   .talk-toggle { margin-left: auto; font-size: .82rem; font-weight: 400; min-height: 0; }
@@ -888,7 +891,7 @@ function calculateEstimate_(input) {
   // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---
   const consentLots = lots.filter(function (l) {
     return l.landImprovement === '分からない' || kairyoEntries_(l).some(function (e) { return e.localConsent !== '不要'; }) ||
-      (l.drainConsent === '必要' && l.drainLocalConsent !== '不要'); // 排水承諾で地元承諾が必要な場合も
+      (!!l.drainLocalConsent && l.drainLocalConsent !== '不要'); // 排水に伴う地元承諾が必要・未確認の場合も
   });
   if (consentLots.length) {
     // 同意（押印）が必要な人数分（地元関係者＋排水の地元承諾者。同じ人＝氏名と電話が同じなら1人）
@@ -905,7 +908,7 @@ function calculateEstimate_(input) {
     const count = Object.keys(people).length;
     items.push(item('ADD_WATER_ASSOCIATION', Math.max(1, count)));
     if (!count) {
-      notes.push(consentLots.some(function (l) { return kairyoEntries_(l).some(function (e) { return e.localConsent === '必要'; }) || (l.drainConsent === '必要' && l.drainLocalConsent === '必要'); })
+      notes.push(consentLots.some(function (l) { return kairyoEntries_(l).some(function (e) { return e.localConsent === '必要'; }) || l.drainLocalConsent === '必要'; })
         ? '地元関係者の同意（押印）が必要な方の人数が未入力のため、1人分で計上しています。人数分の加算となります。'
         : '地元関係者の同意（押印）が未確認のため1人分で加算しています。不要な場合は減額、複数の方が必要な場合は人数分の加算となります。');
     }
@@ -932,7 +935,7 @@ function calculateEstimate_(input) {
     } else if (FARMLAND_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'はい') {
       notes.push(lotName(l, i) + '：現況が農地（' + l.landUse + '）なのに「既に転用済み」が「はい」になっています。ご確認ください。');
     }
-    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') {
+    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') { // 1つだけの回答のとき（複数なら判断しない）
       notes.push(lotName(l, i) + '：' + l.noutiKubun + '農地は原則として転用が認められません（例外要件に該当する場合を除く）。');
     }
     if (l.hojo8nen === '未経過') {
@@ -1848,7 +1851,7 @@ function normalizeLot_(l, prefecture, master) {
   const hinochiOn = convOn && !rirekiOn && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域';
   const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
   const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
-  const drainLocalOn = drainConsentOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要';
+  const drainLocalOn = drainOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要'; // 排水に伴う地元承諾は排水承諾の要否にかかわらず聞く
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
   const landUse = pick_(l.landUse, FORM_OPTIONS.landUses);
@@ -1919,7 +1922,9 @@ function normalizeLot_(l, prefecture, master) {
     zeseiKyoka: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? pick_(l.zeseiKyoka, FORM_OPTIONS.zeseiKyoka) : '',
     zeseiNote: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? str_(l.zeseiNote, 300) : '',
     tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
-    noutiKubun: permitZone ? pick_(l.noutiKubun, FORM_OPTIONS.noutiKubun) : '',
+    // 農地区分は複数選択（「第1種か第2種」のように回答が分かれることがある）
+    noutiKubun: permitZone ? (Array.isArray(l.noutiKubun) ? l.noutiKubun : String(l.noutiKubun || '').split('・'))
+      .filter(function (v, i, a) { return FORM_OPTIONS.noutiKubun.indexOf(v) >= 0 && a.indexOf(v) === i; }).join('・') : '',
     kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
     // 農振除外の見込み（青地「はい」「分からない」のとき）
     jogaiKanou: jogaiOn ? pick_(l.jogaiKanou, FORM_OPTIONS.tenyoKanou) : '',
@@ -1936,7 +1941,7 @@ function normalizeLot_(l, prefecture, master) {
     drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',
     drainFee: drainConsentOn ? [yenText_(l.drainFeeAmount), str_(l.drainFeeNote, 100)].filter(String).join('／') : '',
     drainFeeAmount: drainConsentOn ? numOrZero_(l.drainFeeAmount) : 0,
-    drainLocalConsent: drainConsentOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
+    drainLocalConsent: drainOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
     drainContacts: drainLocalOn ? normalizeContacts_(l.drainContacts) : [],
   };
 }
@@ -2446,9 +2451,9 @@ function getUserEmail_() { return ''; }
     var converted = el('div', { 'class': 'choices' });
     renderChoices(converted, id('isConverted'), o.yesNo);
     var convField = radioField('既に転用済みかどうか', converted,
-      el('p', { 'class': 'help' }, '履歴と現況から判断。許可・届出がなく駐車場等に利用している場合も「はい」'));
+      el('p', { 'class': 'help' }, '現況から判断。許可・届出がなく駐車場等に利用している場合も「はい」'));
     convField.appendChild(el('p', { 'class': 'caution conv-warn hidden', role: 'alert' }));
-    // 転用済みは、過去の許可・届出の履歴を聞いた後に判断する（buildCallBox で配置）
+    card.appendChild(convField); // 既に転用済みかは担当者が判断する（架電前入力）
 
     // 地目変更登記
     var chimokuHenko = el('label', { 'class': 'check-line' });
@@ -2604,7 +2609,7 @@ function getUserEmail_() { return ''; }
       zeseiNote: lotInput(card, 'zeseiNote').value,
       saiShinseiNote: lotInput(card, 'saiShinseiNote').value,
       tenyoKanou: getRadio(card, 'tenyoKanou'),
-      noutiKubun: getRadio(card, 'noutiKubun'),
+      noutiKubun: qsa('input[data-kubun]:checked', card).map(function (x) { return x.value; }),
       kanouNote: lotInput(card, 'kanouNote').value,
       jogaiKanou: getRadio(card, 'jogaiKanou'),
       hojoKuiki: getRadio(card, 'hojoKuiki'),
@@ -2673,7 +2678,6 @@ function getUserEmail_() { return ''; }
     var rn = field('内容（転用目的・面積など）', el('input', { type: 'text', id: id('rirekiNote'), maxlength: '200', placeholder: '例）5条許可・駐車場', 'data-f': 'rirekiNote' }));
     rn.classList.add('rireki-note', 'hidden');
     rb.appendChild(rn);
-    rb.appendChild(convField);
     // 許可・届出済み（履歴あり）：再申請が必要か（現況にかかわらず確認）
     var rp = el('div', { 'class': 'reapply-block hidden', style: 'display:grid;gap:8px' });
     var rpc = el('div', { 'class': 'choices' });
@@ -2764,7 +2768,12 @@ function getUserEmail_() { return ''; }
     var kb = el('div', { 'class': 'kanou-block hidden', style: 'display:grid;gap:8px' });
     kb.appendChild(el('div', { 'class': 'script script-kanou' }));
     var kubun = el('div', { 'class': 'choices' });
-    renderChoices(kubun, id('noutiKubun'), o.noutiKubun);
+    o.noutiKubun.forEach(function (v) { // 「第1種か第2種」のように回答が分かれることがあるので複数選択
+      var lb = el('label');
+      lb.appendChild(el('input', { type: 'checkbox', value: v, 'data-kubun': '1' }));
+      lb.appendChild(document.createTextNode(' ' + v));
+      kubun.appendChild(lb);
+    });
     var kanou = el('div', { 'class': 'choices' });
     renderChoices(kanou, id('tenyoKanou'), o.tenyoKanou);
     var rk = el('div', { style: 'display:grid;gap:8px' }); // 農地区分は選択肢が多いので全幅で縦に並べる（折り返し防止）
@@ -2912,6 +2921,7 @@ function getUserEmail_() { return ''; }
     // 複数の土地改良区にかかる場合：2つ目以降を追加（同じ項目を聞く）
     var addK = el('button', { type: 'button', 'class': 'linkbtn kairyo-add' }, '＋ ほかの土地改良区にもかかっている場合は追加');
     addK.addEventListener('click', function () { addKairyoExtra(card, {}); });
+    s2.appendChild(el('div', { 'class': 'dc-slot-kairyo', style: 'display:grid;gap:8px' })); // 分家住宅：排水承諾の要否は土地改良区に聞く
     s2.appendChild(addK);
     box.appendChild(s2);
     box.appendChild(el('div', { 'class': 'kairyo-extras', style: 'display:grid;gap:8px' }));
@@ -2927,16 +2937,21 @@ function getUserEmail_() { return ''; }
     renderChoices(dc, id('drainConsent'), o.drainConsent);
     var r3 = el('div', { style: 'display:grid;gap:8px' });
     r3.appendChild(prependQ(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')), 'q-adj'));
-    r3.appendChild(prependQ(radioField('排水承諾の要否', dc, el('p', { 'class': 'help' }, '農業用水（用排水路など）へ排水する場合など')), 'q-dc'));
+    // 排水承諾の要否：土地改良区にかかる場合は②（土地改良区への質問）の中へ移す。かからない場合はここで聞く
+    var dcField = prependQ(radioField('排水承諾の要否', dc, el('p', { 'class': 'help' }, '農業用水（用排水路など）へ排水する場合など')), 'q-dc');
+    dcField.classList.add('dc-field');
+    var dcSlot = el('div', { 'class': 'dc-slot-drain', style: 'display:grid;gap:8px' });
+    dcSlot.appendChild(dcField);
+    r3.appendChild(dcSlot);
     s3.appendChild(r3);
     var s3b = el('div', { 'class': 'step3b hidden', style: 'display:grid;gap:8px' });
     var r4 = el('div', { 'class': 'row' });
-    r4.appendChild(field('用水（管理者）名', el('input', { type: 'text', id: id('drainName'), maxlength: '100', placeholder: '例）○○用水 水利組合', 'data-f': 'drainName' })));
-    r4.appendChild(field('用水の電話番号', el('input', { type: 'tel', id: id('drainTel'), maxlength: '20', placeholder: '例）0565-00-0000', 'data-f': 'drainTel' })));
+    r4.appendChild(field('排水先の水路・用水の名称', el('input', { type: 'text', id: id('drainName'), maxlength: '100', placeholder: '例）○○用水（水路の名称。個人名ではなく）', 'data-f': 'drainName' })));
+    r4.appendChild(field('水路を管理する水利組合・土地改良区などの電話番号', el('input', { type: 'tel', id: id('drainTel'), maxlength: '20', placeholder: '例）0565-00-0000', 'data-f': 'drainTel' })));
     s3b.appendChild(qEl('q-dname'));
     s3b.appendChild(r4);
     var h3b = el('div', { 'class': 'step-h' });
-    h3b.appendChild(el('span', {}, '用水へ確認'));
+    h3b.appendChild(el('span', { 'class': 'drain-call-title' }, '水路の管理者へ確認'));
     h3b.appendChild(el('a', { 'class': 'tel drain-tel hidden' }));
     s3b.appendChild(h3b);
     s3b.appendChild(el('div', { 'class': 'script script3b' }));
@@ -2949,9 +2964,10 @@ function getUserEmail_() { return ''; }
     s3b.appendChild(prependQ(field('手数料（負担金）', dfBox.firstChild, null, false, dfBox), 'q-dfee'));
     var dl = el('div', { 'class': 'choices' });
     renderChoices(dl, id('drainLocalConsent'), o.localConsent);
-    s3b.appendChild(prependQ(radioField('地元承諾（押印）', dl), 'q-dlocal'));
-    s3b.appendChild(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'));
     s3.appendChild(s3b);
+    // 排水に伴う地元承諾（排水承諾の要否にかかわらず聞く）
+    s3.appendChild(prependQ(radioField('排水に伴う地元承諾（押印）', dl, el('p', { 'class': 'help' }, '自治会・水利組合・地元の方など、排水について承諾（押印）が必要な方がいるか')), 'q-dlocal'));
+    s3.appendChild(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'));
     box.appendChild(s3);
     return box;
   }
@@ -3256,23 +3272,23 @@ function getUserEmail_() { return ''; }
     // ③ 排水先（分家住宅）
     var bunke = purpose === '分家住宅';
     card.querySelector('.step3').classList.toggle('hidden', !bunke);
-    card.querySelector('.step3-title').textContent = (getRadio(card, 'landImprovement') === 'はい' ? '③' : '②') + ' 排水先の確認（分家住宅）';
+    card.querySelector('.step3-title').textContent = (getRadio(card, 'landImprovement') === 'はい' ? '③' : '②') + ' 排水と地元承諾の確認（分家住宅）';
     var dOn = getRadio(card, 'drainConsent') === '必要';
     card.querySelector('.step3b').classList.toggle('hidden', !dOn);
-    card.querySelector('[data-contacts=drainContacts]').classList.toggle('hidden', !(dOn && getRadio(card, 'drainLocalConsent') === '必要'));
+    card.querySelector('[data-contacts=drainContacts]').classList.toggle('hidden', getRadio(card, 'drainLocalConsent') !== '必要');
     telLink(card.querySelector('.drain-tel'), lotInput(card, 'drainTel').value.trim());
     var dname = lotInput(card, 'drainName').value.trim();
     scriptLines(card.querySelector('.script3a'), ['（農業委員会、または市の道路・下水の担当課へ）']);
     setQ(card, 'q-adj', ['「' + where + 'で分家住宅を予定しております。隣接の水路へ排水してもよろしいでしょうか。」',
       '→ 水路がない場合：「側溝への排水になるかと思います。」']);
     setQ(card, 'q-dc', '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
-    setQ(card, 'q-dname', '「用水の管理者（水利組合・土地改良区など）の名称とご連絡先をお教えいただけますでしょうか。」');
+    setQ(card, 'q-dname', '「排水先の水路（用水）の名称と、管理している水利組合・土地改良区などのご連絡先をお教えいただけますでしょうか。」');
     scriptLines(card.querySelector('.script3b'), [
       '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'で分家住宅を予定しており、排水承諾の件でお電話いたしました。」'
     ]);
-    setQ(card, 'q-dfee', '「' + (dname || '貴用水') + 'への排水承諾の手続きと、手数料（負担金）はございますでしょうか。ある場合は金額の目安をお教えいただけますでしょうか。」');
-    setQ(card, 'q-dlocal', '「また、地元の承諾（押印）が必要な方はいらっしゃいますでしょうか。」');
-    setQ(card, 'q-dcontacts', '「お名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
+    setQ(card, 'q-dfee', '「' + (dname ? dname + 'への' : '水路への') + '排水承諾の手続きと、手数料（負担金）はございますでしょうか。ある場合は金額の目安をお教えいただけますでしょうか。」');
+    setQ(card, 'q-dlocal', '「排水に伴って、地元の自治会や水利組合など、承諾（押印）が必要な方はいらっしゃいますでしょうか。」');
+    setQ(card, 'q-dcontacts', '「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
     card.querySelector('[data-contacts=localContacts]').classList.toggle('hidden', getRadio(card, 'localConsent') !== '必要');
     // 見込みが「難しい」なら、その先（土地改良区・地元委員・排水）は聞かない
     // 許可・届出済み（履歴あり）なら以降は聞かない。現況が未転用なら「再度の許可・届出」を確認し、「必要」のときだけ続ける
@@ -3319,6 +3335,14 @@ function getUserEmail_() { return ''; }
     card.querySelector('.kairyo-extras').classList.toggle('hidden', !on);
     card.querySelector('.kairyo-add').classList.toggle('hidden', extras.length >= MAX_KAIRYO_EXTRA_UI);
     extras.forEach(function (b, k) { updateKairyoExtra(card, b, k, where, sArea); });
+    // 分家住宅で土地改良区にかかる場合、排水承諾の要否は②（土地改良区への質問）で聞く
+    var dcField = card.querySelector('.dc-field');
+    var inKairyo = on && purpose === '分家住宅';
+    var slot = card.querySelector(inKairyo ? '.dc-slot-kairyo' : '.dc-slot-drain');
+    if (dcField.parentNode !== slot) slot.appendChild(dcField);
+    setQ(card, 'q-dc', inKairyo
+      ? '「また、分家住宅からの排水を貴改良区の水路へ流す場合、排水承諾の手続きは必要でしょうか。」'
+      : '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
     scriptLines(card.querySelector('.script2'), [
       '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。' + where + 'の土地で農地転用を予定しております。」'
     ]);
@@ -3932,6 +3956,11 @@ function getUserEmail_() { return ''; }
       }
       if (k === 'iinContacts' || k === 'localContacts' || k === 'drainContacts') { setContacts(card, k, v || []); return; }
       if (k === 'tenyoUkeMonths') { (v || []).forEach(function (x, i) { var e = lotInput(card, 'tenyoUkeM' + i); if (e) e.value = x; }); return; }
+      if (k === 'noutiKubun') {
+        var ks = Array.isArray(v) ? v : String(v || '').split('・');
+        qsa('input[data-kubun]', card).forEach(function (x) { x.checked = ks.indexOf(x.value) >= 0; });
+        return;
+      }
       if (k === 'hinochiDocs') { qsa('.hinochi-docs input[data-doc]', card).forEach(function (x) { x.checked = (v || []).indexOf(x.value) >= 0; }); return; }
       var e = lotInput(card, k);
       if (e) { if (e.type === 'checkbox') e.checked = !!v; else e.value = v === null || v === undefined ? '' : v; return; }

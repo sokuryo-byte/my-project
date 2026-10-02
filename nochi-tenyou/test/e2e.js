@@ -45,7 +45,7 @@ const OUT = path.join(__dirname, 'out');
   await (await cards[0].$('input[value="市街化調整区域"]')).check({ force: true });
   await (await cards[0].$('[data-f=landUse]')).selectOption('耕作中');
   await (await cards[1].$('input[value="分からない"]')).check({ force: true });
-  await (await cards[1].$$('input[value="はい"]'))[0].check();
+  await (await cards[1].$('input[name$="_isNoshin"][value="はい"]')).check();
 
   // 引き継いで追加 → 区域・所在が引き継がれる → 削除
   await p.click('#copyLotBtn');
