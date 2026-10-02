@@ -2501,8 +2501,6 @@ function getUserEmail_() { return ''; }
       setRadio(card, 'purpose', inherit.purpose);
       setRadio(card, 'drainAdjacent', inherit.drainAdjacent);          // 隣の土地なら排水先も同じことが多い
       setRadio(card, 'drainConsent', inherit.drainConsent);
-      lotInput(card, 'drainName').value = inherit.drainName || '';
-      lotInput(card, 'drainTel').value = inherit.drainTel || '';
       lotInput(card, 'drainFeeAmount').value = inherit.drainFeeAmount || '';
       lotInput(card, 'drainFeeNote').value = inherit.drainFeeNote || '';
       setRadio(card, 'drainLocalConsent', inherit.drainLocalConsent);
@@ -2630,8 +2628,6 @@ function getUserEmail_() { return ''; }
       jogaiNote: lotInput(card, 'jogaiNote').value,
       drainAdjacent: getRadio(card, 'drainAdjacent'),
       drainConsent: getRadio(card, 'drainConsent'),
-      drainName: lotInput(card, 'drainName').value,
-      drainTel: lotInput(card, 'drainTel').value,
       drainFeeAmount: lotInput(card, 'drainFeeAmount').value,
       drainFeeNote: lotInput(card, 'drainFeeNote').value,
       drainLocalConsent: getRadio(card, 'drainLocalConsent'),
@@ -2944,17 +2940,8 @@ function getUserEmail_() { return ''; }
     dcSlot.appendChild(dcField);
     r3.appendChild(dcSlot);
     s3.appendChild(r3);
+    // 排水承諾が必要なら、その場で手数料（負担金）を聞く（水路の名称・管理者の連絡先は聞かない。承諾が要る地元の方は下で聞く）
     var s3b = el('div', { 'class': 'step3b hidden', style: 'display:grid;gap:8px' });
-    var r4 = el('div', { 'class': 'row' });
-    r4.appendChild(field('排水先の水路・用水の名称', el('input', { type: 'text', id: id('drainName'), maxlength: '100', placeholder: '例）○○用水（水路の名称。個人名ではなく）', 'data-f': 'drainName' })));
-    r4.appendChild(field('水路を管理する水利組合・土地改良区などの電話番号', el('input', { type: 'tel', id: id('drainTel'), maxlength: '20', placeholder: '例）0565-00-0000', 'data-f': 'drainTel' })));
-    s3b.appendChild(qEl('q-dname'));
-    s3b.appendChild(r4);
-    var h3b = el('div', { 'class': 'step-h' });
-    h3b.appendChild(el('span', { 'class': 'drain-call-title' }, '水路の管理者へ確認'));
-    h3b.appendChild(el('a', { 'class': 'tel drain-tel hidden' }));
-    s3b.appendChild(h3b);
-    s3b.appendChild(el('div', { 'class': 'script script3b' }));
     var dfBox = el('div', { 'class': 'inline-inputs' });
     dfBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('drainFeeAmount'), 'data-f': 'drainFeeAmount', style: 'width:11em;text-align:right', 'aria-label': '手数料（負担金）の金額' }));
     dfBox.appendChild(el('span', {}, '円'));
@@ -2964,9 +2951,9 @@ function getUserEmail_() { return ''; }
     s3b.appendChild(prependQ(field('手数料（負担金）', dfBox.firstChild, null, false, dfBox), 'q-dfee'));
     var dl = el('div', { 'class': 'choices' });
     renderChoices(dl, id('drainLocalConsent'), o.localConsent);
-    s3.appendChild(s3b);
+    dcSlot.appendChild(s3b);
     // 排水に伴う地元承諾（排水承諾の要否にかかわらず聞く）
-    s3.appendChild(prependQ(radioField('排水に伴う地元承諾（押印）', dl, el('p', { 'class': 'help' }, '自治会・水利組合・地元の方など、排水について承諾（押印）が必要な方がいるか')), 'q-dlocal'));
+    s3.appendChild(prependQ(radioField('排水に伴う地元承諾（押印）', dl, el('p', { 'class': 'help' }, '地元の委員・自治会長など、排水について承諾（押印）が必要な方がいるか')), 'q-dlocal'));
     s3.appendChild(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'));
     box.appendChild(s3);
     return box;
@@ -3276,18 +3263,12 @@ function getUserEmail_() { return ''; }
     var dOn = getRadio(card, 'drainConsent') === '必要';
     card.querySelector('.step3b').classList.toggle('hidden', !dOn);
     card.querySelector('[data-contacts=drainContacts]').classList.toggle('hidden', getRadio(card, 'drainLocalConsent') !== '必要');
-    telLink(card.querySelector('.drain-tel'), lotInput(card, 'drainTel').value.trim());
-    var dname = lotInput(card, 'drainName').value.trim();
     scriptLines(card.querySelector('.script3a'), ['（農業委員会、または市の道路・下水の担当課へ）']);
     setQ(card, 'q-adj', ['「' + where + 'で分家住宅を予定しております。隣接の水路へ排水してもよろしいでしょうか。」',
       '→ 水路がない場合：「側溝への排水になるかと思います。」']);
     setQ(card, 'q-dc', '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
-    setQ(card, 'q-dname', '「排水先の水路（用水）の名称と、管理している水利組合・土地改良区などのご連絡先をお教えいただけますでしょうか。」');
-    scriptLines(card.querySelector('.script3b'), [
-      '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'で分家住宅を予定しており、排水承諾の件でお電話いたしました。」'
-    ]);
-    setQ(card, 'q-dfee', '「' + (dname ? dname + 'への' : '水路への') + '排水承諾の手続きと、手数料（負担金）はございますでしょうか。ある場合は金額の目安をお教えいただけますでしょうか。」');
-    setQ(card, 'q-dlocal', '「排水に伴って、地元の自治会や水利組合など、承諾（押印）が必要な方はいらっしゃいますでしょうか。」');
+    setQ(card, 'q-dfee', '「排水承諾の手数料（負担金）はかかりますでしょうか。かかる場合は金額の目安をお教えいただけますでしょうか。」');
+    setQ(card, 'q-dlocal', '「排水に伴って、地元の委員さんや自治会長さんなど、承諾（押印）が必要な方はいらっしゃいますでしょうか。」');
     setQ(card, 'q-dcontacts', '「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
     card.querySelector('[data-contacts=localContacts]').classList.toggle('hidden', getRadio(card, 'localConsent') !== '必要');
     // 見込みが「難しい」なら、その先（土地改良区・地元委員・排水）は聞かない
@@ -3339,7 +3320,7 @@ function getUserEmail_() { return ''; }
     var dcField = card.querySelector('.dc-field');
     var inKairyo = on && purpose === '分家住宅';
     var slot = card.querySelector(inKairyo ? '.dc-slot-kairyo' : '.dc-slot-drain');
-    if (dcField.parentNode !== slot) slot.appendChild(dcField);
+    if (dcField.parentNode !== slot) { slot.appendChild(dcField); slot.appendChild(card.querySelector('.step3b')); } // 手数料の欄も一緒に
     setQ(card, 'q-dc', inKairyo
       ? '「また、分家住宅からの排水を貴改良区の水路へ流す場合、排水承諾の手続きは必要でしょうか。」'
       : '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
