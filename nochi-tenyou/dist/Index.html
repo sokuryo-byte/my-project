@@ -1373,6 +1373,14 @@ function doGet(e) {
     const t = HtmlService.createTemplateFromFile('Admin');
     t.initialId = String(params.id || '').replace(/\D/g, ''); // 通知のリンクから開いた案件
     t.portalUrl = PORTAL_URL;
+    // 案件一覧を画面に埋め込んで返す（開いた後にもう一度サーバーへ取りに行く往復を省く。失敗したら画面から取りに行く）
+    t.bootData = 'null';
+    try {
+      const bs = String.fromCharCode(92); // 円記号ではなくバックスラッシュ。画面に埋め込むので、文中の < は u003c 形式にして画面のスクリプトが途切れないようにする
+      t.bootData = JSON.stringify(getAdminData()).replace(/</g, bs + 'u003c').replace(/\u2028/g, bs + 'u2028').replace(/\u2029/g, bs + 'u2029');
+    } catch (err) {
+      logError_('doGet（管理画面の埋め込み）', err && err.message || err, '');
+    }
     return t.evaluate()
       .setTitle('農地転用 案件管理（行政班）')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');

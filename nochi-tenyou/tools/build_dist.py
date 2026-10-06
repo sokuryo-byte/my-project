@@ -54,7 +54,7 @@ def main():
     for name, text in out.items():
         # テンプレートとして評価されるため、展開後のHTMLに想定外の scriptlet が無いか確認
         if name.endswith('.html'):
-            extra = [s for s in re.findall(r'<\?.*?\?>', text, re.S) if s not in ('<?= initialId ?>', '<?= portalUrl ?>')]
+            extra = [s for s in re.findall(r'<\?.*?\?>', text, re.S) if s not in ('<?= initialId ?>', '<?= portalUrl ?>', '<?!= bootData ?>')]
             assert not extra, '%s に想定外の scriptlet: %s' % (name, extra)
         with open(os.path.join(DIST, name), 'w', encoding='utf-8') as f:
             f.write(text)

@@ -6,20 +6,57 @@
  *  列の並びは Config.gs の CASE_COLUMNS で決まるため、ここは列番号を直接持ちません。
  */
 
+// ---- 1回の処理（サーバー呼び出し）の中での使い回し ----
+// スプレッドシートを開く・シートを探す・全行を読むのは1回の呼び出しにつき1回だけにする（毎回シートへ問い合わせると遅いため）。
+// 案件一覧・物件明細の読み取り結果は、この中の書き込み関数で同じ内容に直す（または捨てて読み直す）。
+var SS_MEMO_ = null;
+var SHEET_MEMO_ = {};
+var CASES_RAW_ = null; // 案件一覧の2行目以降（getValues の結果）
+var LOTS_RAW_ = null;  // 物件明細の2行目以降
+
 /** 保存先スプレッドシートを取得する */
 function getSpreadsheet_() {
-  return SPREADSHEET_ID
-    ? SpreadsheetApp.openById(SPREADSHEET_ID)
-    : SpreadsheetApp.getActiveSpreadsheet();
+  if (!SS_MEMO_) {
+    SS_MEMO_ = SPREADSHEET_ID
+      ? SpreadsheetApp.openById(SPREADSHEET_ID)
+      : SpreadsheetApp.getActiveSpreadsheet();
+  }
+  return SS_MEMO_;
 }
 
 /** シート名からシートを取得する（無ければ分かりやすいエラーにする） */
 function getSheet_(name) {
+  if (SHEET_MEMO_[name]) return SHEET_MEMO_[name];
   const sheet = getSpreadsheet_().getSheetByName(name);
   if (!sheet) {
     throw new Error('シート「' + name + '」が見つかりません。メニュー「初期セットアップ」を実行してください。');
   }
+  SHEET_MEMO_[name] = sheet;
   return sheet;
+}
+
+/** 行の追加・削除など、読み取り結果をそのまま直せない書き込みの後に呼ぶ（次の読み取りでシートから読み直す） */
+function forgetSheetCache_() {
+  CASES_RAW_ = null;
+  LOTS_RAW_ = null;
+}
+
+function casesRaw_() {
+  if (!CASES_RAW_) {
+    const sheet = getSheet_(SHEET_NAMES.CASES);
+    const lastRow = sheet.getLastRow();
+    CASES_RAW_ = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, CASE_COLUMNS.length).getValues();
+  }
+  return CASES_RAW_;
+}
+
+function lotsRaw_() {
+  if (!LOTS_RAW_) {
+    const sheet = getSheet_(SHEET_NAMES.LOTS);
+    const lastRow = sheet.getLastRow();
+    LOTS_RAW_ = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, LOT_COLUMNS.length).getValues();
+  }
+  return LOTS_RAW_;
 }
 
 /** CASE_COLUMNS の key から列番号（1始まり）を返す */
@@ -50,6 +87,7 @@ function appendCase_(record) {
     });
     sheet.appendRow(row);
     SpreadsheetApp.flush();
+    forgetSheetCache_();
 
     const rowNumber = sheet.getLastRow();
     return { id: id, caseNo: caseNo, row: rowNumber, url: buildRowUrl_(sheet, rowNumber) };
@@ -75,6 +113,7 @@ function appendLots_(caseId, lots) {
   lock.waitLock(20 * 1000);
   try {
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, LOT_COLUMNS.length).setValues(rows);
+    forgetSheetCache_();
   } finally {
     lock.releaseLock();
   }
@@ -109,6 +148,7 @@ function replaceCase_(caseId, record, lots) {
       for (let i = ids.length - 1; i >= 0; i--) if (Number(ids[i][0]) === Number(caseId)) ls.deleteRow(i + 2);
     }
     SpreadsheetApp.flush();
+    forgetSheetCache_();
     result = { id: Number(caseId), caseNo: current[colIndexOf_('caseNo') - 1], row: row, url: buildRowUrl_(sheet, row) };
   } finally {
     lock.releaseLock();
@@ -119,12 +159,9 @@ function replaceCase_(caseId, record, lots) {
 
 /** 物件明細を案件IDごとにまとめて返す { 案件ID: [物件, ...] } */
 function getLotsByCase_() {
-  const sheet = getSheet_(SHEET_NAMES.LOTS);
-  const lastRow = sheet.getLastRow();
   const result = {};
-  if (lastRow < 2) return result;
   const tz = Session.getScriptTimeZone();
-  sheet.getRange(2, 1, lastRow - 1, LOT_COLUMNS.length).getValues().forEach(function (r) {
+  lotsRaw_().forEach(function (r) {
     if (r[0] === '') return;
     const lot = {};
     // 「2020/06/01」などはシートが日付に変換して保存する。日付のまま画面へ渡すと google.script.run が失敗する（管理画面が読み込めない）ため文字にする
@@ -136,10 +173,7 @@ function getLotsByCase_() {
 
 /** 物件明細の行番号（案件ID・物件No で探す）。無ければ 0 */
 function findLotRow_(caseId, no) {
-  const sheet = getSheet_(SHEET_NAMES.LOTS);
-  const last = sheet.getLastRow();
-  if (last < 2) return 0;
-  const v = sheet.getRange(2, 1, last - 1, 2).getValues();
+  const v = lotsRaw_();
   for (let i = 0; i < v.length; i++) {
     if (Number(v[i][0]) === Number(caseId) && Number(v[i][1]) === Number(no)) return i + 2;
   }
@@ -149,9 +183,12 @@ function findLotRow_(caseId, no) {
 /** 物件明細の1行の複数セルを更新する（patch は LOT_COLUMNS の key → 値） */
 function updateLotCells_(rowNumber, patch) {
   const sheet = getSheet_(SHEET_NAMES.LOTS);
+  const raw = LOTS_RAW_ && LOTS_RAW_[rowNumber - 2];
   Object.keys(patch).forEach(function (key) {
     const idx = LOT_COLUMNS.map(function (c) { return c.key; }).indexOf(key);
-    if (idx >= 0) sheet.getRange(rowNumber, idx + 1).setValue(toCellValue_(patch[key]));
+    if (idx < 0) return;
+    sheet.getRange(rowNumber, idx + 1).setValue(toCellValue_(patch[key])); // 書き込みはまとめて送られる（間に読み取りを挟まない）
+    if (raw) raw[idx] = patch[key];
   });
 }
 
@@ -160,6 +197,8 @@ function updateCaseCell_(rowNumber, key, value) {
   getSheet_(SHEET_NAMES.CASES)
     .getRange(rowNumber, colIndexOf_(key))
     .setValue(toCellValue_(value));
+  const raw = CASES_RAW_ && CASES_RAW_[rowNumber - 2];
+  if (raw) raw[colIndexOf_(key) - 1] = value === undefined || value === null ? '' : (typeof value === 'string' && value.charAt(0) === "'" ? value.slice(1) : value); // シートは先頭の ' を表示しない
 }
 
 /** 指定行の複数セルをまとめて更新する（patch は CASE_COLUMNS の key → 値） */
@@ -206,6 +245,7 @@ function deleteCase_(caseId, deletedBy) {
     }
     cases.deleteRow(row);
     SpreadsheetApp.flush();
+    forgetSheetCache_();
     return { lots: lotRows.length };
   } finally {
     lock.releaseLock();
@@ -233,6 +273,7 @@ function fixCaseSaiShinseiAndRecalc_(caseNo) {
     }
   });
   SpreadsheetApp.flush();
+  forgetSheetCache_();
   // 概算は共通の再計算で（物件明細の内容と現在の金額設定から）
   recalcCaseEstimate_(c, getLotsByCase_()[c.id]);
   const est = getAllCases_().filter(function (x) { return x.id === c.id; })[0].estimate;
@@ -241,12 +282,10 @@ function fixCaseSaiShinseiAndRecalc_(caseNo) {
 
 /** 案件IDから行番号を探す（見つからなければ 0） */
 function findCaseRow_(caseId) {
-  const sheet = getSheet_(SHEET_NAMES.CASES);
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return 0;
-  const ids = sheet.getRange(2, colIndexOf_('id'), lastRow - 1, 1).getValues();
-  for (let i = 0; i < ids.length; i++) {
-    if (Number(ids[i][0]) === Number(caseId)) return i + 2;
+  const rows = casesRaw_();
+  const col = colIndexOf_('id') - 1;
+  for (let i = 0; i < rows.length; i++) {
+    if (Number(rows[i][col]) === Number(caseId)) return i + 2;
   }
   return 0;
 }
@@ -256,10 +295,7 @@ function findCaseRow_(caseId) {
  * 日付は画面へ渡せるよう文字列に変換する。
  */
 function getAllCases_() {
-  const sheet = getSheet_(SHEET_NAMES.CASES);
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  const values = sheet.getRange(2, 1, lastRow - 1, CASE_COLUMNS.length).getValues();
+  const values = casesRaw_();
   const tz = Session.getScriptTimeZone();
   return values
     .filter(function (r) { return r[0] !== ''; })
@@ -310,6 +346,7 @@ function fillCaseNos_() {
   rows.forEach(function (x) {
     sheet.getRange(x.row, noCol).setValue(getNextCaseNo_(sheet, x.at));
   });
+  forgetSheetCache_();
   return rows.length;
 }
 

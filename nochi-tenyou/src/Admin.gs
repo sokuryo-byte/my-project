@@ -47,12 +47,12 @@ function updateLotByAdmin(caseId, no, patch) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20 * 1000);
   try {
+    forgetSheetCache_(); // ロックを取る前に読んだ内容は使わない
     const row = findLotRow_(caseId, no);
     if (!row) throw new Error('物件（案件ID ' + caseId + '・物件' + no + '）が見つかりません。');
     updateLotCells_(row, values);
     const caseRow = findCaseRow_(caseId);
     if (caseRow) updateCaseCells_(caseRow, { updatedAt: new Date() });
-    SpreadsheetApp.flush();
     const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
     const lotRows = getLotsByCase_()[caseId] || [];
     if (c && RECALC_STATUSES.indexOf(c.status) >= 0) recalcCaseEstimate_(c, lotRows);
@@ -126,6 +126,7 @@ function updateCaseByAdmin(caseId, patch) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20 * 1000);
   try {
+    forgetSheetCache_(); // ロックを取る前に読んだ内容は使わない
     const row = findCaseRow_(caseId);
     if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
     updateCaseCells_(row, values);
@@ -195,6 +196,7 @@ function submitFormalEstimate(caseId, file, opts) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20 * 1000);
   try {
+    forgetSheetCache_(); // ロックを取る前に読んだ内容は使わない
     const row = findCaseRow_(caseId);
     if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
     updateCaseCells_(row, values);
@@ -237,12 +239,13 @@ function saveAppointment(caseId, key, appt) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20 * 1000);
   try {
+    forgetSheetCache_(); // ロックを取る前に読んだ内容は使わない
     const row = findCaseRow_(caseId);
     if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
     const sheet = getSheet_(SHEET_NAMES.CASES);
     if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
     let map = {};
-    try { map = JSON.parse(String(sheet.getRange(row, colIndexOf_('appointments')).getValue() || '{}')) || {}; } catch (e) { map = {}; }
+    try { map = JSON.parse(String(casesRaw_()[row - 2][colIndexOf_('appointments') - 1] || '{}')) || {}; } catch (e) { map = {}; }
     if (at || memo || (status && status !== '未連絡')) map[k] = { at: at, status: status, memo: memo };
     else delete map[k];
     const json = Object.keys(map).length ? JSON.stringify(map) : '';

@@ -206,6 +206,15 @@ const OUT = path.join(__dirname, 'out');
   await a.evaluate(() => { const sh = SHEETS['物件明細']; const col = LOT_COLUMNS.findIndex((c) => c.key === 'rirekiDate'); sh.rows[1][col] = new Date(2020, 5, 1); load(); });
   await a.waitForSelector('#rows .case-card');
   assert.strictEqual(await a.evaluate(() => state.lotsByCase[state.cases[0].id][0].rirekiDate), '2020/06/01');
+  // 本番は doGet が案件一覧を画面に埋め込む：埋め込みがあればサーバーへ取りに行かずに表示する（< を含む文字も壊れない）
+  const boot = await a.evaluate(() => {
+    const bs = String.fromCharCode(92);
+    const json = JSON.stringify(getAdminData()).replace(/</g, bs + 'u003c');
+    let calls = 0; const orig = window.getAdminData; window.getAdminData = function () { calls++; return orig(); };
+    BOOT_DATA = JSON.parse(json); load(); window.getAdminData = orig;
+    return [calls, document.querySelectorAll('#rows .case-card').length, json.indexOf('<') < 0];
+  });
+  assert.deepStrictEqual(boot, [0, 1, true]);
   await a.click('#rows .case-card');
   await a.waitForSelector('#detail .lot-card');
   assert.strictEqual((await a.$$('#detail .lot-card')).length, 2);

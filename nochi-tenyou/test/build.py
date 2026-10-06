@@ -36,6 +36,8 @@ var google = { script: { get run() {
       var args = JSON.parse(JSON.stringify(Array.prototype.slice.call(arguments)));
       setTimeout(function () {
         try {
+          // 本番は呼び出しごとに新しく実行される：1回の処理の中での使い回し（読み取り結果など）を消してから呼ぶ
+          SS_MEMO_ = null; SHEET_MEMO_ = {}; forgetSheetCache_();
           var r = window[name].apply(null, args);
           // 本番の google.script.run は戻り値に Date が混じると受け渡しに失敗する（null になる）ので、同じく失敗させる
           var hasDate = function (v) { return v instanceof Date || (v && typeof v === 'object' && Object.keys(v).some(function (k) { return hasDate(v[k]); })); };
@@ -65,7 +67,7 @@ def page(name, seed=''):
     # EstimateLib（見積の計算コード）は、テストではページ内の .gs がそのまま使えるので空にする
     html = re.sub(r"<\?!= include\('(\w+)'\); \?>",
                   lambda m: '' if m.group(1) == 'EstimateLib' else read(os.path.join(SRC, m.group(1) + '.html')), html)
-    html = html.replace('<?= initialId ?>', '').replace('<?= portalUrl ?>', 'http://192.168.24.54:8000/')
+    html = html.replace('<?!= bootData ?>', 'null').replace('<?= initialId ?>', '').replace('<?= portalUrl ?>', 'http://192.168.24.54:8000/')
     stub = '<script>' + read(os.path.join(HERE, 'mocks.js')) + '\n' + gs_code() + '\n' + RUN_STUB + seed + '</script>'
     return html.replace('<head>', '<head>' + stub, 1)
 
