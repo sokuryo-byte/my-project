@@ -50,6 +50,10 @@ function updateCaseByAdmin(caseId, patch) {
     values.localFee = s === '' ? '' : Math.round(n);
   }
   if (p.localFeeNote !== undefined) values.localFeeNote = String(p.localFeeNote).trim().slice(0, 100);
+  if (p.karteNo !== undefined) {
+    const k = String(p.karteNo).trim().slice(0, 30);
+    values.karteNo = /^0\d*$/.test(k) ? "'" + k : k; // 先頭の0を数値化で落とさない
+  }
   Object.keys(values).forEach(function (k) {
     if (ADMIN_EDITABLE_KEYS.indexOf(k) < 0) delete values[k]; // 念のため
   });

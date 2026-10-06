@@ -95,7 +95,7 @@ function replaceCase_(caseId, record, lots) {
     if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
     const row = findCaseRow_(caseId);
     if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
-    const keep = ['id', 'caseNo', 'receivedAt', 'status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote',
+    const keep = ['id', 'caseNo', 'receivedAt', 'status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote', 'karteNo',
       'estimatePdfUrl', 'estimatePdfAt', 'reportResult'];
     const current = sheet.getRange(row, 1, 1, CASE_COLUMNS.length).getValues()[0];
     const next = CASE_COLUMNS.map(function (c, i) {

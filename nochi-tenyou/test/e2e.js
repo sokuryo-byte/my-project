@@ -248,12 +248,22 @@ const OUT = path.join(__dirname, 'out');
   await a.waitForSelector('#pdfDialog[open]', { timeout: 5000 });
   await a.waitForTimeout(300); a.off('download', onDl);
   assert.strictEqual(autoDl, false, 'PDF出力を押しただけで保存された');
+  assert.strictEqual(await a.inputValue('#pdfKarte'), '');
+  await a.fill('#pdfKarte', '260001');
   const [dl] = await Promise.all([a.waitForEvent('download', { timeout: 5000 }), a.click('#pdfGo')]);
   await a.waitForFunction(() => !document.querySelector('#pdfDialog').open, null, { timeout: 5000 });
   assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
   const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
   for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥709,500', '地元協力金等（○○区 協力金）', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない');
   fs.writeFileSync(path.join(OUT, 'case_print.html'), printHtml);
+  // 案件カルテ番号：見出しに出る・案件に保存され、次に開くと入っている
+  assert.ok(/案件カルテ番号<\/div><b>260001<\/b>/.test(printHtml) && printHtml.includes('受付番号 ' + caseNo), 'PDFの見出しにカルテ番号がない');
+  await a.waitForFunction(() => String(SHEETS['案件一覧'].rows[1][colIndexOf_('karteNo') - 1]) === '260001', null, { timeout: 5000 });
+  await a.click('#detail .pdf-btn');
+  await a.waitForSelector('#pdfDialog[open]', { timeout: 5000 });
+  assert.strictEqual(await a.inputValue('#pdfKarte'), '260001');
+  await a.screenshot({ path: path.join(OUT, 'admin_pdf_dialog.png') });
+  await a.click('#pdfCancel');
 
   // 電話番号は tel: リンク。連絡先・訪問先の一覧（農業委員会は市区町村から、同じ相手は物件をまとめる）
   await a.evaluate(() => { state.lotsByCase[state.cases[0].id].forEach((l) => { l.kairyoName = '○○土地改良区'; l.kairyoTel = '0565-12-3456'; });

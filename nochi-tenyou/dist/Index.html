@@ -665,6 +665,7 @@ const CASE_COLUMNS = [
   { key: 'localFee', header: '地元協力金等（円・管理画面で入力）' },
   { key: 'localFeeNote', header: '地元協力金等の内容' },
   { key: 'formData', header: '（自動）入力内容・保存した案件の再編集用・変更しない' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'karteNo', header: '案件カルテ番号' },          // PDF出力の小窓で任意に入力。例）260001
 ];
 
 /**
@@ -736,7 +737,7 @@ const LOT_COLUMNS = [
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
-const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote'];
+const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote', 'karteNo'];
 
 /** 見積の金額設定を変えたときに概算を計算し直す案件（正式見積を提示する前の案件だけ） */
 const RECALC_STATUSES = ['新規', '調査中'];

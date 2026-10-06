@@ -480,6 +480,7 @@ const CASE_COLUMNS = [
   { key: 'localFee', header: '地元協力金等（円・管理画面で入力）' },
   { key: 'localFeeNote', header: '地元協力金等の内容' },
   { key: 'formData', header: '（自動）入力内容・保存した案件の再編集用・変更しない' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'karteNo', header: '案件カルテ番号' },          // PDF出力の小窓で任意に入力。例）260001
 ];
 
 /**
@@ -551,7 +552,7 @@ const LOT_COLUMNS = [
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
-const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote'];
+const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote', 'karteNo'];
 
 /** 見積の金額設定を変えたときに概算を計算し直す案件（正式見積を提示する前の案件だけ） */
 const RECALC_STATUSES = ['新規', '調査中'];
@@ -1646,7 +1647,7 @@ function replaceCase_(caseId, record, lots) {
     if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
     const row = findCaseRow_(caseId);
     if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
-    const keep = ['id', 'caseNo', 'receivedAt', 'status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote',
+    const keep = ['id', 'caseNo', 'receivedAt', 'status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote', 'karteNo',
       'estimatePdfUrl', 'estimatePdfAt', 'reportResult'];
     const current = sheet.getRange(row, 1, 1, CASE_COLUMNS.length).getValues()[0];
     const next = CASE_COLUMNS.map(function (c, i) {
@@ -2916,6 +2917,10 @@ function updateCaseByAdmin(caseId, patch) {
     values.localFee = s === '' ? '' : Math.round(n);
   }
   if (p.localFeeNote !== undefined) values.localFeeNote = String(p.localFeeNote).trim().slice(0, 100);
+  if (p.karteNo !== undefined) {
+    const k = String(p.karteNo).trim().slice(0, 30);
+    values.karteNo = /^0\d*$/.test(k) ? "'" + k : k; // 先頭の0を数値化で落とさない
+  }
   Object.keys(values).forEach(function (k) {
     if (ADMIN_EDITABLE_KEYS.indexOf(k) < 0) delete values[k]; // 念のため
   });
