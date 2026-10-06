@@ -122,7 +122,7 @@ const DEFAULT_FEES = [
   { key: 'ADD_GENKYO', label: '現況証明（非農地証明）願出', amount: 120000,
     note: '農業委員会に確認し、非農地証明（現況証明）で対応できると回答があった物件がある場合に加算（その物件は許可申請を計上しない。料金表 4100）' },
   { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
-    note: '「地目変更登記が必要」にチェックした物件がある場合に1回加算（料金表 3201。2筆までこの金額のみ）' },
+    note: '「地目変更登記が必要」にチェックした物件がある場合に申請1件ごと（料金表 3201。2筆までこの金額のみ）。登記所または原因日付が異なる物件は別申請とし、2件目以降はこの金額の50%' },
   { key: 'ADD_CHIMOKU_EXTRA', label: '地目変更登記 筆数加算（3筆目から1筆あたり）', amount: 5000,
     note: '地目変更登記が3筆以上の場合、3筆目から1筆ごとに加算' },
   { key: 'ADD_PER_EXTRA_LOT', label: '筆数加算・許可（1筆あたり）', amount: 10000,
@@ -157,7 +157,8 @@ const FEE_PATCHES = {
   '2026-02': ['ADD_LAND_IMPROVEMENT'], // 土地改良区除外申請 35,000 → 40,000
   '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
   '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
-  '2026-05': ['ADD_CHIMOKU:label'],       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
+  '2026-05': ['ADD_CHIMOKU:label'],
+  '2026-08': ['ADD_CHIMOKU:label'],       // 地目変更登記の別申請（登記所・原因日付が異なる場合は2件目以降50%）の説明を更新       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
   '2026-06': ['ADD_WATER_ASSOCIATION:label'], // 地元承諾書は人数分（名称と条件だけ更新、金額はそのまま）
   '2026-07': ['ADD_GENKYO:label'],            // 現況証明は「非農地証明で対応できる」と回答があった場合だけ（条件の説明だけ更新）
 };
@@ -218,6 +219,31 @@ const TRUST_MULTIPLIER = 1.5;
 
 /** 同じ区域区分でも転用目的が異なれば別申請。2件目以降は基本報酬（信託付随の倍率を含む）にこの割合を掛けて加算する（概算） */
 const SEPARATE_APPLICATION_RATE = 0.5;
+
+/**
+ * 不動産登記の管轄（登記所 → 市区町村・郡・名古屋市の区）。地目変更登記の申請件数の判定に使う。
+ * 同じ登記所で、登記原因とその日付が同じなら1件の申請にまとめられる（不動産登記令4条ただし書）。違えば別申請。
+ * 出典：名古屋法務局 管轄区域一覧 https://houmukyoku.moj.go.jp/nagoya/table/shikyokutou/all.html
+ * 載っていない県は市区町村ごとに別の登記所として扱う（管轄を確認して必要なら追加）。
+ */
+const TOUKI_OFFICES = {
+  '愛知県': {
+    '名古屋法務局（本局）': ['中区', '東区', '北区', '中村区', '西区', '千種区', '昭和区', '清須市', '北名古屋市', '豊山町', '西春日井郡'],
+    '熱田出張所': ['熱田区', '南区', '中川区', '港区', '瑞穂区', '緑区', '豊明市'],
+    '名東出張所': ['名東区', '守山区', '天白区', '日進市', '長久手市', '東郷町', '愛知郡'],
+    '春日井支局': ['春日井市', '瀬戸市', '犬山市', '小牧市', '尾張旭市', '大口町', '扶桑町', '丹羽郡'],
+    '津島支局': ['津島市', '愛西市', '弥富市', 'あま市', '蟹江町', '飛島村', '大治町', '海部郡'],
+    '一宮支局': ['一宮市', '稲沢市', '江南市', '岩倉市'],
+    '半田支局': ['半田市', '常滑市', '大府市', '東海市', '知多市', '阿久比町', '武豊町', '南知多町', '美浜町', '東浦町', '知多郡'],
+    '岡崎支局': ['岡崎市', '幸田町', '額田郡'],
+    '刈谷支局': ['刈谷市', '知立市', '安城市', '碧南市', '高浜市'],
+    '豊田支局': ['豊田市', 'みよし市'],
+    '西尾支局': ['西尾市'],
+    '豊橋支局': ['豊橋市', '田原市'],
+    '豊川出張所': ['豊川市', '蒲郡市'],
+    '新城支局': ['新城市', '設楽町', '東栄町', '豊根村', '北設楽郡'],
+  },
+};
 
 /** 委員・地元関係者の連絡先を1物件あたり何人まで入力できるか */
 const MAX_KAIRYO_EXTRA = 3; // 1つの物件で追加できる土地改良区（2つ目以降）の数
@@ -552,6 +578,7 @@ const LOT_COLUMNS = [
   { key: 'zeseiNote', header: '是正の許可申請の備考' },
   { key: 'kairyoExtra', header: '2つ目以降の土地改良区' },
   { key: 'kairyoExtraData', header: '（自動）2つ目以降の土地改良区のデータ・変更しない' },
+  { key: 'chimokuDate', header: '地目変更の原因日付（既に転用済みの物件・転用した時期）' },
 ];
 
 /**
@@ -581,6 +608,7 @@ const LOT_EDIT_FIELDS = [
   { group: '農振（青地）・除外の見込み', key: 'jogaiJisseki', label: '近隣の除外実績', type: 'select', opt: 'jogaiJisseki' },
   { group: '農振（青地）・除外の見込み', key: 'jogaiUketsuke', label: '除外の受付', type: 'text' },
   { group: '農振（青地）・除外の見込み', key: 'jogaiNote', label: '指摘事項', type: 'textarea' },
+  { group: '地目変更登記', key: 'chimokuDate', label: '原因日付（既に転用済み・転用した時期）', type: 'text', ph: '例）2015/04 または 平成27年頃' },
   { group: '転用の見込み', key: 'tenyoKanou', label: '転用の見込み', type: 'select', opt: 'tenyoKanou' },
   { group: '転用の見込み', key: 'noutiKubun', label: '農地区分', type: 'multi', opt: 'noutiKubun' },
   { group: '転用の見込み', key: 'kanouNote', label: '指摘事項', type: 'textarea' },
@@ -1049,6 +1077,7 @@ function submitCase(form, requestInvestigation, editId) {
       kairyoExtra: kairyoExtraText_(l.kairyoExtra),
       kairyoExtraData: l.kairyoExtra && l.kairyoExtra.length ? JSON.stringify(l.kairyoExtra) : '',
       chimokuHenko: l.chimokuHenko ? 'はい' : '',
+      chimokuDate: l.chimokuDate,
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
@@ -1171,7 +1200,7 @@ function lotRowToFormLot_(r) {
     rirekiDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '',
     hinochiDocs: s(r.hinochiDocs).split('・').filter(String),
     drainFeeAmount: yen(r.drainFee), drainFeeNote: after(r.drainFee),
-    tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke),
+    tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke), chimokuDate: s(r.chimokuDate),
     readFromTohon: s(r.readFromTohon) === '謄本から読取',
     kairyoExtra: extra.map(function (e) {
       return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
@@ -1463,6 +1492,7 @@ function normalizeLot_(l, prefecture, master) {
     landImprovement: go ? pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) : '',
     readFromTohon: l.readFromTohon === true,
     chimokuHenko: l.chimokuHenko === true,
+    chimokuDate: l.chimokuHenko === true && pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい' ? str_(l.chimokuDate, 50) : '',
     // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
@@ -2217,11 +2247,36 @@ function calculateEstimate_(input) {
 
   // --- 5b. 地目変更登記：チェックした物件があれば1回（2筆以上の筆数加算は都度調整） ---
   // 地目変更登記は農地転用とは別の手続きのため、許可・届出の履歴がある物件も含めて数える
+  // 不動産登記令4条ただし書：同じ登記所で、登記原因とその日付が同じ物件は1件の申請。登記所か原因日付が違えば別申請
   const chimokuLots = allLots.filter(function (l) { return l.chimokuHenko === true; });
-  if (chimokuLots.length) {
-    items.push(item('ADD_CHIMOKU'));
-    // 2筆までは加算なし、3筆目から1筆ごとに加算
-    if (chimokuLots.length > 2) items.push(item('ADD_CHIMOKU_EXTRA', chimokuLots.length - 2));
+  const chimokuApps = [];
+  chimokuLots.forEach(function (l) {
+    const office = toukiOfficeOf_(l);
+    // 原因日付：今回の転用は工事完了の日（同じ計画なら同じ日として計算）。既に転用済みは転用した時期（未入力は同じ日として計算）
+    const done = l.isConverted === 'はい';
+    const date = done ? String(l.chimokuDate || '').replace(/\s/g, '') : '';
+    const key = office + '|' + (done ? 'done:' + date : 'new');
+    let app = chimokuApps.filter(function (a) { return a.key === key; })[0];
+    if (!app) { app = { key: key, office: office, done: done, date: date, lots: [] }; chimokuApps.push(app); }
+    app.lots.push(l);
+  });
+  let chimokuExtra = 0;
+  chimokuApps.forEach(function (a, k) {
+    const why = [chimokuApps.some(function (b) { return b.office !== a.office; }) ? a.office : '',
+      a.done ? '既に転用済み' + (a.date ? '・' + a.date : '') : (chimokuApps.some(function (b) { return b.done; }) ? '今回の転用' : '')].filter(String).join('・');
+    if (k === 0) items.push(item('ADD_CHIMOKU'));
+    else items.push({ label: fees.ADD_CHIMOKU.label + '・別申請（' + (why || '原因日付が異なる') + '）', amount: Math.round(fees.ADD_CHIMOKU.amount * SEPARATE_APPLICATION_RATE) });
+    chimokuExtra += Math.max(0, a.lots.length - 2); // 申請ごとに2筆までは加算なし、3筆目から1筆ごとに加算
+  });
+  if (chimokuExtra > 0) items.push(item('ADD_CHIMOKU_EXTRA', chimokuExtra));
+  if (chimokuApps.length > 1) {
+    notes.push('地目変更登記は登記所または原因日付が異なるため、申請' + chimokuApps.length + '件として計算しています（2件目以降は' +
+      Math.round(SEPARATE_APPLICATION_RATE * 100) + '%）：' + chimokuApps.map(function (a) {
+        return a.lots.map(function (l) { return lotName_(l, l.__i !== undefined ? l.__i : allLots.indexOf(l)); }).join('・') + '（' + a.office + (a.done ? '・既に転用済み' + (a.date ? ' ' + a.date : '') : '') + '）';
+      }).join('／') + '。');
+  }
+  if (chimokuApps.some(function (a) { return a.done && !a.date; })) {
+    notes.push('地目変更登記：既に転用済みの物件で原因日付（転用した時期）が未入力のものは、同じ日として1件で計算しています。日付が異なる場合は別申請です。');
   }
 
   // --- 5c. 地元協力金等（管理画面で入力した金額。実費） ---
@@ -2282,6 +2337,8 @@ function lotRowToEstimateLot_(r) {
     localContacts: contactLines_(r.localContacts),
     kairyoExtra: (function () { try { return JSON.parse(r.kairyoExtraData || '[]'); } catch (e) { return []; } })(),
     drainContacts: contactLines_(r.drainContacts),
+    prefecture: String(r.prefecture || ''), municipality: String(r.municipality || ''), address: String(r.address || ''),
+    chimokuDate: String(r.chimokuDate || ''),
   };
   ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'localConsent', 'iinStamp', 'purpose',
     'drainConsent', 'drainLocalConsent', 'drainName', 'jogaiKanou', 'jogaiNote', 'jogaiUketsuke', 'tenyoKanou', 'kanouNote',
@@ -2291,6 +2348,21 @@ function lotRowToEstimateLot_(r) {
     lot[k] = r[k] === undefined || r[k] === null ? '' : String(r[k]);
   });
   return lot;
+}
+
+/** 物件の不動産登記の管轄（登記所名）。TOUKI_OFFICES に無い県・市区町村は「都道府県＋市区町村」をそのまま使う */
+function toukiOfficeOf_(l) {
+  const pref = String(l.prefecture || '');
+  const text = (String(l.municipality || '') + String(l.address || '')).replace(/[\s　]/g, '');
+  const table = TOUKI_OFFICES[pref] || (pref ? null : TOUKI_OFFICES['愛知県']);
+  if (table) {
+    let hit = '', best = 0;
+    Object.keys(table).forEach(function (office) {
+      table[office].forEach(function (tok) { if (tok.length > best && text.indexOf(tok) >= 0) { hit = office; best = tok.length; } });
+    });
+    if (hit) return hit;
+  }
+  return (pref + String(l.municipality || '')) || '（所在未入力）';
 }
 
 /** シートの「氏名／住所／電話」の行 → [{name, address, tel}] */

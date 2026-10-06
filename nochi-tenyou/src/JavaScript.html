@@ -312,6 +312,12 @@
     chimokuHenko.appendChild(el('input', { type: 'checkbox', id: id('chimokuHenko'), 'data-f': 'chimokuHenko' }));
     chimokuHenko.appendChild(document.createTextNode(' 地目変更登記が必要'));
     card.appendChild(chimokuHenko);
+    // 既に転用済みの物件は、転用した時期（地目変更の原因日付）。同じ登記所でも日付が違えば別申請
+    var cdf = field('地目変更の原因日付（転用した時期・分かる範囲で）',
+      el('input', { type: 'text', id: id('chimokuDate'), maxlength: '50', placeholder: '例）2015/04 または 平成27年頃', 'data-f': 'chimokuDate' }),
+      '同じ登記所でも、転用した日が物件ごとに違うと地目変更登記は別申請になります（未入力は同じ日として計算）');
+    cdf.classList.add('chimoku-date', 'hidden');
+    card.appendChild(cdf);
 
     // 土地改良区（農業委員会 → 土地改良区 の順に電話確認）
     var kairyo = el('div', { 'class': 'choices' });
@@ -429,6 +435,7 @@
       landUseOther: lotInput(card, 'landUseOther').value,
       isConverted: getRadio(card, 'isConverted'),
       chimokuHenko: lotInput(card, 'chimokuHenko').checked,
+      chimokuDate: lotInput(card, 'chimokuDate').value,
       landImprovement: getRadio(card, 'landImprovement'),
       kairyoName: lotInput(card, 'kairyoName').value,
       kairyoTel: lotInput(card, 'kairyoTel').value,
@@ -1546,6 +1553,7 @@
   function updateConvertedWarn(card) {
     var use = lotInput(card, 'landUse').value;
     var conv = getRadio(card, 'isConverted');
+    cq(card, '.chimoku-date').classList.toggle('hidden', !(lotInput(card, 'chimokuHenko').checked && conv === 'はい'));
     var msg = '';
     if (NON_FARM_USES.indexOf(use) >= 0 && conv === 'いいえ') {
       msg = '※ 現況が「' + use + '」＝既に転用している状態です。無許可の場合は「はい」を選んでください。';

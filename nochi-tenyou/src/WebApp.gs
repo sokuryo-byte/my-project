@@ -270,6 +270,7 @@ function submitCase(form, requestInvestigation, editId) {
       kairyoExtra: kairyoExtraText_(l.kairyoExtra),
       kairyoExtraData: l.kairyoExtra && l.kairyoExtra.length ? JSON.stringify(l.kairyoExtra) : '',
       chimokuHenko: l.chimokuHenko ? 'はい' : '',
+      chimokuDate: l.chimokuDate,
       tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
       jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
       jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
@@ -392,7 +393,7 @@ function lotRowToFormLot_(r) {
     rirekiDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '',
     hinochiDocs: s(r.hinochiDocs).split('・').filter(String),
     drainFeeAmount: yen(r.drainFee), drainFeeNote: after(r.drainFee),
-    tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke),
+    tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke), chimokuDate: s(r.chimokuDate),
     readFromTohon: s(r.readFromTohon) === '謄本から読取',
     kairyoExtra: extra.map(function (e) {
       return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
@@ -684,6 +685,7 @@ function normalizeLot_(l, prefecture, master) {
     landImprovement: go ? pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) : '',
     readFromTohon: l.readFromTohon === true,
     chimokuHenko: l.chimokuHenko === true,
+    chimokuDate: l.chimokuHenko === true && pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい' ? str_(l.chimokuDate, 50) : '',
     // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',

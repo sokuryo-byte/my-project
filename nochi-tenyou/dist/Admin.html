@@ -1143,7 +1143,7 @@
         ['区域区分', l.zone], ['農振農用地', has(l.isNoshin) ? boolText(l.isNoshin) : ''],
         ['現況利用', l.landUse], ['既に転用済み', has(l.isConverted) ? boolText(l.isConverted) : ''],
         ['転用目的', l.purpose], ['土地改良区', l.landImprovement],
-        ['地目変更登記', has(l.chimokuHenko) ? '必要' : ''], ['入力方法', l.readFromTohon === true || l.readFromTohon === '謄本から読取' ? '謄本から読取' : '']
+        ['地目変更登記', has(l.chimokuHenko) ? '必要' + (has(l.chimokuDate) ? '（原因日付 ' + l.chimokuDate + '）' : '') : ''], ['入力方法', l.readFromTohon === true || l.readFromTohon === '謄本から読取' ? '謄本から読取' : '']
       ], 22, title) + '</div>');
       var rows = [];
       lotSteps(l).forEach(function (st) {
