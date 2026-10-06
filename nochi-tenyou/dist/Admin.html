@@ -170,6 +170,24 @@
   .lot-sec.hear { margin-top: 10px; border-bottom-color: var(--accent); }
   .lot-sec.hear .lot-sec-n { background: var(--accent); }
   .lot-sec.hear b { color: var(--accent); }
+  /* 複数筆のヒアリング（電話先ごとの票） */
+  .lot.gm > .lot-sec.hear, .lot.gm > .callbox { display: none; }
+  .hear-all { display: grid; gap: 12px; margin-top: 4px; }
+  .gm-sheets { display: grid; gap: 14px; }
+  .gm-sheet { gap: 10px; }
+  .gm-sheet-h { font-weight: 700; font-size: .92rem; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .gm-sec { display: grid; gap: 6px; }
+  .gm-sec.gm-step { border-top: 1px dashed var(--line); padding-top: 10px; margin-top: 4px; }
+  .gm-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .gm-title { font-size: .9rem; }
+  .gm-same { margin-left: auto; font-size: .8rem; }
+  .gm-row { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); gap: 4px 10px; align-items: start; padding: 4px 0 4px 8px; border-left: 3px solid var(--line); }
+  .gm-row.gm-full { grid-template-columns: minmax(0, 1fr); }
+  .gm-row.gm-full > .gm-lab { display: none; }
+  .gm-lab { font-weight: 700; font-size: .8rem; color: var(--muted); padding-top: 3px; overflow-wrap: anywhere; }
+  .gm-cell { min-width: 0; display: grid; gap: 6px; }
+  .gm-sec.sq .gm-cell > * > .script.q, .gm-sec.sq .gm-cell > .field > .lbl, .gm-sec.sq .gm-cell > .field > label:first-of-type, .gm-sec.sq .gm-cell > .field > .help { display: none; }
+  @media (max-width: 600px) { .gm-row { grid-template-columns: minmax(0, 1fr); } }
   .uke-year { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px 8px; }
   .uke-month { display: inline-flex; align-items: center; gap: 3px; font-weight: 400; font-size: .82rem; }
   .uke-month input { width: 3.6em; padding: 4px 6px; }

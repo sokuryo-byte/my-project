@@ -119,12 +119,13 @@
       e.target.classList.remove('invalid'); // 直したらエラー表示も外す
       var zones = e.target.closest && e.target.closest('.zones');
       if (zones) zones.classList.remove('invalid');
-      var lot = e.target.closest && e.target.closest('.lot');
+      var lot = (e.target.closest && e.target.closest('.lot')) || ownerCard(e.target);
       if (lot && e.target.type === 'radio') {
         if (zones) applyNoshinDefault(lot);
         else if (e.target.name === radioName(lot, 'isNoshin')) lot.removeAttribute('data-noshin-auto'); // 人が選んだ値は以後触らない
       }
       if (lot) { updateCallBox(lot); updateConvertedWarn(lot); }         // 選択に合わせて電話確認・注意表示を更新
+      if (lot && gm.on && e.type === 'change') propagateAnswer(e.target);  // 複数筆：未回答の筆にも同じ答えを入れる
     }
     updatePlanRequired();
     schedulePreview();
@@ -322,6 +323,8 @@
     hear.appendChild(el('span', { 'class': 'lot-sec-help' }, 'トーク例に沿って確認し、回答を記録'));
     card.appendChild(hear);
     card.appendChild(buildCallBox(card, id, o, kairyo, noshinField, convField));
+    card._parts = qsa('[data-part]', card); // ヒアリングの部品（複数筆のときは電話先ごとの票へ移す）
+    card._moved = [];
 
     $('lots').appendChild(card);
 
@@ -377,10 +380,11 @@
   function renumberLots() {
     var lots = qsa('.lot');
     lots.forEach(function (card, i) {
-      card.querySelector('.lot-title').textContent = '物件' + (i + 1);
-      card.querySelector('.lot-del').classList.toggle('hidden', lots.length === 1);
+      cq(card, '.lot-title').textContent = '物件' + (i + 1);
+      cq(card, '.lot-del').classList.toggle('hidden', lots.length === 1);
     });
     $('extraLotWrap').classList.toggle('hidden', lots.length < 2); // 筆数加算は2筆以上のときだけ選ぶ
+    refreshHearing();
   }
 
   /**
@@ -398,16 +402,16 @@
     }
   }
 
-  function lotInput(card, f) { return card.querySelector('[data-f=' + f + ']'); }
+  function lotInput(card, f) { return cq(card, '[data-f=' + f + ']'); }
 
   function radioName(card, f) { return 'lot' + card.getAttribute('data-uid') + '_' + f; }
 
   function setRadio(card, f, value) {
-    qsa('input[type=radio][name="' + radioName(card, f) + '"]', card).forEach(function (r) { r.checked = r.value === value; });
+    cqa(card, 'input[type=radio][name="' + radioName(card, f) + '"]').forEach(function (r) { r.checked = r.value === value; });
   }
 
   function getRadio(card, f) {
-    var r = card.querySelector('input[type=radio][name="' + radioName(card, f) + '"]:checked');
+    var r = cq(card, 'input[type=radio][name="' + radioName(card, f) + '"]:checked');
     return r ? r.value : '';
   }
 
@@ -440,7 +444,7 @@
       iinContacts: getContacts(card, 'iinContacts'),
       localConsent: getRadio(card, 'localConsent'),
       localContacts: getContacts(card, 'localContacts'),
-      kairyoExtra: qsa('.kairyo-extra', card).map(function (b) { return readKairyoExtra(card, b); }),
+      kairyoExtra: cqa(card, '.kairyo-extra').map(function (b) { return readKairyoExtra(card, b); }),
       purpose: getRadio(card, 'purpose'),
       tenyoRireki: getRadio(card, 'tenyoRireki'),
       rirekiDate: lotInput(card, 'rirekiDate').value,
@@ -452,13 +456,13 @@
       saiShinsei: getRadio(card, 'saiShinsei'),
       hinochi: getRadio(card, 'hinochi'),
       hinochiYears: lotInput(card, 'hinochiYears').value,
-      hinochiDocs: qsa('.hinochi-docs input[data-doc]:checked', card).map(function (x) { return x.value; }),
+      hinochiDocs: cqa(card, '.hinochi-docs input[data-doc]:checked').map(function (x) { return x.value; }),
       hinochiNote: lotInput(card, 'hinochiNote').value,
       zeseiKyoka: getRadio(card, 'zeseiKyoka'),
       zeseiNote: lotInput(card, 'zeseiNote').value,
       saiShinseiNote: lotInput(card, 'saiShinseiNote').value,
       tenyoKanou: getRadio(card, 'tenyoKanou'),
-      noutiKubun: qsa('input[data-kubun]:checked', card).map(function (x) { return x.value; }),
+      noutiKubun: cqa(card, 'input[data-kubun]:checked').map(function (x) { return x.value; }),
       kanouNote: lotInput(card, 'kanouNote').value,
       jogaiKanou: getRadio(card, 'jogaiKanou'),
       hojoKuiki: getRadio(card, 'hojoKuiki'),
@@ -493,8 +497,8 @@
     var a = lotInput(card, 'municipality').value.trim();
     if (a.indexOf(pref) === 0) a = a.slice(pref.length);
     var row = state.master.filter(function (m) { return m.prefecture === pref && a === m.municipality; })[0];
-    setLink(card.querySelector('.city-link'), row && row.cityPlanUrl);
-    setLink(card.querySelector('.noshin-link'), row && row.noshinUrl);
+    setLink(cq(card, '.city-link'), row && row.cityPlanUrl);
+    setLink(cq(card, '.noshin-link'), row && row.noshinUrl);
   }
 
   // ---------------------------------------------------------
@@ -504,42 +508,42 @@
     var box = el('div', { 'class': 'callbox' });
     // ① 農業委員会（青地 → 転用の履歴 → 除外・転用の見込み → 受付 → 土地改良区・地元委員）
     var s1 = el('div', { 'class': 'step1' });
-    s1.appendChild(el('div', { 'class': 'step-h nogyo-h' }));
-    s1.appendChild(el('div', { 'class': 'script script-open' }));
+    s1.appendChild(pt(el('div', { 'class': 'step-h nogyo-h' }), 'nogyoH', 'text'));
+    s1.appendChild(pt(el('div', { 'class': 'script script-open' }), 'open', 'text'));
     // 青地かどうか（聞かないと分からないので、ヒアリングの最初に聞く）
     var nb = el('div', { 'class': 'noshin-block', style: 'display:grid;gap:8px' });
-    nb.appendChild(el('div', { 'class': 'script script-noshin' }));
-    nb.appendChild(noshinField);
+    nb.appendChild(pt(el('div', { 'class': 'script script-noshin' }), 'noshinS', 'text'));
+    nb.appendChild(pt(noshinField, 'noshin', 'each'));
     s1.appendChild(nb);
     // 過去の転用許可・届出の履歴 → 既に転用済みか（履歴を聞いてから判断）→ 無断転用なら始末書
     var rb = el('div', { 'class': 'rireki-block', style: 'display:grid;gap:8px' });
-    rb.appendChild(el('div', { 'class': 'script script-rireki' }));
+    rb.appendChild(pt(el('div', { 'class': 'script script-rireki' }), 'rirekiS', 'text'));
     var rireki = el('div', { 'class': 'choices' });
     renderChoices(rireki, id('tenyoRireki'), o.tenyoRireki);
-    rb.appendChild(radioField('過去の転用届出・許可の履歴', rireki));
+    rb.appendChild(pt(radioField('過去の転用届出・許可の履歴', rireki), 'rireki', 'each'));
     var rd = el('div', { 'class': 'row rireki-detail hidden' });
     rd.appendChild(field('受理・許可年月日', el('input', { type: 'date', id: id('rirekiDate'), 'data-f': 'rirekiDate' })));
     rd.appendChild(field('受理・許可番号', el('input', { type: 'text', id: id('rirekiNo'), maxlength: '50', placeholder: '例）○○指令第123号', 'data-f': 'rirekiNo' })));
-    rb.appendChild(qEl('q-rireki-detail'));
-    rb.appendChild(rd);
+    rb.appendChild(pt(qEl('q-rireki-detail'), 'rirekiDq', 'text'));
+    rb.appendChild(pt(rd, 'rirekiD', 'each'));
     var rn = field('内容（転用目的・面積など）', el('input', { type: 'text', id: id('rirekiNote'), maxlength: '200', placeholder: '例）5条許可・駐車場', 'data-f': 'rirekiNote' }));
     rn.classList.add('rireki-note', 'hidden');
-    rb.appendChild(rn);
+    rb.appendChild(pt(rn, 'rirekiN', 'each'));
     // 許可・届出済み（履歴あり）：再申請が必要か（現況にかかわらず確認）
     var rp = el('div', { 'class': 'reapply-block hidden', style: 'display:grid;gap:8px' });
     var rpc = el('div', { 'class': 'choices' });
     renderChoices(rpc, id('saiShinsei'), o.saiShinsei);
-    rp.appendChild(prependQ(radioField('再申請の要否（許可・届出済み）', rpc,
-      el('p', { 'class': 'help' }, '「必要」の場合だけ、以降の確認（除外・見込み・土地改良区など）に進みます')), 'q-sai'));
-    rp.appendChild(field('再申請の備考', el('input', { type: 'text', id: id('saiShinseiNote'), maxlength: '200',
-      placeholder: '例）未着手のまま期間経過で再申請が必要、目的変更のため事業計画変更が必要、計画変更の届出で足りる など', 'data-f': 'saiShinseiNote' })));
+    rp.appendChild(pt(prependQ(radioField('再申請の要否（許可・届出済み）', rpc,
+      el('p', { 'class': 'help' }, '「必要」の場合だけ、以降の確認（除外・見込み・土地改良区など）に進みます')), 'q-sai'), 'sai', 'each'));
+    rp.appendChild(pt(field('再申請の備考', el('input', { type: 'text', id: id('saiShinseiNote'), maxlength: '200',
+      placeholder: '例）未着手のまま期間経過で再申請が必要、目的変更のため事業計画変更が必要、計画変更の届出で足りる など', 'data-f': 'saiShinseiNote' })), 'saiN', 'each'));
     rb.appendChild(rp);
     // 無断転用（転用済み・履歴なし、市街化区域以外）：非農地証明で対応できるか → 可能なら要件、不可なら是正の許可申請
     var hb = el('div', { 'class': 'hinochi-block hidden', style: 'display:grid;gap:8px' });
     var hc = el('div', { 'class': 'choices' });
     renderChoices(hc, id('hinochi'), o.hinochi);
-    hb.appendChild(prependQ(radioField('非農地証明（現況証明）で対応できるか', hc,
-      el('p', { 'class': 'help' }, '「可能」なら許可申請に代えて現況証明で見積ります')), 'q-hinochi'));
+    hb.appendChild(pt(prependQ(radioField('非農地証明（現況証明）で対応できるか', hc,
+      el('p', { 'class': 'help' }, '「可能」なら許可申請に代えて現況証明で見積ります')), 'q-hinochi'), 'hinochi', 'each'));
     var hreq = el('div', { 'class': 'hinochi-req hidden', style: 'display:grid;gap:8px' });
     hreq.appendChild(qEl('q-hinochi-req'));
     var hy = el('div', { 'class': 'inline-inputs' });
@@ -560,14 +564,14 @@
     hreq.appendChild(hdf);
     hreq.appendChild(field('要件・備考（現地確認・受付時期・手数料など）', el('textarea', { id: id('hinochiNote'), rows: '2', maxlength: '300', 'data-f': 'hinochiNote',
       placeholder: '例）現地確認あり、毎月10日締切、手数料なし' })));
-    hb.appendChild(hreq);
+    hb.appendChild(pt(hreq, 'hinochiReq', 'each'));
     var hz = el('div', { 'class': 'zesei-block hidden', style: 'display:grid;gap:8px' });
     var zc = el('div', { 'class': 'choices' });
     renderChoices(zc, id('zeseiKyoka'), o.zeseiKyoka);
     hz.appendChild(prependQ(radioField('是正のための許可申請ができるか', zc), 'q-zesei'));
     hz.appendChild(field('是正の許可申請の備考', el('input', { type: 'text', id: id('zeseiNote'), maxlength: '300', 'data-f': 'zeseiNote',
       placeholder: '例）始末書を添えて5条許可申請、事前相談が必要 など' })));
-    hb.appendChild(hz);
+    hb.appendChild(pt(hz, 'zesei', 'each'));
     rb.appendChild(hb);
     // 履歴がない（無断転用）場合：始末書の提出と押印
     var sb = el('div', { 'class': 'shimatsu-block hidden', style: 'display:grid;gap:8px' });
@@ -577,16 +581,16 @@
     renderChoices(st, id('shimatsuStamp'), o.shimatsusho);
     var stf = prependQ(radioField('始末書の押印', st), 'q-shimatsu-stamp');
     stf.classList.add('shimatsu-stamp', 'hidden');
-    sb.appendChild(prependQ(radioField('始末書（顛末書）の提出', sh), 'q-shimatsu'));
-    sb.appendChild(stf);
+    sb.appendChild(pt(prependQ(radioField('始末書（顛末書）の提出', sh), 'q-shimatsu'), 'shimatsu', 'each'));
+    sb.appendChild(pt(stf, 'shimatsuStamp', 'each'));
     var snf = field('始末書の備考', el('input', { type: 'text', id: id('shimatsuNote'), maxlength: '200', placeholder: '例）所有者・転用者の実印、印鑑証明書を添付 など', 'data-f': 'shimatsuNote' }));
     snf.classList.add('shimatsu-note', 'hidden');
-    sb.appendChild(snf);
+    sb.appendChild(pt(snf, 'shimatsuN', 'each'));
     rb.appendChild(sb);
     s1.appendChild(rb);
     // 青地の場合：農振除外の見込み（転用の見込みより先に聞く。位置関係は農振図で分かるので聞かない）
     var jb = el('div', { 'class': 'jogai-block hidden', style: 'display:grid;gap:8px' });
-    jb.appendChild(el('div', { 'class': 'script script-jogai' }));
+    jb.appendChild(pt(el('div', { 'class': 'script script-jogai' }), 'jogaiS', 'text'));
     var hojo = el('div', { 'class': 'choices' });
     renderChoices(hojo, id('hojoKuiki'), o.hojoKuiki);
     var h8 = el('div', { 'class': 'choices' });
@@ -594,26 +598,26 @@
     var h8f = prependQ(radioField('事業完了から8年', h8), 'q-hojo8');
     h8f.classList.add('hojo8-field', 'hidden');
     var rh = el('div', { style: 'display:grid;gap:8px' }); // 質問と回答を1対1で縦に並べる
-    rh.appendChild(prependQ(radioField('ほ場整備等の事業区域', hojo), 'q-hojo'));
-    rh.appendChild(h8f);
+    rh.appendChild(pt(prependQ(radioField('ほ場整備等の事業区域', hojo), 'q-hojo'), 'hojo', 'each'));
+    rh.appendChild(pt(h8f, 'hojo8', 'each'));
     jb.appendChild(rh);
     var jis = el('div', { 'class': 'choices' });
     renderChoices(jis, id('jogaiJisseki'), o.jogaiJisseki);
     var jk = el('div', { 'class': 'choices' });
     renderChoices(jk, id('jogaiKanou'), o.tenyoKanou);
     var rj = el('div', { style: 'display:grid;gap:8px' });
-    rj.appendChild(prependQ(radioField('近隣の除外実績', jis), 'q-jisseki'));
+    rj.appendChild(pt(prependQ(radioField('近隣の除外実績', jis), 'q-jisseki'), 'jisseki', 'each'));
     var jkf = radioField('農振除外の見込み', jk);
     jkf.appendChild(qEl('q-jogai-fb'));
-    rj.appendChild(jkf);
+    rj.appendChild(pt(jkf, 'jogaiKanou', 'each'));
     jb.appendChild(rj);
     var jn = field('指摘事項', el('textarea', { id: id('jogaiNote'), rows: '2', maxlength: '300', placeholder: '例）事前相談が必要（担当：○○様）など', 'data-f': 'jogaiNote' }));
     jn.classList.add('jogai-note');
-    jb.appendChild(jn);
+    jb.appendChild(pt(jn, 'jogaiN', 'each'));
     s1.appendChild(jb);
     // 最初に：転用の見込み（許可が必要な区域のとき）
     var kb = el('div', { 'class': 'kanou-block hidden', style: 'display:grid;gap:8px' });
-    kb.appendChild(el('div', { 'class': 'script script-kanou' }));
+    kb.appendChild(pt(el('div', { 'class': 'script script-kanou' }), 'kanouS', 'text'));
     var kubun = el('div', { 'class': 'choices' });
     o.noutiKubun.forEach(function (v) { // 「第1種か第2種」のように回答が分かれることがあるので複数選択
       var lb = el('label');
@@ -624,14 +628,14 @@
     var kanou = el('div', { 'class': 'choices' });
     renderChoices(kanou, id('tenyoKanou'), o.tenyoKanou);
     var rk = el('div', { style: 'display:grid;gap:8px' }); // 農地区分は選択肢が多いので全幅で縦に並べる（折り返し防止）
-    rk.appendChild(prependQ(radioField('農地区分', kubun), 'q-kubun'));
+    rk.appendChild(pt(prependQ(radioField('農地区分', kubun), 'q-kubun'), 'kubun', 'each'));
     var tkf = radioField('転用の見込み', kanou);
     tkf.appendChild(qEl('q-kanou-fb')); // 結論は審査次第と言われたときの切り返し
-    rk.appendChild(tkf);
+    rk.appendChild(pt(tkf, 'kanou', 'each'));
     kb.appendChild(rk);
     var kn = field('指摘事項', el('textarea', { id: id('kanouNote'), rows: '2', maxlength: '300', placeholder: '例）事前相談が必要（担当：○○様）など', 'data-f': 'kanouNote' }));
     kn.classList.add('kanou-note');
-    kb.appendChild(kn);
+    kb.appendChild(pt(kn, 'kanouN', 'each'));
     s1.appendChild(kb);
     // 受付期間（入力しやすいよう数字・日付の欄に分ける）
     var ub = el('div', { 'class': 'uketsuke-block hidden', style: 'display:grid;gap:8px' });
@@ -697,45 +701,45 @@
     ju.appendChild(jiki);
     var juf = prependQ(field('農振除外の受付', ju.children[1], null, false, ju), 'q-jogai-uke');
     juf.classList.add('jogai-uke', 'hidden');
-    ub.appendChild(tuf);   // 選択肢と入力欄が横に長いので、それぞれ全幅で縦に並べる
-    ub.appendChild(juf);
+    ub.appendChild(pt(tuf, 'tenyoUke', 'one'));   // 選択肢と入力欄が横に長いので、それぞれ全幅で縦に並べる
+    ub.appendChild(pt(juf, 'jogaiUke', 'one'));
     s1.appendChild(ub);
-    s1.appendChild(el('p', { 'class': 'caution stop-msg hidden' },
-      '※ 見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。'));
-    s1.appendChild(el('div', { 'class': 'script script-main' }));
+    s1.appendChild(pt(el('p', { 'class': 'caution stop-msg hidden' },
+      '※ 見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。'), 'stop', 'each'));
+    s1.appendChild(pt(el('div', { 'class': 'script script-main' }), 'mainS', 'text'));
     var iin = el('div', { 'class': 'choices' });
     renderChoices(iin, id('iinStamp'), o.iinStamp);
     // （ア）土地改良区 →（イ）地元委員の押印 の順に、縦に並べる（（ア）で「はい」→②へ進んで（イ）を聞き漏らさないように）
     var r0 = el('div', { 'class': 'main-checks', style: 'display:grid;gap:8px' });
-    r0.appendChild(prependQ(radioField('（ア）土地改良区にかかっているか', kairyo), 'q-kairyo'));
-    r0.appendChild(prependQ(radioField('（イ）地元の農業委員・推進委員の押印', iin, el('p', { 'class': 'help' }, '（ア）の回答にかかわらず、同じ電話で必ず確認してください')), 'q-iin'));
+    r0.appendChild(pt(prependQ(radioField('（ア）土地改良区にかかっているか', kairyo), 'q-kairyo'), 'kairyo', 'each'));
+    r0.appendChild(pt(prependQ(radioField('（イ）地元の農業委員・推進委員の押印', iin, el('p', { 'class': 'help' }, '（ア）の回答にかかわらず、同じ電話で必ず確認してください')), 'q-iin'), 'iin', 'one'));
     s1.appendChild(r0);
-    s1.appendChild(prependQ(contactList('iinContacts', '押印が必要な委員', '例）山田 一郎（農業委員）'), 'q-iin-contacts'));
+    s1.appendChild(pt(prependQ(contactList('iinContacts', '押印が必要な委員', '例）山田 一郎（農業委員）'), 'q-iin-contacts'), 'iinC', 'one'));
     box.appendChild(s1);
     // ② 土地改良区（「はい」のときだけ表示）
     var s2 = el('div', { 'class': 'step2 hidden' });
     var h2 = el('div', { 'class': 'step-h' });
     h2.appendChild(el('span', { 'class': 'kairyo-title' }, '② 土地改良区へ確認'));
     h2.appendChild(el('a', { 'class': 'tel kairyo-tel hidden' }));
-    s2.appendChild(h2);
-    s2.appendChild(el('p', { 'class': 'caution iin-remind hidden' }, '※ ①（イ）地元委員の押印が未回答です。農業委員会の電話で確認してください。'));
+    s2.appendChild(pt(h2, 'kairyoH', 'text', 'kairyo'));
+    s2.appendChild(pt(el('p', { 'class': 'caution iin-remind hidden' }, '※ ①（イ）地元委員の押印が未回答です。農業委員会の電話で確認してください。'), 'iinRemind', 'one'));
     var r1 = el('div', { 'class': 'row' });
     r1.appendChild(field('土地改良区名', el('input', { type: 'text', id: id('kairyoName'), maxlength: '100', placeholder: '例）○○土地改良区', 'data-f': 'kairyoName' })));
     r1.appendChild(field('土地改良区の電話番号', el('input', { type: 'tel', id: id('kairyoTel'), maxlength: '20', placeholder: '例）0565-00-0000', 'data-f': 'kairyoTel' })));
-    s2.appendChild(qEl('q-kairyo-name'));
-    s2.appendChild(r1);
-    s2.appendChild(el('div', { 'class': 'script script2' }));
+    s2.appendChild(pt(qEl('q-kairyo-name'), 'kairyoNq', 'text'));
+    s2.appendChild(pt(r1, 'kairyoNT', 'each'));
+    s2.appendChild(pt(el('div', { 'class': 'script script2' }), 'kairyoS', 'text', 'kairyo'));
     var benefit = el('div', { 'class': 'choices' });
     renderChoices(benefit, id('kairyoBenefit'), o.kairyoBenefit);
     var settle = el('div', { 'class': 'choices' });
     renderChoices(settle, id('kairyoSettlement'), o.kairyoSettlement);
     var proc = el('div', { 'class': 'choices' });
     renderChoices(proc, id('kairyoProcedure'), o.kairyoProcedure);
-    s2.appendChild(prependQ(radioField('受益地に該当するか', benefit), 'q-benefit'));
+    s2.appendChild(pt(prependQ(radioField('受益地に該当するか', benefit), 'q-benefit'), 'benefit', 'each'));
     var kd = el('div', { 'class': 'kairyo-detail hidden', style: 'display:grid;gap:8px' });
     var r2 = el('div', { style: 'display:grid;gap:8px' });
-    r2.appendChild(prependQ(radioField('地区除外の手続き', proc, el('p', { 'class': 'help' }, '決済金がなくても手続きが必要な場合があります')), 'q-proc'));
-    r2.appendChild(prependQ(radioField('地区除外の決済金', settle), 'q-settle'));
+    r2.appendChild(pt(prependQ(radioField('地区除外の手続き', proc, el('p', { 'class': 'help' }, '決済金がなくても手続きが必要な場合があります')), 'q-proc'), 'proc', 'one', 'kairyo'));
+    r2.appendChild(pt(prependQ(radioField('地区除外の決済金', settle), 'q-settle'), 'settle', 'one', 'kairyo'));
     kd.appendChild(r2);
     var snBox = el('div', { 'class': 'inline-inputs' });
     snBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('kairyoSettlementNote'), 'data-f': 'kairyoSettlementNote', style: 'width:11em;text-align:right' }));
@@ -747,7 +751,7 @@
     snBox.appendChild(el('span', { 'class': 'help settle-calc' }));
     var sn = field('決済金', snBox.firstChild, null, false, snBox);
     sn.classList.add('settle-note', 'hidden');
-    kd.appendChild(sn);
+    kd.appendChild(pt(sn, 'settleN', 'one', 'kairyo'));
     // 決済金とは別にかかる手数料など
     var feeBox = el('div', { 'class': 'inline-inputs' });
     feeBox.appendChild(el('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', id: id('kairyoFeeAmount'), 'data-f': 'kairyoFeeAmount', style: 'width:11em;text-align:right', 'aria-label': '手数料などの金額' }));
@@ -758,38 +762,38 @@
     var feeNote = el('input', { type: 'text', id: id('kairyoFeeNote'), maxlength: '100', placeholder: '内容（例：事務手数料）', 'data-f': 'kairyoFeeNote', 'aria-label': '手数料などの内容' });
     feeNote.style.flex = '1'; feeNote.style.minWidth = '12em';
     feeBox.appendChild(feeNote);
-    kd.appendChild(prependQ(field('手数料など（決済金以外）', feeBox.firstChild, null, false, feeBox), 'q-fee'));
+    kd.appendChild(pt(prependQ(field('手数料など（決済金以外）', feeBox.firstChild, null, false, feeBox), 'q-fee'), 'fee', 'one', 'kairyo'));
     s2.appendChild(kd);
     var consent = el('div', { 'class': 'choices' });
     renderChoices(consent, id('localConsent'), o.localConsent);
-    s2.appendChild(prependQ(radioField('地元関係者の同意（押印）', consent,
-      el('p', { 'class': 'help' }, '自治会長・水利組合・農事組合・地元の委員や理事など、説明や同意書への押印が必要な方がいるか')), 'q-local'));
-    s2.appendChild(prependQ(contactList('localContacts', '同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-local-contacts'));
+    s2.appendChild(pt(prependQ(radioField('地元関係者の同意（押印）', consent,
+      el('p', { 'class': 'help' }, '自治会長・水利組合・農事組合・地元の委員や理事など、説明や同意書への押印が必要な方がいるか')), 'q-local'), 'local', 'one', 'kairyo'));
+    s2.appendChild(pt(prependQ(contactList('localContacts', '同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-local-contacts'), 'localC', 'one', 'kairyo'));
     // 複数の土地改良区にかかる場合：2つ目以降を追加（同じ項目を聞く）
     var addK = el('button', { type: 'button', 'class': 'linkbtn kairyo-add' }, '＋ ほかの土地改良区にもかかっている場合は追加');
     addK.addEventListener('click', function () { addKairyoExtra(card, {}); });
-    s2.appendChild(el('div', { 'class': 'dc-slot-kairyo', style: 'display:grid;gap:8px' })); // 分家住宅：排水承諾の要否は土地改良区に聞く
-    s2.appendChild(addK);
+    s2.appendChild(pt(el('div', { 'class': 'dc-slot-kairyo', style: 'display:grid;gap:8px' }), 'dcK', 'one', 'kairyo')); // 分家住宅：排水承諾の要否は土地改良区に聞く
+    s2.appendChild(pt(addK, 'kairyoAdd', 'each'));
     box.appendChild(s2);
-    box.appendChild(el('div', { 'class': 'kairyo-extras', style: 'display:grid;gap:8px' }));
+    box.appendChild(pt(el('div', { 'class': 'kairyo-extras', style: 'display:grid;gap:8px' }), 'kx', 'each'));
     // ③ 排水先（転用目的が分家住宅のとき）
     var s3 = el('div', { 'class': 'step3 step2 hidden' });
     var h3 = el('div', { 'class': 'step-h' });
     h3.appendChild(el('span', { 'class': 'step3-title' }, '③ 排水先の確認（分家住宅）'));
-    s3.appendChild(h3);
-    s3.appendChild(el('div', { 'class': 'script script3a' }));
+    s3.appendChild(pt(h3, 'drainH', 'text'));
+    s3.appendChild(pt(el('div', { 'class': 'script script3a' }), 'drainS', 'text'));
     var adj = el('div', { 'class': 'choices' });
     renderChoices(adj, id('drainAdjacent'), o.drainAdjacent);
     var dc = el('div', { 'class': 'choices' });
     renderChoices(dc, id('drainConsent'), o.drainConsent);
     var r3 = el('div', { style: 'display:grid;gap:8px' });
-    r3.appendChild(prependQ(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')), 'q-adj'));
+    r3.appendChild(pt(prependQ(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')), 'q-adj'), 'adj', 'one'));
     // 排水承諾の要否：土地改良区にかかる場合は②（土地改良区への質問）の中へ移す。かからない場合はここで聞く
     var dcField = prependQ(radioField('排水承諾の要否', dc, el('p', { 'class': 'help' }, '農業用水（用排水路など）へ排水する場合など')), 'q-dc');
     dcField.classList.add('dc-field');
     var dcSlot = el('div', { 'class': 'dc-slot-drain', style: 'display:grid;gap:8px' });
     dcSlot.appendChild(dcField);
-    r3.appendChild(dcSlot);
+    r3.appendChild(pt(dcSlot, 'dcD', 'one'));
     s3.appendChild(r3);
     // 排水承諾が必要なら、その場で手数料（負担金）を聞く（水路の名称・管理者の連絡先は聞かない。承諾が要る地元の方は下で聞く）
     var s3b = el('div', { 'class': 'step3b hidden', style: 'display:grid;gap:8px' });
@@ -804,8 +808,8 @@
     renderChoices(dl, id('drainLocalConsent'), o.localConsent);
     dcSlot.appendChild(s3b);
     // 排水に伴う地元承諾（排水承諾の要否にかかわらず聞く）
-    s3.appendChild(prependQ(radioField('排水に伴う地元承諾（押印）', dl, el('p', { 'class': 'help' }, '地元の委員・自治会長など、排水について承諾（押印）が必要な方がいるか')), 'q-dlocal'));
-    s3.appendChild(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'));
+    s3.appendChild(pt(prependQ(radioField('排水に伴う地元承諾（押印）', dl, el('p', { 'class': 'help' }, '地元の委員・自治会長など、排水について承諾（押印）が必要な方がいるか')), 'q-dlocal'), 'dlocal', 'one'));
+    s3.appendChild(pt(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'), 'dlocalC', 'one'));
     box.appendChild(s3);
     return box;
   }
@@ -816,7 +820,7 @@
    */
   var MAX_KAIRYO_EXTRA_UI = 3;
   function addKairyoExtra(card, d) {
-    var wrap = card.querySelector('.kairyo-extras');
+    var wrap = cq(card, '.kairyo-extras');
     if (wrap.children.length >= MAX_KAIRYO_EXTRA_UI) return null;
     var o = state.options, n = state.nextLotId++;
     var nm = function (f) { return 'kx' + n + '_' + f; };
@@ -951,13 +955,13 @@
   }
 
   function getContacts(card, key) {
-    return qsa('[data-contacts=' + key + '] .contact-row', card).map(function (r) {
+    return cqa(card, '[data-contacts=' + key + '] .contact-row').map(function (r) {
       return { name: r.querySelector('[data-c=name]').value, address: r.querySelector('[data-c=address]').value, tel: r.querySelector('[data-c=tel]').value };
     }).filter(function (c) { return c.name.trim() || c.address.trim() || c.tel.trim(); });
   }
 
   function setContacts(card, key, list) {
-    var wrap = card.querySelector('[data-contacts=' + key + ']');
+    var wrap = cq(card, '[data-contacts=' + key + ']');
     wrap.querySelector('.contact-rows').innerHTML = '';
     (list && list.length ? list : [{}]).forEach(function (c) { addContactRow(wrap, c); });
   }
@@ -981,7 +985,7 @@
   function prependQ(fieldEl, cls) { fieldEl.insertBefore(qEl(cls), fieldEl.firstChild); return fieldEl; }
   /** 質問の文を入れる（空なら枠ごと隠す） */
   function setQ(card, cls, lines) {
-    var b = card.querySelector('.' + cls);
+    var b = cq(card, '.' + cls);
     if (!b) return;
     lines = [].concat(lines).filter(Boolean);
     scriptLines(b, lines);
@@ -993,14 +997,361 @@
     lines.forEach(function (t) { box.appendChild(el('p', {}, t)); });
   }
 
+  // ---------------------------------------------------------
+  // 複数筆のヒアリング：電話先（市区町村）ごとに1枚、質問ごとに全筆の回答欄を並べる
+  //  ・データと判定は筆ごとのまま（各筆のヒアリング欄をこの票へ移して並べるだけ）
+  //  ・each：筆ごとに答える欄。最初に答えた値は未回答の筆にも入る（人が直した筆は以後そのまま）
+  //  ・one ：1回だけ聞く欄（受付・地元委員・改良区の手続き・排水など）。代表の筆に入力し、同じ電話先の筆へ写す
+  //  ・text：トーク例・見出し。所在を「全筆まとめて」に置き換えて1回だけ出す
+  // ---------------------------------------------------------
+  var gm = { on: false, sig: '', groups: [], busy: false, again: false };
+
+  /** ヒアリングの部品に印を付ける（key：質問、kind：each/one/text、sub：one を分ける単位） */
+  function pt(e, key, kind, sub) {
+    e.setAttribute('data-part', key);
+    e.setAttribute('data-kind', kind);
+    if (sub) e.setAttribute('data-sub', sub);
+    return e;
+  }
+
+  /** 物件カード内の要素（票へ移した部品の中も含めて）探す */
+  function cq(card, sel) {
+    var r = card.querySelector(sel);
+    if (r || !card._moved || !card._moved.length) return r;
+    for (var i = 0; i < card._moved.length; i++) {
+      var p = card._moved[i];
+      if (p.matches(sel)) return p;
+      r = p.querySelector(sel);
+      if (r) return r;
+    }
+    return null;
+  }
+  function cqa(card, sel) {
+    var out = qsa(sel, card);
+    (card._moved || []).forEach(function (p) {
+      if (p.matches(sel)) out.push(p);
+      out = out.concat(qsa(sel, p));
+    });
+    return out;
+  }
+  function ownerCard(node) {
+    var o = node && node.closest && node.closest('[data-owner]');
+    if (!o) return null;
+    return qsa('.lot').filter(function (k) { return k.getAttribute('data-uid') === o.getAttribute('data-owner'); })[0] || null;
+  }
+
+  /** トーク例で指す当該地（地番まで）。未入力の部分は（ ）で示す */
+  function lotWhere(card) {
+    var city = lotInput(card, 'municipality').value.trim();
+    var addr = lotInput(card, 'address').value.trim();
+    return !addr ? (city || '') + '（所在・地番）' : (city || '') + addr + (splitLotNumber(addr).lotNumber ? '' : '（地番）');
+  }
+  /** 同じ電話先の筆をまとめた当該地。例）豊田市○○町字△△ 123番1、123番2、125番（3筆） */
+  function groupWhere(cards) {
+    if (cards.length < 2) return lotWhere(cards[0]);
+    var city = lotInput(cards[0], 'municipality').value.trim();
+    var parts = cards.map(function (k) { return splitLotNumber(lotInput(k, 'address').value.trim()); });
+    var samePlace = parts.every(function (x) { return x.lotNumber && x.place === parts[0].place; });
+    var body = samePlace
+      ? parts[0].place + ' ' + parts.map(function (x) { return x.lotNumber; }).join('、')
+      : cards.map(function (k) { return lotInput(k, 'address').value.trim() || '（所在・地番）'; }).join('、');
+    return city + body + '（' + cards.length + '筆）';
+  }
+  function lotLabel(card) {
+    var i = qsa('.lot').indexOf(card);
+    var no = splitLotNumber(lotInput(card, 'address').value.trim()).lotNumber;
+    return '物件' + (i + 1) + (no ? ' ' + no : '');
+  }
+
+  /** 部品が今その筆で表示される状態か（元の位置の親が隠れていないか） */
+  function partShown(card, p) {
+    if (p.classList.contains('hidden') || p.classList.contains('q-empty')) return false;
+    if (!p.children.length && !p.textContent.trim()) return false; // 中身のない枠（移し替え先など）は出さない
+    var n = p._ph && p.parentNode !== p._ph.parentNode ? p._ph.parentNode : p.parentNode;
+    while (n && n !== card) {
+      if (n.classList && n.classList.contains('hidden')) return false;
+      n = n.parentNode;
+    }
+    return true;
+  }
+
+  // ---- 回答欄の読み書き（同じ部品どうしは同じ並びなので、順番で対応させる） ----
+  function ctlGroups(part) {
+    var groups = [], byName = {};
+    qsa('input,select,textarea', part).forEach(function (c) {
+      if (c.closest('[data-contacts]') || c.closest('.kairyo-extra')) return;
+      var key = c.type === 'radio' ? 'r:' + c.name
+        : c.type === 'checkbox' && c.hasAttribute('data-kubun') ? 'k'
+        : c.type === 'checkbox' && c.hasAttribute('data-doc') ? 'd' : null;
+      if (key && byName[key]) { byName[key].els.push(c); return; }
+      var g = { type: c.type === 'radio' ? 'radio' : c.type === 'checkbox' ? 'check' : 'val', els: [c] };
+      if (key) byName[key] = g;
+      groups.push(g);
+    });
+    return groups;
+  }
+  function getG(g) {
+    if (g.type === 'val') return g.els[0].value;
+    return g.els.filter(function (c) { return c.checked; }).map(function (c) { return c.value; }).join('\n');
+  }
+  function setG(g, v) {
+    if (g.type === 'val') { g.els[0].value = v; return; }
+    var vs = String(v).split('\n');
+    g.els.forEach(function (c) { c.checked = vs.indexOf(c.value) >= 0; });
+  }
+  function emptyG(g) { return g.type === 'val' ? g.els[0].tagName !== 'SELECT' && !g.els[0].value : !g.els.some(function (c) { return c.checked; }); }
+  function contactsOf(part) {
+    return qsa('[data-contacts]', part).concat(part.matches('[data-contacts]') ? [part] : []).map(function (w) {
+      return qsa('.contact-row', w).map(function (r) {
+        return { name: r.querySelector('[data-c=name]').value, address: r.querySelector('[data-c=address]').value, tel: r.querySelector('[data-c=tel]').value };
+      }).filter(function (c) { return c.name.trim() || c.address.trim() || c.tel.trim(); });
+    });
+  }
+  function partValue(part) { return JSON.stringify([ctlGroups(part).map(getG), contactsOf(part)]); }
+  function partEmpty(part) {
+    return ctlGroups(part).every(emptyG) && contactsOf(part).every(function (l) { return !l.length; });
+  }
+  /** src の回答を dst へ写す。変わったら true */
+  function copyPart(src, dst) {
+    var a = ctlGroups(src), b = ctlGroups(dst);
+    if (a.length !== b.length) return false;
+    var before = partValue(dst);
+    a.forEach(function (g, i) { setG(b[i], getG(g)); });
+    var lists = contactsOf(src);
+    var wraps = qsa('[data-contacts]', dst).concat(dst.matches('[data-contacts]') ? [dst] : []);
+    wraps.forEach(function (w, i) {
+      var cur = JSON.stringify(contactsOf(w)[0] || []);
+      if (lists[i] && JSON.stringify(lists[i]) !== cur) {
+        w.querySelector('.contact-rows').innerHTML = '';
+        (lists[i].length ? lists[i] : [{}]).forEach(function (c) { addContactRow(w, c); });
+      }
+    });
+    return partValue(dst) !== before;
+  }
+
+  /** 筆ごとの欄：答えた値を、未回答（または自動で入れたまま）の筆にも入れる */
+  function propagateAnswer(t) {
+    var row = t.closest && t.closest('.gm-row');
+    if (!row || !row._sec || row._sec.kind !== 'each' || row._sec.noProp) return;
+    var groups = ctlGroups(row._part);
+    var idx = -1;
+    groups.forEach(function (g, i) { if (g.els.indexOf(t) >= 0) idx = i; });
+    if (idx < 0) return;
+    if (row._part._auto) delete row._part._auto[idx]; // 人が答えた欄は以後自動で変えない
+    var v = getG(groups[idx]), src = row._card.getAttribute('data-uid');
+    row._sec.rows.forEach(function (r) {
+      if (r === row || r.classList.contains('hidden')) return;
+      var g2 = ctlGroups(r._part)[idx];
+      // 未回答の筆と、この筆の回答を自動で入れたままの筆だけ（ほかの筆を直したときは広げない）
+      if (!g2 || !(emptyG(g2) || (r._part._auto && r._part._auto[idx] === src))) return;
+      if (getG(g2) === v) return;
+      setG(g2, v);
+      r._part._auto = r._part._auto || {};
+      r._part._auto[idx] = src;
+      updateCallBox(r._card);
+    });
+  }
+
+  /** 物件が2筆以上なら票を作り直す（筆・電話先の組み合わせが変わったときだけ） */
+  function refreshHearing() {
+    if (gm.busy) { gm.again = true; return; }
+    gm.busy = true;
+    try {
+      var n = 0;
+      do { gm.again = false; doRefreshHearing(); } while (gm.again && ++n < 5);
+    } finally { gm.busy = false; }
+  }
+
+  function groupKey(card) { return lotPref(card) + '|' + lotInput(card, 'municipality').value.trim(); }
+
+  function doRefreshHearing() {
+    var lots = qsa('.lot');
+    var box = $('hearAll');
+    if (!box) return;
+    if (lots.length < 2) { if (gm.on || gm.sig) restoreHearing(lots); return; }
+    var sig = lots.map(function (k) { return k.getAttribute('data-uid') + '@' + groupKey(k); }).join(',');
+    if (sig !== gm.sig) layoutHearing(lots, sig);
+    gm.groups.forEach(updateSheet);
+  }
+
+  function restoreHearing(lots) {
+    lots.forEach(function (card) {
+      (card._moved || []).forEach(function (p) { p._ph.parentNode.insertBefore(p, p._ph); p.removeAttribute('data-owner'); });
+      card._moved = [];
+      card.classList.remove('gm');
+    });
+    $('gmSheets').innerHTML = '';
+    $('hearAll').classList.add('hidden');
+    gm.on = false; gm.sig = ''; gm.groups = [];
+  }
+
+  function layoutHearing(lots, sig) {
+    var sheets = $('gmSheets');
+    sheets.innerHTML = '';
+    var groups = [], byKey = {};
+    lots.forEach(function (card) {
+      var k = groupKey(card);
+      if (!byKey[k]) { byKey[k] = { cards: [] }; groups.push(byKey[k]); }
+      byKey[k].cards.push(card);
+      card._moved = [];
+      card.classList.add('gm');
+    });
+    var defs = lots[0]._parts.map(function (p) {
+      return { key: p.getAttribute('data-part'), kind: p.getAttribute('data-kind'), sub: p.getAttribute('data-sub') || '' };
+    });
+    groups.forEach(function (g, gi) {
+      var sheet = el('div', { 'class': 'callbox gm-sheet' });
+      g.head = el('div', { 'class': 'gm-sheet-h' });
+      sheet.appendChild(g.head);
+      g.secs = defs.map(function (d) {
+        var sec = { key: d.key, kind: d.kind, sub: d.sub, noProp: d.key === 'kx' || d.key === 'kairyoAdd' || d.key === 'stop', rows: [] };
+        sec.el = el('div', { 'class': 'gm-sec gm-' + d.kind + (d.key === 'kairyoH' || d.key === 'drainH' ? ' gm-step' : '') });
+        if (d.kind === 'text') { sheet.appendChild(sec.el); return sec; }
+        var head = el('div', { 'class': 'gm-head hidden' });
+        sec.title = el('b', { 'class': 'gm-title' });
+        head.appendChild(sec.title);
+        if (d.kind === 'each' && !sec.noProp) {
+          sec.same = el('button', { type: 'button', 'class': 'linkbtn gm-same' }, '全筆に同じ回答を入れる');
+          sec.same.addEventListener('click', function () { sameForAll(sec); });
+          head.appendChild(sec.same);
+        }
+        sec.head = head;
+        sec.el.appendChild(head);
+        sec.q = el('div', { 'class': 'script q gm-q hidden' });
+        sec.el.appendChild(sec.q);
+        g.cards.forEach(function (card) {
+          var p = card._parts.filter(function (x) { return x.getAttribute('data-part') === d.key; })[0];
+          if (!p) return;
+          if (!p._ph) { p._ph = document.createComment('part'); p.parentNode.insertBefore(p._ph, p); }
+          var row = el('div', { 'class': 'gm-row' });
+          row._card = card; row._part = p; row._sec = sec;
+          row.appendChild(el('span', { 'class': 'gm-lab' }));
+          var cell = el('div', { 'class': 'gm-cell' });
+          cell.appendChild(p);
+          row.appendChild(cell);
+          p.setAttribute('data-owner', card.getAttribute('data-uid'));
+          p._join = undefined;
+          card._moved.push(p);
+          sec.rows.push(row);
+          sec.el.appendChild(row);
+        });
+        sheet.appendChild(sec.el);
+        return sec;
+      });
+      g.sheet = sheet;
+      sheets.appendChild(sheet);
+    });
+    $('hearAll').classList.remove('hidden');
+    gm.on = true; gm.sig = sig; gm.groups = groups;
+  }
+
+  function sameForAll(sec) {
+    var rows = sec.rows.filter(function (r) { return !r.classList.contains('hidden'); });
+    if (rows.length < 2) return;
+    rows.slice(1).forEach(function (r) {
+      if (copyPart(rows[0]._part, r._part)) {
+        r._part._auto = {};
+        ctlGroups(r._part).forEach(function (x, i) { r._part._auto[i] = rows[0]._card.getAttribute('data-uid'); });
+        updateCallBox(r._card);
+      }
+    });
+    schedulePreview();
+  }
+
+  /** 文中の当該地を「全筆まとめて」に置き換える */
+  function groupText(node, card, cards) {
+    var c = node.cloneNode(true);
+    c.removeAttribute('data-part'); c.removeAttribute('data-kind'); c.removeAttribute('data-sub');
+    c.classList.remove('hidden');
+    if (cards.length < 2) return c;
+    var w = lotWhere(card), gw = groupWhere(cards); // 当該地は、その質問をする筆だけをまとめる
+    var walk = document.createTreeWalker(c, NodeFilter.SHOW_TEXT, null, false);
+    var t;
+    while ((t = walk.nextNode())) t.nodeValue = t.nodeValue.split(w).join(gw).replace(/この土地/g, 'これらの土地').replace(/この筆/g, '各筆');
+    return c;
+  }
+
+  function subOf(sec, card) { return sec.sub === 'kairyo' ? lotInput(card, 'kairyoName').value.trim() : ''; }
+
+  function updateSheet(g) {
+    g.head.textContent = (lotInput(g.cards[0], 'municipality').value.trim() || '市区町村未入力') + 'の物件：' + g.cards.map(lotLabel).join('、');
+    g.secs.forEach(function (sec) {
+      if (sec.kind === 'text') {
+        var seen = {}, nodes = [];
+        var on = g.cards.map(function (card) {
+          var p = card._parts.filter(function (x) { return x.getAttribute('data-part') === sec.key; })[0];
+          return p && partShown(card, p) && p.textContent.trim() ? { card: card, p: p } : null;
+        }).filter(Boolean);
+        var onCards = on.map(function (x) { return x.card; });
+        on.forEach(function (x) {
+          var c = groupText(x.p, x.card, onCards);
+          if (seen[c.textContent]) return;
+          seen[c.textContent] = 1;
+          nodes.push(c);
+        });
+        sec.el.innerHTML = '';
+        nodes.forEach(function (c) { sec.el.appendChild(c); });
+        sec.el.classList.toggle('hidden', !nodes.length);
+        return;
+      }
+      var shown = sec.rows.filter(function (r) { return partShown(r._card, r._part); });
+      if (sec.kind === 'one') {
+        var leaders = {};
+        sec.rows.forEach(function (r) { r.classList.add('hidden'); r._covers = []; });
+        shown.forEach(function (r) {
+          var k = subOf(sec, r._card), L = leaders[k];
+          if (!L) { leaders[k] = r; r.classList.remove('hidden'); r._covers = [r._card]; return; }
+          if (r._part._join === undefined) r._part._join = partEmpty(r._part) || partValue(r._part) === partValue(L._part);
+          if (r._part._join) {
+            L._covers.push(r._card);
+            if (copyPart(L._part, r._part)) updateCallBox(r._card);
+          } else { r.classList.remove('hidden'); r._covers = [r._card]; leaders[k + '#' + shown.indexOf(r)] = r; }
+        });
+        var vis = sec.rows.filter(function (r) { return !r.classList.contains('hidden'); });
+        vis.forEach(function (r) {
+          var lab = r.querySelector('.gm-lab');
+          var many = vis.length > 1; // 筆や土地改良区で答えが分かれたときだけ、どの筆の欄かを出す
+          lab.textContent = !many ? '' : r._covers.map(function (k) { return '物件' + (qsa('.lot').indexOf(k) + 1); }).join('・') + (sec.sub === 'kairyo' && subOf(sec, r._card) ? '（' + subOf(sec, r._card) + '）' : '');
+          r.classList.toggle('gm-full', !many);
+        });
+        sec.head.classList.add('hidden');
+        sec.q.classList.add('hidden');
+        sec.el.classList.remove('sq');
+        sec.el.classList.toggle('hidden', !vis.length);
+        return;
+      }
+      // each：筆ごとの回答欄。質問の文が全筆同じなら1回だけ出す
+      sec.rows.forEach(function (r) {
+        r.classList.toggle('hidden', shown.indexOf(r) < 0);
+        r.querySelector('.gm-lab').textContent = lotLabel(r._card);
+        r.classList.remove('gm-full');
+      });
+      var shownCards = shown.map(function (r) { return r._card; });
+      var qtexts = shown.map(function (r) {
+        return qsa(':scope > .script.q', r._part).filter(function (x) { return !x.classList.contains('q-empty'); })
+          .map(function (x) { return groupText(x, r._card, shownCards).textContent; }).join('\n');
+      });
+      var shared = shown.length > 1 && qtexts.every(function (t) { return t === qtexts[0]; });
+      sec.el.classList.toggle('sq', shared);
+      sec.q.innerHTML = '';
+      if (shared && qtexts[0]) {
+        qsa(':scope > .script.q', shown[0]._part).filter(function (x) { return !x.classList.contains('q-empty'); })
+          .forEach(function (x) { qsa('p', groupText(x, shown[0]._card, shownCards)).forEach(function (pp) { sec.q.appendChild(pp); }); });
+      }
+      sec.q.classList.toggle('hidden', !(shared && qtexts[0]));
+      var lb = shown.length ? shown[0]._part.querySelector(':scope > .lbl, :scope > label') : null;
+      sec.title.textContent = shared && lb ? lb.firstChild.textContent : '';
+      if (sec.same) sec.same.classList.toggle('hidden', shown.length < 2);
+      sec.head.classList.toggle('hidden', !(shared && lb) && !(sec.same && shown.length > 1));
+      sec.el.classList.toggle('hidden', !shown.length);
+    });
+  }
+
   /** 市区町村・所在・選択に合わせて、電話番号とトーク例を更新する */
   function updateCallBox(card) {
     var city = lotInput(card, 'municipality').value.trim();
-    // トーク例は必ず当該地（地番まで）を指す。未入力の部分は（ ）で示す
-    var addr = lotInput(card, 'address').value.trim();
-    var where = !addr ? (city || '') + '（所在・地番）'
-      : (city || '') + addr + (splitLotNumber(addr).lotNumber ? '' : '（地番）');
-    var h = card.querySelector('.nogyo-h');
+    var where = lotWhere(card); // トーク例は必ず当該地（地番まで）を指す
+    var h = cq(card, '.nogyo-h');
     h.innerHTML = '';
     h.appendChild(el('span', {}, '① 農業委員会へ確認'));
     var n = city ? nogyoOf(city, lotPref(card)) : null;
@@ -1012,7 +1363,7 @@
     }
     var zone = getRadio(card, 'zone');
     var permit = ['市街化調整区域', '非線引き区域', '都市計画区域外'].indexOf(zone) >= 0;
-    card.querySelector('.purpose-field').classList.toggle('hidden', zone !== '市街化調整区域');
+    cq(card, '.purpose-field').classList.toggle('hidden', zone !== '市街化調整区域');
     var purpose = zone === '市街化調整区域' ? getRadio(card, 'purpose') : '';
     var purposeText = purpose && purpose !== 'その他' ? purpose : '住宅等';
     var noshin = getRadio(card, 'isNoshin');
@@ -1020,36 +1371,36 @@
     var kindText = zone === '市街化区域' ? '農地転用の届出（農地法第4条・第5条）の受理'
       : zone === '分からない' || !zone ? '農地転用の届出の受理、または転用許可' : '農地転用の許可（農地法第4条・第5条）';
     var dateText = zone === '市街化区域' ? '受理年月日と受理番号' : zone === '分からない' || !zone ? '受理（許可）年月日と番号' : '許可年月日と許可番号（指令番号）';
-    card.querySelector('.rireki-detail').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
-    card.querySelector('.rireki-note').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
+    cq(card, '.rireki-detail').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
+    cq(card, '.rireki-note').classList.toggle('hidden', getRadio(card, 'tenyoRireki') !== 'あり');
     var rirekiAns = getRadio(card, 'tenyoRireki');
     var shimatsuShow = converted && rirekiAns !== 'あり'; // 転用済みで許可・届出の履歴がない＝無断転用
     // 非農地証明（市街化区域以外の無断転用）：可能なら要件、不可なら是正の許可申請
     var hinochiShow = shimatsuShow && zone !== '市街化区域';
     var hinochiAns = getRadio(card, 'hinochi');
-    card.querySelector('.hinochi-block').classList.toggle('hidden', !hinochiShow);
-    card.querySelector('.hinochi-req').classList.toggle('hidden', hinochiAns !== '可能');
-    card.querySelector('.zesei-block').classList.toggle('hidden', hinochiAns !== '不可');
+    cq(card, '.hinochi-block').classList.toggle('hidden', !hinochiShow);
+    cq(card, '.hinochi-req').classList.toggle('hidden', hinochiAns !== '可能');
+    cq(card, '.zesei-block').classList.toggle('hidden', hinochiAns !== '不可');
     if (hinochiShow && hinochiAns === '可能') shimatsuShow = false; // 非農地証明で対応できるなら始末書は聞かない
     setQ(card, 'q-hinochi', '「現在は農地以外（駐車場など）として使っているのですが、非農地証明（現況証明）で対応できますでしょうか。」');
     setQ(card, 'q-hinochi-req', ['「非農地証明の要件をお教えください。農地以外での利用が何年以上続いている必要がありますでしょうか。」',
       '「証明には、どのような資料（航空写真、固定資産税の課税地目、建物の登記など）が必要でしょうか。現地確認の有無、受付時期、手数料もお教えいただけますでしょうか。」']);
     setQ(card, 'q-zesei', '「非農地証明が難しい場合、現在の状態を是正するために農地転用の許可（届出）を申請することはできますでしょうか。」');
-    card.querySelector('.shimatsu-block').classList.toggle('hidden', !shimatsuShow);
+    cq(card, '.shimatsu-block').classList.toggle('hidden', !shimatsuShow);
     var shimatsuNeed = getRadio(card, 'shimatsusho') === '必要';
-    card.querySelector('.shimatsu-stamp').classList.toggle('hidden', !shimatsuNeed);
-    card.querySelector('.shimatsu-note').classList.toggle('hidden', !shimatsuNeed);
+    cq(card, '.shimatsu-stamp').classList.toggle('hidden', !shimatsuNeed);
+    cq(card, '.shimatsu-note').classList.toggle('hidden', !shimatsuNeed);
     // 冒頭のあいさつ（1回だけ）
-    scriptLines(card.querySelector('.script-open'), [
+    scriptLines(cq(card, '.script-open'), [
       '「お世話になっております。（会社名）の（お名前）と申します。' + where + 'の土地で' + (zone === '市街化調整区域' ? purposeText + 'への' : '') +
         '農地転用を検討しています。申請の準備を進める前に、何点か確認させてください。」'
     ]);
     // 青地かどうか（市街化区域は確認不要）
     var urban = zone === '市街化区域';
-    scriptLines(card.querySelector('.script-noshin'), urban
+    scriptLines(cq(card, '.script-noshin'), urban
       ? ['【青地かどうか】市街化区域のため、農用地区域（青地）ではありません（確認不要）。']
       : ['【青地かどうか】', '「農用地区域（青地）に入っていますでしょうか、白地でしょうか。」']);
-    scriptLines(card.querySelector('.script-rireki'), [
+    scriptLines(cq(card, '.script-rireki'), [
       '【過去の転用の履歴】',
       '「過去にこの土地で' + kindText + 'がされているか、履歴を確認していただけますでしょうか。」'
     ]);
@@ -1060,9 +1411,9 @@
     setQ(card, 'q-shimatsu', '「無断で転用している状態になるかと思いますが、手続きにあたって始末書（顛末書）の提出は必要でしょうか。」');
     setQ(card, 'q-shimatsu-stamp', '「始末書には押印が必要でしょうか。必要でしたら、どなたの、どの印鑑（実印など）が必要か、印鑑証明書の添付も要るかお教えいただけますでしょうか。」');
     var jogai = zone !== '市街化区域' && (noshin === 'はい' || noshin === '分からない'); // 青地（または不明）→ 除外の見込みを先に聞く
-    card.querySelector('.kanou-block').classList.toggle('hidden', !permit);
+    cq(card, '.kanou-block').classList.toggle('hidden', !permit);
     // 転用の見込み：意見ではなく事実（農地区分など）を聞く。前置きは短く、逃げられたときだけ切り返す
-    scriptLines(card.querySelector('.script-kanou'), ['【転用の見込み】']);
+    scriptLines(cq(card, '.script-kanou'), ['【転用の見込み】']);
     setQ(card, 'q-kubun', '「農地区分は、甲種・第1種・第2種・第3種のどれにあたりますでしょうか。」');
     setQ(card, 'q-kanou-fb', [
       '→ 結論は審査次第と言われたら：「もちろん、結論は審査でのご判断と承知しています。農地区分だけでも教えていただけると、準備がしやすくなります。」',
@@ -1073,8 +1424,8 @@
       '→ 月ごとに締切が違う（年間計画）場合：「年間の予定表があれば、いただけますでしょうか。」'
     ]);
     // 青地（農用地区域）の場合：除外の見込み（事業区域・8年・近隣実績・受付時期という事実を聞く）
-    card.querySelector('.jogai-block').classList.toggle('hidden', !jogai);
-    scriptLines(card.querySelector('.script-jogai'), [
+    cq(card, '.jogai-block').classList.toggle('hidden', !jogai);
+    scriptLines(cq(card, '.script-jogai'), [
       '【農振除外の見込み】' + (noshin === '分からない' ? '（青地と分かった場合）' : ''),
       '「青地とのことですので、農振除外の申出について何点か確認させてください。」'
     ]);
@@ -1083,22 +1434,22 @@
     setQ(card, 'q-jisseki', '「近くで過去に除外が認められた土地はございますでしょうか。」');
     setQ(card, 'q-jogai-uke', '「除外の申出の受付は年に何回で、いつでしょうか。」');
     setQ(card, 'q-jogai-fb', '→ 結論は審議次第と言われたら：「もちろん、結論は審議でのご判断と承知しています。事業区域かどうかや、これまでの除外の状況だけでも教えていただけると、準備がしやすくなります。」');
-    card.querySelector('.hojo8-field').classList.toggle('hidden', getRadio(card, 'hojoKuiki') !== '区域内');
+    cq(card, '.hojo8-field').classList.toggle('hidden', getRadio(card, 'hojoKuiki') !== '区域内');
     // 受付期間の欄と、指摘事項の見出し（「難しい」を選んだときは理由を書く欄として示す）
-    card.querySelector('.uketsuke-block').classList.toggle('hidden', !(permit || jogai));
-    card.querySelector('.jogai-uke').classList.toggle('hidden', !jogai);
+    cq(card, '.uketsuke-block').classList.toggle('hidden', !(permit || jogai));
+    cq(card, '.jogai-uke').classList.toggle('hidden', !jogai);
     var mode = getRadio(card, 'tenyoUkeMode') || '毎月の期間';
-    card.querySelector('.uke-monthly').classList.toggle('hidden', mode !== '毎月の期間');
-    card.querySelector('.uke-day').classList.toggle('hidden', mode !== '毎月の締切日');
-    card.querySelector('.uke-date').classList.toggle('hidden', mode !== '締切日を指定');
-    card.querySelector('.uke-week').classList.toggle('hidden', mode !== '毎月第○週');
-    card.querySelector('.uke-year').classList.toggle('hidden', mode !== '月ごとに異なる（年間計画）');
-    card.querySelector('.kanou-note label').textContent = getRadio(card, 'tenyoKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
-    card.querySelector('.jogai-note label').textContent = getRadio(card, 'jogaiKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
+    cq(card, '.uke-monthly').classList.toggle('hidden', mode !== '毎月の期間');
+    cq(card, '.uke-day').classList.toggle('hidden', mode !== '毎月の締切日');
+    cq(card, '.uke-date').classList.toggle('hidden', mode !== '締切日を指定');
+    cq(card, '.uke-week').classList.toggle('hidden', mode !== '毎月第○週');
+    cq(card, '.uke-year').classList.toggle('hidden', mode !== '月ごとに異なる（年間計画）');
+    cq(card, '.kanou-note label').textContent = getRadio(card, 'tenyoKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
+    cq(card, '.jogai-note label').textContent = getRadio(card, 'jogaiKanou') === '難しい' ? '難しい理由・指摘事項' : '指摘事項';
     var hojoIn = jogai && getRadio(card, 'hojoKuiki') === '区域内';
     var hojoOut = jogai && getRadio(card, 'hojoKuiki') === '区域外';
     if (hojoIn && !getRadio(card, 'landImprovement')) setRadio(card, 'landImprovement', 'はい'); // ほ場整備の区域内＝土地改良区にかかっている
-    scriptLines(card.querySelector('.script-main'), ['【土地改良区と地元委員】']);
+    scriptLines(cq(card, '.script-main'), ['【土地改良区と地元委員】']);
     setQ(card, 'q-kairyo', hojoIn ? '（ほ場整備の区域内のため、土地改良区にかかっています）'
       : hojoOut ? '「ほ場整備の区域外とのことですが、用排水などで土地改良区の区域にかかっておりますでしょうか。」'
       : '「' + where + 'の土地は、土地改良区の区域にかかっておりますでしょうか。」');
@@ -1106,33 +1457,33 @@
       '→ 複数の土地改良区にかかっている場合：「ほかの土地改良区の名称とお電話番号もお教えいただけますでしょうか。」（下の「＋ ほかの土地改良区…」で追加）']);
     setQ(card, 'q-iin', '「また、申請にあたり地元の農業委員さんや農地利用最適化推進委員さんの押印は必要でしょうか。」');
     setQ(card, 'q-iin-contacts', '「委員さんのお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
-    card.querySelector('[data-contacts=iinContacts]').classList.toggle('hidden', getRadio(card, 'iinStamp') !== '必要');
+    cq(card, '[data-contacts=iinContacts]').classList.toggle('hidden', getRadio(card, 'iinStamp') !== '必要');
     // ③ 排水先（分家住宅）
     var bunke = purpose === '分家住宅';
-    card.querySelector('.step3').classList.toggle('hidden', !bunke);
-    card.querySelector('.step3-title').textContent = (getRadio(card, 'landImprovement') === 'はい' ? '③' : '②') + ' 排水と地元承諾の確認（分家住宅）';
+    cq(card, '.step3').classList.toggle('hidden', !bunke);
+    cq(card, '.step3-title').textContent = (getRadio(card, 'landImprovement') === 'はい' ? '③' : '②') + ' 排水と地元承諾の確認（分家住宅）';
     var dOn = getRadio(card, 'drainConsent') === '必要';
-    card.querySelector('.step3b').classList.toggle('hidden', !dOn);
-    card.querySelector('[data-contacts=drainContacts]').classList.toggle('hidden', getRadio(card, 'drainLocalConsent') !== '必要');
-    scriptLines(card.querySelector('.script3a'), ['（農業委員会、または市の道路・下水の担当課へ）']);
+    cq(card, '.step3b').classList.toggle('hidden', !dOn);
+    cq(card, '[data-contacts=drainContacts]').classList.toggle('hidden', getRadio(card, 'drainLocalConsent') !== '必要');
+    scriptLines(cq(card, '.script3a'), ['（農業委員会、または市の道路・下水の担当課へ）']);
     setQ(card, 'q-adj', ['「' + where + 'で分家住宅を予定しております。隣接の水路へ排水してもよろしいでしょうか。」',
       '→ 水路がない場合：「側溝への排水になるかと思います。」']);
     setQ(card, 'q-dc', '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
     setQ(card, 'q-dfee', '「排水承諾の手数料（負担金）はかかりますでしょうか。かかる場合は金額の目安をお教えいただけますでしょうか。」');
     setQ(card, 'q-dlocal', '「排水に伴って、地元の委員さんや自治会長さんなど、承諾（押印）が必要な方はいらっしゃいますでしょうか。」');
     setQ(card, 'q-dcontacts', '「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
-    card.querySelector('[data-contacts=localContacts]').classList.toggle('hidden', getRadio(card, 'localConsent') !== '必要');
+    cq(card, '[data-contacts=localContacts]').classList.toggle('hidden', getRadio(card, 'localConsent') !== '必要');
     // 見込みが「難しい」なら、その先（土地改良区・地元委員・排水）は聞かない
     // 許可・届出済み（履歴あり）なら以降は聞かない。現況が未転用なら「再度の許可・届出」を確認し、「必要」のときだけ続ける
     var granted = getRadio(card, 'tenyoRireki') === 'あり';
     var reapplyShow = granted; // 履歴ありなら現況にかかわらず再申請の要否を確認
-    card.querySelector('.reapply-block').classList.toggle('hidden', !reapplyShow);
+    cq(card, '.reapply-block').classList.toggle('hidden', !reapplyShow);
     var grantedStop = granted && !(reapplyShow && getRadio(card, 'saiShinsei') === '必要');
-    if (grantedStop) ['.jogai-block', '.kanou-block', '.uketsuke-block'].forEach(function (s) { card.querySelector(s).classList.add('hidden'); });
+    if (grantedStop) ['.jogai-block', '.kanou-block', '.uketsuke-block'].forEach(function (s) { cq(card, s).classList.add('hidden'); });
     var jogaiStop = !grantedStop && jogai && (getRadio(card, 'jogaiKanou') === '難しい' || getRadio(card, 'hojo8nen') === '未経過');
     var stop = grantedStop || jogaiStop || (permit && getRadio(card, 'tenyoKanou') === '難しい');
-    if (jogaiStop) card.querySelector('.kanou-block').classList.add('hidden'); // 除外が見込めなければ転用の見込みも聞かない
-    var stopMsg = card.querySelector('.stop-msg');
+    if (jogaiStop) cq(card, '.kanou-block').classList.add('hidden'); // 除外が見込めなければ転用の見込みも聞かない
+    var stopMsg = cq(card, '.stop-msg');
     stopMsg.textContent = !stop ? ''
       : grantedStop ? (reapplyShow && getRadio(card, 'saiShinsei') !== '不要'
           ? '※ 許可・届出済みです。再申請の要否を確認してください（「必要」の場合だけ以降を確認します）。'
@@ -1141,41 +1492,41 @@
       : jogai && getRadio(card, 'jogaiKanou') === '難しい' ? '※ 農振除外の見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。'
       : '※ 転用の見込みが「難しい」ため、以降の確認は不要です（行政班が内容を確認します）。';
     stopMsg.classList.toggle('hidden', !stop);
-    ['.script-main', '.main-checks'].forEach(function (s) { card.querySelector(s).classList.toggle('hidden', stop); });
+    ['.script-main', '.main-checks'].forEach(function (s) { cq(card, s).classList.toggle('hidden', stop); });
     if (stop) {
-      card.querySelector('[data-contacts=iinContacts]').classList.add('hidden');
-      card.querySelector('.step3').classList.add('hidden');
+      cq(card, '[data-contacts=iinContacts]').classList.add('hidden');
+      cq(card, '.step3').classList.add('hidden');
     }
     var on = !stop && getRadio(card, 'landImprovement') === 'はい';
-    card.querySelector('.step2').classList.toggle('hidden', !on);
-    card.querySelector('.iin-remind').classList.toggle('hidden', !on || !!getRadio(card, 'iinStamp'));
+    cq(card, '.step2').classList.toggle('hidden', !on);
+    cq(card, '.iin-remind').classList.toggle('hidden', !on || !!getRadio(card, 'iinStamp'));
     var benefitOn = getRadio(card, 'kairyoBenefit') === '該当する';
-    card.querySelector('.kairyo-detail').classList.toggle('hidden', !benefitOn);
-    card.querySelector('.settle-note').classList.toggle('hidden', !(benefitOn && getRadio(card, 'kairyoSettlement') === '必要'));
+    cq(card, '.kairyo-detail').classList.toggle('hidden', !benefitOn);
+    cq(card, '.settle-note').classList.toggle('hidden', !(benefitOn && getRadio(card, 'kairyoSettlement') === '必要'));
     // 単価のときは面積から概算の総額を表示
     var sAmt = Number(lotInput(card, 'kairyoSettlementNote').value);
     var sUnit = lotInput(card, 'kairyoSettlementUnit').value;
     var sArea = Number(String(lotInput(card, 'area').value).replace(/[,，]/g, '')); // 決済金は筆ごと（その筆の面積）
-    var calc = card.querySelector('.settle-calc');
+    var calc = cq(card, '.settle-calc');
     calc.textContent = sAmt > 0 && sUnit !== '総額' && sArea > 0
       ? '→ この筆 ' + sArea + '㎡で約' + String(Math.round(sUnit === '㎡あたり' ? sAmt * sArea : sAmt * sArea / 10000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円'
       : (sUnit !== '総額' && !(sArea > 0) ? '※ 面積を入力すると概算の総額を表示します' : '');
     var kname = lotInput(card, 'kairyoName').value.trim() || '土地改良区';
-    var extras = qsa('.kairyo-extra', card);
-    card.querySelector('.kairyo-title').textContent = '② ' + kname + 'へ確認' + (extras.length ? '（1つ目）' : '');
-    telLink(card.querySelector('.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
-    card.querySelector('.kairyo-extras').classList.toggle('hidden', !on);
-    card.querySelector('.kairyo-add').classList.toggle('hidden', extras.length >= MAX_KAIRYO_EXTRA_UI);
+    var extras = cqa(card, '.kairyo-extra');
+    cq(card, '.kairyo-title').textContent = '② ' + kname + 'へ確認' + (extras.length ? '（1つ目）' : '');
+    telLink(cq(card, '.kairyo-tel'), lotInput(card, 'kairyoTel').value.trim());
+    cq(card, '.kairyo-extras').classList.toggle('hidden', !on);
+    cq(card, '.kairyo-add').classList.toggle('hidden', extras.length >= MAX_KAIRYO_EXTRA_UI);
     extras.forEach(function (b, k) { updateKairyoExtra(card, b, k, where, sArea); });
     // 分家住宅で土地改良区にかかる場合、排水承諾の要否は②（土地改良区への質問）で聞く
-    var dcField = card.querySelector('.dc-field');
+    var dcField = cq(card, '.dc-field');
     var inKairyo = on && purpose === '分家住宅';
-    var slot = card.querySelector(inKairyo ? '.dc-slot-kairyo' : '.dc-slot-drain');
-    if (dcField.parentNode !== slot) { slot.appendChild(dcField); slot.appendChild(card.querySelector('.step3b')); } // 手数料の欄も一緒に
+    var slot = cq(card, inKairyo ? '.dc-slot-kairyo' : '.dc-slot-drain');
+    if (dcField.parentNode !== slot) { slot.appendChild(dcField); slot.appendChild(cq(card, '.step3b')); } // 手数料の欄も一緒に
     setQ(card, 'q-dc', inKairyo
       ? '「また、分家住宅からの排水を貴改良区の水路へ流す場合、排水承諾の手続きは必要でしょうか。」'
       : '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
-    scriptLines(card.querySelector('.script2'), [
+    scriptLines(cq(card, '.script2'), [
       '「お世話になっております。（会社名）の（お名前）と申します。農業委員会でこちらをご案内いただきました。' + where + 'の土地で農地転用を予定しております。」'
     ]);
     setQ(card, 'q-benefit', '「' + (kname === '土地改良区' ? '貴改良区の' : kname + 'の') + '受益地に該当しますでしょうか。」');
@@ -1184,6 +1535,7 @@
     setQ(card, 'q-fee', '「決済金とは別に、手数料などはかかりますでしょうか。」');
     setQ(card, 'q-local', '「また、地元の自治会長さんや水利組合、地元の委員・理事の方など、ご説明や同意書への押印が必要な方はいらっしゃいますでしょうか。」');
     setQ(card, 'q-local-contacts', '「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」');
+    refreshHearing();
   }
 
   /**
@@ -1200,7 +1552,7 @@
     } else if (state.farmlandUses.indexOf(use) >= 0 && conv === 'はい') {
       msg = '※ 現況が農地（' + use + '）のため、「はい」でよいかご確認ください。';
     }
-    var w = card.querySelector('.conv-warn');
+    var w = cq(card, '.conv-warn');
     w.textContent = msg;
     w.classList.toggle('hidden', !msg);
   }
@@ -1220,7 +1572,7 @@
       return;
     }
     state.nfCard = card;
-    var name = card.querySelector('.lot-title').textContent;
+    var name = cq(card, '.lot-title').textContent;
     $('nfText').textContent = name + 'の登記地目が「' + v + '」（農地以外）の場合、農地転用の手続きは原則不要です。' +
       '地目の選択が間違いであれば、閉じて修正してください。';
     $('nfConfirm').textContent = qsa('.lot').length > 1 ? '農地以外で間違いない（この物件を外す）' : '農地以外で間違いない（依頼を終了）';
@@ -1344,7 +1696,7 @@
   function updateTaxNote(card) {
     var city = lotInput(card, 'municipality').value.trim();
     var map = state.noCityPlanningTax[lotPref(card)] || {};
-    var note = card.querySelector('.tax-note');
+    var note = cq(card, '.tax-note');
     note.textContent = Object.prototype.hasOwnProperty.call(map, city)
       ? '※ ' + city + 'は都市計画税を課していないため' + map[city] + '、課税明細書では区域を判断できません。都市計画図でご確認ください。' : '';
     note.classList.toggle('hidden', !note.textContent);
@@ -1399,7 +1751,7 @@
       if (any) {
         filled++;
         card.setAttribute('data-tohon', '1');
-        var badge = card.querySelector('.badge');
+        var badge = cq(card, '.badge');
         badge.textContent = '謄本から読取・要確認' + (c.chimokuRaw && c.chimokuRaw !== c.chimoku ? '（謄本の地目：' + c.chimokuRaw + '）' : '');
         badge.classList.remove('hidden');
         updateLotLinks(card);
@@ -1599,7 +1951,7 @@
       var d = f.lots[i], name = '物件' + (i + 1) + '：';
       check(!!d.municipality.trim(), lotInput(card, 'municipality'), name + '市区町村を入力してください。');
       check(!!d.lotNumber, lotInput(card, 'address'), name + '所在・地番の末尾に地番を入力してください（例：○○町字△△ 123番1）。');
-      check(!!d.zone, card.querySelector('.zones'), name + '区域区分を選択してください（不明なら「分からない」）。');
+      check(!!d.zone, cq(card, '.zones'), name + '区域区分を選択してください（不明なら「分からない」）。');
       var area = d.area.replace(/[,，]/g, '').trim();
       check(area === '' || (!isNaN(Number(area)) && Number(area) >= 0), lotInput(card, 'area'), name + '面積は0以上の数値で入力してください（単位：㎡）。');
     });
@@ -1783,17 +2135,17 @@
       var v = d[k];
       if (k === 'kairyoExtra' || k === 'lotNumber' || k === 'prefecture') return;
       if (k === 'readFromTohon') {
-        if (v) { card.setAttribute('data-tohon', '1'); card.querySelector('.badge').classList.remove('hidden'); }
+        if (v) { card.setAttribute('data-tohon', '1'); cq(card, '.badge').classList.remove('hidden'); }
         return;
       }
       if (k === 'iinContacts' || k === 'localContacts' || k === 'drainContacts') { setContacts(card, k, v || []); return; }
       if (k === 'tenyoUkeMonths') { (v || []).forEach(function (x, i) { var e = lotInput(card, 'tenyoUkeM' + i); if (e) e.value = x; }); return; }
       if (k === 'noutiKubun') {
         var ks = Array.isArray(v) ? v : String(v || '').split('・');
-        qsa('input[data-kubun]', card).forEach(function (x) { x.checked = ks.indexOf(x.value) >= 0; });
+        cqa(card, 'input[data-kubun]').forEach(function (x) { x.checked = ks.indexOf(x.value) >= 0; });
         return;
       }
-      if (k === 'hinochiDocs') { qsa('.hinochi-docs input[data-doc]', card).forEach(function (x) { x.checked = (v || []).indexOf(x.value) >= 0; }); return; }
+      if (k === 'hinochiDocs') { cqa(card, '.hinochi-docs input[data-doc]').forEach(function (x) { x.checked = (v || []).indexOf(x.value) >= 0; }); return; }
       var e = lotInput(card, k);
       if (e) { if (e.type === 'checkbox') e.checked = !!v; else e.value = v === null || v === undefined ? '' : v; return; }
       setRadio(card, k, v);
