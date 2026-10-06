@@ -16,7 +16,71 @@ function getAdminData() {
     statuses: CASE_STATUSES,
     nogyoIinkai: NOGYO_IINKAI, // 連絡先・訪問先の一覧に農業委員会の電話番号を出すため
     appointmentStatuses: APPOINTMENT_STATUSES,
+    lotEditFields: LOT_EDIT_FIELDS.map(function (f) { return Object.assign({ options: f.opt ? FORM_OPTIONS[f.opt] : null }, f); }),
     userEmail: getUserEmail_(),
+  };
+}
+
+/**
+ * 管理画面の「修正」：物件の調査結果を直す（LOT_EDIT_FIELDS の列だけ）。
+ * 正式見積の提示前（新規・調査中）の案件は概算見積も計算し直す。保存のみの案件は、依頼画面で開き直したときにも直した値が出るよう入力内容も直す。
+ * @param {number} caseId
+ * @param {number} no 物件No
+ * @param {Object} patch { 列のkey: 値 }
+ * @return {{case: Object, lots: Array}} 更新後の案件と物件明細
+ */
+function updateLotByAdmin(caseId, no, patch) {
+  requireAdmin_();
+  const p = patch || {};
+  const values = {};
+  LOT_EDIT_FIELDS.forEach(function (f) {
+    if (p[f.key] === undefined) return;
+    let v = String(p[f.key] === null ? '' : p[f.key]).trim().slice(0, f.type === 'contacts' || f.type === 'textarea' ? 2000 : 300);
+    const opts = f.opt ? FORM_OPTIONS[f.opt] : null;
+    if (f.type === 'select' && v && opts.indexOf(v) < 0) throw new Error(f.label + 'の値が不正です。');
+    if (f.type === 'multi') v = v.split('・').filter(function (x) { return opts.indexOf(x) >= 0; }).join('・');
+    if (f.type === 'contacts') v = contactLines_(v).filter(function (c) { return c.name.trim() || c.address.trim() || c.tel.trim(); })
+      .map(function (c) { return [c.name.trim(), c.address.trim(), c.tel.trim()].join('／'); }).join('\n');
+    if (f.key === 'isNoshin') v = toSheetBool_(v); // シートは はい=TRUE／いいえ=FALSE／分からない=不明
+    values[f.key] = v;
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const row = findLotRow_(caseId, no);
+    if (!row) throw new Error('物件（案件ID ' + caseId + '・物件' + no + '）が見つかりません。');
+    updateLotCells_(row, values);
+    const caseRow = findCaseRow_(caseId);
+    if (caseRow) updateCaseCells_(caseRow, { updatedAt: new Date() });
+    SpreadsheetApp.flush();
+    const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+    const lotRows = getLotsByCase_()[caseId] || [];
+    if (c && RECALC_STATUSES.indexOf(c.status) >= 0) recalcCaseEstimate_(c, lotRows);
+    // 保存した入力内容（依頼画面で開き直す用）も、直した項目だけ合わせる
+    if (c && c.formData) {
+      try {
+        const form = JSON.parse(c.formData);
+        const r = lotRows.filter(function (x) { return Number(x.no) === Number(no); })[0];
+        const fl = form.lots && form.lots[Number(no) - 1];
+        if (r && fl) {
+          const conv = lotRowToFormLot_(r);
+          const formKeys = { kairyoSettlementNote: ['kairyoSettlementNote', 'kairyoSettlementUnit'], kairyoFee: ['kairyoFeeAmount', 'kairyoFeeUnit', 'kairyoFeeNote'],
+            drainFee: ['drainFeeAmount', 'drainFeeNote'], tenyoUketsuke: ['tenyoUkeNote'], jogaiUketsuke: ['jogaiJiki'] };
+          Object.keys(values).forEach(function (k) {
+            (formKeys[k] || [k]).forEach(function (fk) { fl[fk] = conv[fk]; });
+            if (k === 'tenyoUketsuke') ['tenyoUkeMode', 'tenyoUkeFrom', 'tenyoUkeTo', 'tenyoUkeDay', 'tenyoUkeDate'].forEach(function (x) { fl[x] = ''; });
+            if (k === 'jogaiUketsuke') fl.jogaiKaisu = '';
+          });
+          if (caseRow) updateCaseCells_(caseRow, { formData: JSON.stringify(form) });
+        }
+      } catch (e) { logError_('updateLotByAdmin.formData', e && e.message || e, String(caseId)); }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return {
+    case: getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0],
+    lots: getLotsByCase_()[caseId] || [],
   };
 }
 

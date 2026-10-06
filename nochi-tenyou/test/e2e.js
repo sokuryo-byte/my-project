@@ -224,6 +224,26 @@ const OUT = path.join(__dirname, 'out');
   await a.waitForFunction(() => document.querySelector('#rows .pill').textContent === '調査中', null, { timeout: 5000 });
   await a.screenshot({ path: path.join(OUT, 'admin.png'), fullPage: true });
 
+  // 調査結果の修正：物件カードの「修正」→ 小窓で直して保存 → 物件明細が変わり、調査中の案件は概算も計算し直す
+  const est1 = await a.evaluate(() => state.cases[0].estimate);
+  const editLot2 = async (rireki, iin) => {
+    await (await (await a.$$('#detail .lot-card'))[1].$('.lot-edit')).click();
+    await a.waitForSelector('#lotDialog[open]', { timeout: 5000 });
+    await a.selectOption('#lotDialog [data-k=tenyoRireki]', rireki);
+    await a.fill('#lotDialog [data-k=iinContacts]', iin);
+    if (iin) await a.screenshot({ path: path.join(OUT, 'admin_lotedit_dialog.png') });
+    await a.click('#lotDlgSave');
+    await a.waitForFunction(() => !document.querySelector('#lotDialog').open, null, { timeout: 5000 });
+  };
+  await editLot2('あり', '山田 太郎／○○町1／090-1111-2222');
+  const edited = await a.evaluate(() => { const l = state.lotsByCase[state.cases[0].id][1]; return [l.tenyoRireki, l.iinContacts, state.cases[0].estimate]; });
+  assert.deepStrictEqual(edited.slice(0, 2), ['あり', '山田 太郎／○○町1／090-1111-2222']);
+  assert.ok(edited[2] < est1, '修正後に概算が計算し直されていない');
+  assert.ok((await a.textContent('#detail')).includes('090-1111-2222'));
+  await a.screenshot({ path: path.join(OUT, 'admin_lotedit.png') });
+  await editLot2('', '');
+  assert.strictEqual(await a.evaluate(() => state.cases[0].estimate), est1);
+
   // 受付番号（受付日-連番）と、受付番号導入前の案件への付番
   const caseNo = await a.evaluate(() => state.cases[0].caseNo);
   assert.ok(/^\d{6}-01$/.test(caseNo), caseNo);

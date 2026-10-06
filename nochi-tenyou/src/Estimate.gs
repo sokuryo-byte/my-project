@@ -71,6 +71,13 @@ function calculateEstimate_(input) {
     }
     if (zones.indexOf(zone) < 0) zones.push(zone);
   });
+  const zoneOf = function (l) { return l.zone === '分からない' ? FALLBACK_ZONE_FOR_UNKNOWN : l.zone; };
+  // 転用目的（市街化調整区域で選ぶ）が異なる物件は別申請。区域区分ごとに目的の種類を数える（未回答は数えない）
+  const purposesOf = function (z) {
+    const ps = [];
+    lots.forEach(function (l) { if (zoneOf(l) === z && l.purpose && ps.indexOf(l.purpose) < 0) ps.push(l.purpose); });
+    return ps;
+  };
   for (let z = 0; z < zones.length; z++) {
     const baseKey = Object.keys(fees).filter(function (k) { return fees[k].zone === zones[z]; })[0];
     if (!baseKey) {
@@ -82,6 +89,14 @@ function calculateEstimate_(input) {
       base.amount = Math.round(base.amount * TRUST_MULTIPLIER);
     }
     items.push(base);
+    const ps = purposesOf(zones[z]);
+    ps.slice(1).forEach(function (pp) { // 2件目以降の申請：基本報酬の一定割合
+      items.push({ label: fees[baseKey].label + '・別申請（転用目的：' + pp + '）', amount: Math.round(base.amount * SEPARATE_APPLICATION_RATE) });
+    });
+    if (ps.length > 1) {
+      notes.push('転用目的が異なるため（' + ps.join('・') + '）、' + zones[z] + 'の申請を' + ps.length + '件として計算しています（2件目以降は基本報酬の' +
+        Math.round(SEPARATE_APPLICATION_RATE * 100) + '%）。');
+    }
   }
   // 調査実費（区域区分ごとに1回）
   zones.forEach(function (z) {
@@ -98,7 +113,7 @@ function calculateEstimate_(input) {
   if (input.extraLotFee === true) {
     let todoke = 0, kyoka = 0;
     zones.forEach(function (z) {
-      const n = lots.filter(function (l) { return (l.zone === '分からない' ? FALLBACK_ZONE_FOR_UNKNOWN : l.zone) === z; }).length - 1;
+      const n = lots.filter(function (l) { return zoneOf(l) === z; }).length - Math.max(1, purposesOf(z).length); // 申請ごとの2筆目以降
       if (n <= 0) return;
       if (PERMIT_ZONES.indexOf(z) >= 0) kyoka += n; else todoke += n;
     });

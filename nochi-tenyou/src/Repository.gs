@@ -134,6 +134,27 @@ function getLotsByCase_() {
   return result;
 }
 
+/** 物件明細の行番号（案件ID・物件No で探す）。無ければ 0 */
+function findLotRow_(caseId, no) {
+  const sheet = getSheet_(SHEET_NAMES.LOTS);
+  const last = sheet.getLastRow();
+  if (last < 2) return 0;
+  const v = sheet.getRange(2, 1, last - 1, 2).getValues();
+  for (let i = 0; i < v.length; i++) {
+    if (Number(v[i][0]) === Number(caseId) && Number(v[i][1]) === Number(no)) return i + 2;
+  }
+  return 0;
+}
+
+/** 物件明細の1行の複数セルを更新する（patch は LOT_COLUMNS の key → 値） */
+function updateLotCells_(rowNumber, patch) {
+  const sheet = getSheet_(SHEET_NAMES.LOTS);
+  Object.keys(patch).forEach(function (key) {
+    const idx = LOT_COLUMNS.map(function (c) { return c.key; }).indexOf(key);
+    if (idx >= 0) sheet.getRange(rowNumber, idx + 1).setValue(toCellValue_(patch[key]));
+  });
+}
+
 /** 指定行の1セルを更新する（通知結果の書き戻しなどに使用） */
 function updateCaseCell_(rowNumber, key, value) {
   getSheet_(SHEET_NAMES.CASES)

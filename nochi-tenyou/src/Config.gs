@@ -213,6 +213,9 @@ const NO_CITY_PLANNING_TAX = {
 /** 信託手続きに付随する場合、農地転用の基本報酬（届出・許可）に掛ける倍率 */
 const TRUST_MULTIPLIER = 1.5;
 
+/** 同じ区域区分でも転用目的が異なれば別申請。2件目以降は基本報酬（信託付随の倍率を含む）にこの割合を掛けて加算する（概算） */
+const SEPARATE_APPLICATION_RATE = 0.5;
+
 /** 委員・地元関係者の連絡先を1物件あたり何人まで入力できるか */
 const MAX_KAIRYO_EXTRA = 3; // 1つの物件で追加できる土地改良区（2つ目以降）の数
 const MAX_CONTACTS = 5;
@@ -546,6 +549,56 @@ const LOT_COLUMNS = [
   { key: 'zeseiNote', header: '是正の許可申請の備考' },
   { key: 'kairyoExtra', header: '2つ目以降の土地改良区' },
   { key: 'kairyoExtraData', header: '（自動）2つ目以降の土地改良区のデータ・変更しない' },
+];
+
+/**
+ * 管理画面の「修正」で直せる物件の調査結果（物件明細の列）。並びと見出しは管理画面の表示（確認する順）と同じ。
+ * opt：選択肢（FORM_OPTIONS のキー）、type：select / multi（複数選択・「・」区切り）/ text / textarea / contacts（1行に「氏名／住所／電話」）
+ */
+const LOT_EDIT_FIELDS = [
+  { group: '過去の転用履歴・始末書', key: 'tenyoRireki', label: '転用履歴', type: 'select', opt: 'tenyoRireki' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiDate', label: '受理・許可日', type: 'text', ph: '例）2015/04/10' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiNo', label: '番号', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiNote', label: '内容', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'saiShinsei', label: '再申請の要否', type: 'select', opt: 'saiShinsei' },
+  { group: '過去の転用履歴・始末書', key: 'saiShinseiNote', label: '再申請の備考', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsusho', label: '始末書', type: 'select', opt: 'shimatsusho' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsuStamp', label: '始末書の押印', type: 'select', opt: 'shimatsusho' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsuNote', label: '始末書の備考', type: 'text' },
+  { group: '非農地証明・是正', key: 'hinochi', label: '非農地証明', type: 'select', opt: 'hinochi' },
+  { group: '非農地証明・是正', key: 'hinochiYears', label: '利用年数', type: 'text' },
+  { group: '非農地証明・是正', key: 'hinochiDocs', label: '証明資料', type: 'multi', opt: 'hinochiDocs' },
+  { group: '非農地証明・是正', key: 'hinochiNote', label: '要件・備考', type: 'textarea' },
+  { group: '非農地証明・是正', key: 'zeseiKyoka', label: '是正の許可申請', type: 'select', opt: 'zeseiKyoka' },
+  { group: '非農地証明・是正', key: 'zeseiNote', label: '是正の備考', type: 'text' },
+  { group: '農振（青地）・除外の見込み', key: 'isNoshin', label: '農振農用地', type: 'select', opt: 'yesNoUnknown' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiKanou', label: '除外の見込み', type: 'select', opt: 'tenyoKanou' },
+  { group: '農振（青地）・除外の見込み', key: 'hojoKuiki', label: 'ほ場整備等', type: 'select', opt: 'hojoKuiki' },
+  { group: '農振（青地）・除外の見込み', key: 'hojo8nen', label: '事業完了8年', type: 'select', opt: 'hojo8nen' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiJisseki', label: '近隣の除外実績', type: 'select', opt: 'jogaiJisseki' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiUketsuke', label: '除外の受付', type: 'text' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiNote', label: '指摘事項', type: 'textarea' },
+  { group: '転用の見込み', key: 'tenyoKanou', label: '転用の見込み', type: 'select', opt: 'tenyoKanou' },
+  { group: '転用の見込み', key: 'noutiKubun', label: '農地区分', type: 'multi', opt: 'noutiKubun' },
+  { group: '転用の見込み', key: 'kanouNote', label: '指摘事項', type: 'textarea' },
+  { group: '農地転用の受付', key: 'tenyoUketsuke', label: '受付', type: 'text', ph: '例）毎月1日～10日／土日祝は前の営業日' },
+  { group: '土地改良区', key: 'landImprovement', label: 'かかっているか', type: 'select', opt: 'yesNoUnknown' },
+  { group: '土地改良区', key: 'kairyoName', label: '名称', type: 'text' },
+  { group: '土地改良区', key: 'kairyoTel', label: '電話', type: 'text' },
+  { group: '土地改良区', key: 'kairyoBenefit', label: '受益地', type: 'select', opt: 'kairyoBenefit' },
+  { group: '土地改良区', key: 'kairyoProcedure', label: '地区除外の手続き', type: 'select', opt: 'kairyoProcedure' },
+  { group: '土地改良区', key: 'kairyoSettlement', label: '決済金', type: 'select', opt: 'kairyoSettlement' },
+  { group: '土地改良区', key: 'kairyoSettlementNote', label: '決済金の金額', type: 'text', ph: '例）1㎡あたり 300円（または 150,000円）' },
+  { group: '土地改良区', key: 'kairyoFee', label: '手数料等', type: 'text', ph: '例）1申請あたり 5,000円／事務手数料' },
+  { group: '地元委員の押印', key: 'iinStamp', label: '押印', type: 'select', opt: 'iinStamp' },
+  { group: '地元委員の押印', key: 'iinContacts', label: '委員', type: 'contacts' },
+  { group: '地元関係者の同意（押印）', key: 'localConsent', label: '同意', type: 'select', opt: 'localConsent' },
+  { group: '地元関係者の同意（押印）', key: 'localContacts', label: '同意が必要な方', type: 'contacts' },
+  { group: '排水', key: 'drainAdjacent', label: '隣接水路', type: 'select', opt: 'drainAdjacent' },
+  { group: '排水', key: 'drainConsent', label: '排水承諾', type: 'select', opt: 'drainConsent' },
+  { group: '排水', key: 'drainFee', label: '手数料', type: 'text', ph: '例）30,000円／排水負担金' },
+  { group: '排水', key: 'drainLocalConsent', label: '地元承諾', type: 'select', opt: 'localConsent' },
+  { group: '排水', key: 'drainContacts', label: '承諾が必要な方', type: 'contacts' },
 ];
 
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */

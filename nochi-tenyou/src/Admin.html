@@ -94,6 +94,22 @@
     .step dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
     .step dd.bad { color: var(--danger); font-weight: 700; }
     .nocall { padding: 10px 16px; font-size: .82rem; color: var(--muted); }
+    .lot-head .lot-edit { margin-left: auto; }
+    /* 調査結果の修正（小窓） */
+    dialog.modal.lot-dlg { max-width: min(760px, calc(100vw - 32px)); width: 760px; padding: 0; }
+    .lot-dlg form { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-height: min(86vh, 900px); }
+    .lot-dlg .dlg-h { padding: 14px 20px 8px; border-bottom: 1px solid var(--line); }
+    .lot-dlg .dlg-h h2 { margin: 0; }
+    .lot-dlg .dlg-h p { margin: 4px 0 0; font-size: .8rem; color: var(--muted); }
+    .lot-dlg .dlg-b { overflow: auto; padding: 4px 20px 12px; }
+    .lot-dlg .dlg-f { padding: 10px 20px 14px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+    .lot-dlg h4 { margin: 14px 0 6px; font-size: .78rem; color: var(--accent); }
+    .lot-dlg .eg { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 14px; }
+    .lot-dlg .eg .wide { grid-column: 1 / -1; }
+    .lot-dlg .eg > label, .lot-dlg .eg > div { display: grid; gap: 2px; font-size: .74rem; color: var(--muted); }
+    .lot-dlg .eg input, .lot-dlg .eg select, .lot-dlg .eg textarea { font: inherit; font-size: .86rem; color: var(--fg); }
+    .lot-dlg .multi { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: .84rem; color: var(--fg); }
+    .lot-dlg .multi label { display: inline-flex; gap: 4px; align-items: center; font-size: .84rem; color: var(--fg); }
 
     .side { display: grid; gap: 12px; align-content: start; }
     .side .field { gap: 4px; }
@@ -249,6 +265,18 @@
   </div>
 </dialog>
 
+<dialog class="modal lot-dlg" id="lotDialog" aria-labelledby="lotDlgTitle">
+  <form method="dialog" id="lotForm">
+    <div class="dlg-h"><h2 id="lotDlgTitle">調査結果の修正</h2><p id="lotDlgNote"></p></div>
+    <div class="dlg-b" id="lotDlgBody"></div>
+    <div class="dlg-f">
+      <span class="saved err" id="lotDlgErr" role="alert"></span>
+      <button type="button" class="ghost" id="lotDlgCancel">キャンセル</button>
+      <button type="button" class="primary" id="lotDlgSave">保存</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
   var state = { cases: [], lotsByCase: {}, statuses: [], filter: '', selectedId: Number('<?= initialId ?>') || 0 };
   var $ = function (id) { return document.getElementById(id); };
@@ -280,6 +308,7 @@
         state.lotsByCase = data.lotsByCase || {};
         state.nogyoIinkai = data.nogyoIinkai || {};
         state.apptStatuses = data.appointmentStatuses || [];
+        state.lotEditFields = data.lotEditFields || [];
         $('userInfo').textContent = data.userEmail;
         renderChips();
         renderRows();
@@ -412,6 +441,90 @@
     return steps;
   }
 
+  /**
+   * 調査結果の修正（小窓）。物件カードの見た目は変えず、項目は確認する順にまとめて出す
+   */
+  function editLot(l) {
+    var c = state.cases.filter(function (x) { return x.id === Number(l.caseId) || String(x.id) === String(l.caseId); })[0];
+    var d = $('lotDialog'), body = $('lotDlgBody');
+    var cur = function (f) {
+      var v = l[f.key];
+      if (f.key === 'isNoshin') return v === true ? 'はい' : v === false ? 'いいえ' : v === '不明' ? '分からない' : String(v || '');
+      return v === undefined || v === null ? '' : String(v);
+    };
+    $('lotDlgTitle').textContent = '調査結果の修正：物件' + l.no + '　' + [l.address, l.lotNumber].filter(has).join(' ');
+    $('lotDlgNote').textContent = c && (c.status === '新規' || c.status === '調査中')
+      ? '保存すると概算見積も計算し直します。' : '正式見積の提示後のため、概算見積は計算し直しません。';
+    $('lotDlgErr').textContent = '';
+    body.innerHTML = '';
+    var inputs = {}, grid = null, group = '';
+    state.lotEditFields.forEach(function (f) {
+      if (f.group !== group) {
+        group = f.group;
+        body.appendChild(el('h4', {}, group));
+        grid = el('div', { 'class': 'eg' });
+        body.appendChild(grid);
+      }
+      var wrap = el(f.type === 'multi' ? 'div' : 'label', f.type === 'textarea' || f.type === 'contacts' || f.type === 'multi' ? { 'class': 'wide' } : {});
+      wrap.appendChild(document.createTextNode(f.label + (f.type === 'contacts' ? '（1行に1人：氏名／住所／電話）' : '')));
+      var v = cur(f), input;
+      if (f.type === 'select') {
+        input = el('select');
+        input.appendChild(new Option('（未回答）', ''));
+        f.options.forEach(function (o) { input.appendChild(new Option(o, o)); });
+        if (v && f.options.indexOf(v) < 0) input.appendChild(new Option(v, v)); // 以前の値も残す
+        input.value = v;
+      } else if (f.type === 'multi') {
+        input = el('div', { 'class': 'multi' });
+        var on = v.split('・');
+        f.options.forEach(function (o) {
+          var lb = el('label');
+          var cb = el('input', { type: 'checkbox', value: o });
+          cb.checked = on.indexOf(o) >= 0;
+          lb.appendChild(cb); lb.appendChild(document.createTextNode(o));
+          input.appendChild(lb);
+        });
+      } else if (f.type === 'textarea' || f.type === 'contacts') {
+        input = el('textarea', { rows: f.type === 'contacts' ? '3' : '2' });
+        input.value = v;
+      } else {
+        input = el('input', { type: 'text' });
+        input.value = v;
+      }
+      if (f.ph) input.setAttribute('placeholder', f.ph);
+      input.setAttribute('data-k', f.key);
+      inputs[f.key] = { f: f, input: input, before: v };
+      wrap.appendChild(input);
+      grid.appendChild(wrap);
+    });
+    var read = function (x) {
+      return x.f.type === 'multi' ? qsaIn(x.input, 'input:checked').map(function (cb) { return cb.value; }).join('・') : x.input.value.trim();
+    };
+    $('lotDlgCancel').onclick = function () { d.close(); };
+    $('lotForm').onsubmit = function (e) { e.preventDefault(); }; // Enter で閉じない
+    var save = $('lotDlgSave');
+    save.disabled = false; save.textContent = '保存';
+    save.onclick = function () {
+      var patch = {};
+      Object.keys(inputs).forEach(function (k) { var nv = read(inputs[k]); if (nv !== inputs[k].before.trim()) patch[k] = nv; });
+      if (!Object.keys(patch).length) { d.close(); return; }
+      save.disabled = true; save.textContent = '保存中…';
+      google.script.run
+        .withSuccessHandler(function (r) {
+          if (!r || !r.case) { save.disabled = false; save.textContent = '保存'; $('lotDlgErr').textContent = '保存しましたが、画面の更新に失敗しました。再読み込みしてください。'; return; }
+          state.cases = state.cases.map(function (x) { return x.id === r.case.id ? r.case : x; });
+          state.lotsByCase[r.case.id] = r.lots;
+          d.close();
+          renderChips(); renderRows(); renderDetail(r.case.id);
+        })
+        .withFailureHandler(function (err) { save.disabled = false; save.textContent = '保存'; $('lotDlgErr').textContent = '保存できませんでした：' + err.message; })
+        .updateLotByAdmin(Number(l.caseId), Number(l.no), patch);
+    };
+    d.showModal();
+    body.scrollTop = 0;
+  }
+  function qsaIn(root, sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
+
   /** 物件明細の「2つ目以降の土地改良区のデータ」（JSON）を読む */
   function kairyoExtras(l) {
     try { return JSON.parse(l.kairyoExtraData || '[]') || []; } catch (e) { return []; }
@@ -435,6 +548,11 @@
     tag(has(l.chimokuHenko) ? '地目変更登記' : '', 'warn');
     tag(l.readFromTohon === true ? '謄本読取' : '');
     head.appendChild(tags);
+    if (state.lotEditFields && state.lotEditFields.length) {
+      var eb = el('button', { type: 'button', 'class': 'lot-edit' }, '修正');
+      eb.addEventListener('click', function () { editLot(l); });
+      head.appendChild(eb);
+    }
     card.appendChild(head);
 
     var steps = el('div', { 'class': 'steps' });

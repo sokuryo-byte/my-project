@@ -216,6 +216,9 @@ const NO_CITY_PLANNING_TAX = {
 /** 信託手続きに付随する場合、農地転用の基本報酬（届出・許可）に掛ける倍率 */
 const TRUST_MULTIPLIER = 1.5;
 
+/** 同じ区域区分でも転用目的が異なれば別申請。2件目以降は基本報酬（信託付随の倍率を含む）にこの割合を掛けて加算する（概算） */
+const SEPARATE_APPLICATION_RATE = 0.5;
+
 /** 委員・地元関係者の連絡先を1物件あたり何人まで入力できるか */
 const MAX_KAIRYO_EXTRA = 3; // 1つの物件で追加できる土地改良区（2つ目以降）の数
 const MAX_CONTACTS = 5;
@@ -551,6 +554,56 @@ const LOT_COLUMNS = [
   { key: 'kairyoExtraData', header: '（自動）2つ目以降の土地改良区のデータ・変更しない' },
 ];
 
+/**
+ * 管理画面の「修正」で直せる物件の調査結果（物件明細の列）。並びと見出しは管理画面の表示（確認する順）と同じ。
+ * opt：選択肢（FORM_OPTIONS のキー）、type：select / multi（複数選択・「・」区切り）/ text / textarea / contacts（1行に「氏名／住所／電話」）
+ */
+const LOT_EDIT_FIELDS = [
+  { group: '過去の転用履歴・始末書', key: 'tenyoRireki', label: '転用履歴', type: 'select', opt: 'tenyoRireki' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiDate', label: '受理・許可日', type: 'text', ph: '例）2015/04/10' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiNo', label: '番号', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiNote', label: '内容', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'saiShinsei', label: '再申請の要否', type: 'select', opt: 'saiShinsei' },
+  { group: '過去の転用履歴・始末書', key: 'saiShinseiNote', label: '再申請の備考', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsusho', label: '始末書', type: 'select', opt: 'shimatsusho' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsuStamp', label: '始末書の押印', type: 'select', opt: 'shimatsusho' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsuNote', label: '始末書の備考', type: 'text' },
+  { group: '非農地証明・是正', key: 'hinochi', label: '非農地証明', type: 'select', opt: 'hinochi' },
+  { group: '非農地証明・是正', key: 'hinochiYears', label: '利用年数', type: 'text' },
+  { group: '非農地証明・是正', key: 'hinochiDocs', label: '証明資料', type: 'multi', opt: 'hinochiDocs' },
+  { group: '非農地証明・是正', key: 'hinochiNote', label: '要件・備考', type: 'textarea' },
+  { group: '非農地証明・是正', key: 'zeseiKyoka', label: '是正の許可申請', type: 'select', opt: 'zeseiKyoka' },
+  { group: '非農地証明・是正', key: 'zeseiNote', label: '是正の備考', type: 'text' },
+  { group: '農振（青地）・除外の見込み', key: 'isNoshin', label: '農振農用地', type: 'select', opt: 'yesNoUnknown' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiKanou', label: '除外の見込み', type: 'select', opt: 'tenyoKanou' },
+  { group: '農振（青地）・除外の見込み', key: 'hojoKuiki', label: 'ほ場整備等', type: 'select', opt: 'hojoKuiki' },
+  { group: '農振（青地）・除外の見込み', key: 'hojo8nen', label: '事業完了8年', type: 'select', opt: 'hojo8nen' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiJisseki', label: '近隣の除外実績', type: 'select', opt: 'jogaiJisseki' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiUketsuke', label: '除外の受付', type: 'text' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiNote', label: '指摘事項', type: 'textarea' },
+  { group: '転用の見込み', key: 'tenyoKanou', label: '転用の見込み', type: 'select', opt: 'tenyoKanou' },
+  { group: '転用の見込み', key: 'noutiKubun', label: '農地区分', type: 'multi', opt: 'noutiKubun' },
+  { group: '転用の見込み', key: 'kanouNote', label: '指摘事項', type: 'textarea' },
+  { group: '農地転用の受付', key: 'tenyoUketsuke', label: '受付', type: 'text', ph: '例）毎月1日～10日／土日祝は前の営業日' },
+  { group: '土地改良区', key: 'landImprovement', label: 'かかっているか', type: 'select', opt: 'yesNoUnknown' },
+  { group: '土地改良区', key: 'kairyoName', label: '名称', type: 'text' },
+  { group: '土地改良区', key: 'kairyoTel', label: '電話', type: 'text' },
+  { group: '土地改良区', key: 'kairyoBenefit', label: '受益地', type: 'select', opt: 'kairyoBenefit' },
+  { group: '土地改良区', key: 'kairyoProcedure', label: '地区除外の手続き', type: 'select', opt: 'kairyoProcedure' },
+  { group: '土地改良区', key: 'kairyoSettlement', label: '決済金', type: 'select', opt: 'kairyoSettlement' },
+  { group: '土地改良区', key: 'kairyoSettlementNote', label: '決済金の金額', type: 'text', ph: '例）1㎡あたり 300円（または 150,000円）' },
+  { group: '土地改良区', key: 'kairyoFee', label: '手数料等', type: 'text', ph: '例）1申請あたり 5,000円／事務手数料' },
+  { group: '地元委員の押印', key: 'iinStamp', label: '押印', type: 'select', opt: 'iinStamp' },
+  { group: '地元委員の押印', key: 'iinContacts', label: '委員', type: 'contacts' },
+  { group: '地元関係者の同意（押印）', key: 'localConsent', label: '同意', type: 'select', opt: 'localConsent' },
+  { group: '地元関係者の同意（押印）', key: 'localContacts', label: '同意が必要な方', type: 'contacts' },
+  { group: '排水', key: 'drainAdjacent', label: '隣接水路', type: 'select', opt: 'drainAdjacent' },
+  { group: '排水', key: 'drainConsent', label: '排水承諾', type: 'select', opt: 'drainConsent' },
+  { group: '排水', key: 'drainFee', label: '手数料', type: 'text', ph: '例）30,000円／排水負担金' },
+  { group: '排水', key: 'drainLocalConsent', label: '地元承諾', type: 'select', opt: 'localConsent' },
+  { group: '排水', key: 'drainContacts', label: '承諾が必要な方', type: 'contacts' },
+];
+
 /** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
 const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote', 'karteNo'];
 
@@ -806,16 +859,16 @@ function runMigrations_() {
     }
   }
   // 地目変更登記の計算を変えたため（3筆目から筆数加算）、提示前の案件の概算を1回計算し直す
-  if (props.getProperty('RECALC_2026_05') !== '1') {
+  if (props.getProperty('RECALC_2026_06') !== '1') {
     const lock1 = LockService.getScriptLock();
     lock1.waitLock(30 * 1000);
     try {
-      if (props.getProperty('RECALC_2026_05') !== '1') {
-        props.setProperty('RECALC_2026_05_RESULT', String(recalcOpenEstimates_()));
-        props.setProperty('RECALC_2026_05', '1');
+      if (props.getProperty('RECALC_2026_06') !== '1') {
+        props.setProperty('RECALC_2026_06_RESULT', String(recalcOpenEstimates_()));
+        props.setProperty('RECALC_2026_06', '1');
       }
     } catch (e) {
-      logError_('RECALC_2026_05', e && e.message || e, '');
+      logError_('RECALC_2026_06', e && e.message || e, '');
     } finally {
       lock1.releaseLock();
     }
@@ -1686,6 +1739,27 @@ function getLotsByCase_() {
   return result;
 }
 
+/** 物件明細の行番号（案件ID・物件No で探す）。無ければ 0 */
+function findLotRow_(caseId, no) {
+  const sheet = getSheet_(SHEET_NAMES.LOTS);
+  const last = sheet.getLastRow();
+  if (last < 2) return 0;
+  const v = sheet.getRange(2, 1, last - 1, 2).getValues();
+  for (let i = 0; i < v.length; i++) {
+    if (Number(v[i][0]) === Number(caseId) && Number(v[i][1]) === Number(no)) return i + 2;
+  }
+  return 0;
+}
+
+/** 物件明細の1行の複数セルを更新する（patch は LOT_COLUMNS の key → 値） */
+function updateLotCells_(rowNumber, patch) {
+  const sheet = getSheet_(SHEET_NAMES.LOTS);
+  Object.keys(patch).forEach(function (key) {
+    const idx = LOT_COLUMNS.map(function (c) { return c.key; }).indexOf(key);
+    if (idx >= 0) sheet.getRange(rowNumber, idx + 1).setValue(toCellValue_(patch[key]));
+  });
+}
+
 /** 指定行の1セルを更新する（通知結果の書き戻しなどに使用） */
 function updateCaseCell_(rowNumber, key, value) {
   getSheet_(SHEET_NAMES.CASES)
@@ -1977,6 +2051,13 @@ function calculateEstimate_(input) {
     }
     if (zones.indexOf(zone) < 0) zones.push(zone);
   });
+  const zoneOf = function (l) { return l.zone === '分からない' ? FALLBACK_ZONE_FOR_UNKNOWN : l.zone; };
+  // 転用目的（市街化調整区域で選ぶ）が異なる物件は別申請。区域区分ごとに目的の種類を数える（未回答は数えない）
+  const purposesOf = function (z) {
+    const ps = [];
+    lots.forEach(function (l) { if (zoneOf(l) === z && l.purpose && ps.indexOf(l.purpose) < 0) ps.push(l.purpose); });
+    return ps;
+  };
   for (let z = 0; z < zones.length; z++) {
     const baseKey = Object.keys(fees).filter(function (k) { return fees[k].zone === zones[z]; })[0];
     if (!baseKey) {
@@ -1988,6 +2069,14 @@ function calculateEstimate_(input) {
       base.amount = Math.round(base.amount * TRUST_MULTIPLIER);
     }
     items.push(base);
+    const ps = purposesOf(zones[z]);
+    ps.slice(1).forEach(function (pp) { // 2件目以降の申請：基本報酬の一定割合
+      items.push({ label: fees[baseKey].label + '・別申請（転用目的：' + pp + '）', amount: Math.round(base.amount * SEPARATE_APPLICATION_RATE) });
+    });
+    if (ps.length > 1) {
+      notes.push('転用目的が異なるため（' + ps.join('・') + '）、' + zones[z] + 'の申請を' + ps.length + '件として計算しています（2件目以降は基本報酬の' +
+        Math.round(SEPARATE_APPLICATION_RATE * 100) + '%）。');
+    }
   }
   // 調査実費（区域区分ごとに1回）
   zones.forEach(function (z) {
@@ -2004,7 +2093,7 @@ function calculateEstimate_(input) {
   if (input.extraLotFee === true) {
     let todoke = 0, kyoka = 0;
     zones.forEach(function (z) {
-      const n = lots.filter(function (l) { return (l.zone === '分からない' ? FALLBACK_ZONE_FOR_UNKNOWN : l.zone) === z; }).length - 1;
+      const n = lots.filter(function (l) { return zoneOf(l) === z; }).length - Math.max(1, purposesOf(z).length); // 申請ごとの2筆目以降
       if (n <= 0) return;
       if (PERMIT_ZONES.indexOf(z) >= 0) kyoka += n; else todoke += n;
     });
@@ -2883,7 +2972,71 @@ function getAdminData() {
     statuses: CASE_STATUSES,
     nogyoIinkai: NOGYO_IINKAI, // 連絡先・訪問先の一覧に農業委員会の電話番号を出すため
     appointmentStatuses: APPOINTMENT_STATUSES,
+    lotEditFields: LOT_EDIT_FIELDS.map(function (f) { return Object.assign({ options: f.opt ? FORM_OPTIONS[f.opt] : null }, f); }),
     userEmail: getUserEmail_(),
+  };
+}
+
+/**
+ * 管理画面の「修正」：物件の調査結果を直す（LOT_EDIT_FIELDS の列だけ）。
+ * 正式見積の提示前（新規・調査中）の案件は概算見積も計算し直す。保存のみの案件は、依頼画面で開き直したときにも直した値が出るよう入力内容も直す。
+ * @param {number} caseId
+ * @param {number} no 物件No
+ * @param {Object} patch { 列のkey: 値 }
+ * @return {{case: Object, lots: Array}} 更新後の案件と物件明細
+ */
+function updateLotByAdmin(caseId, no, patch) {
+  requireAdmin_();
+  const p = patch || {};
+  const values = {};
+  LOT_EDIT_FIELDS.forEach(function (f) {
+    if (p[f.key] === undefined) return;
+    let v = String(p[f.key] === null ? '' : p[f.key]).trim().slice(0, f.type === 'contacts' || f.type === 'textarea' ? 2000 : 300);
+    const opts = f.opt ? FORM_OPTIONS[f.opt] : null;
+    if (f.type === 'select' && v && opts.indexOf(v) < 0) throw new Error(f.label + 'の値が不正です。');
+    if (f.type === 'multi') v = v.split('・').filter(function (x) { return opts.indexOf(x) >= 0; }).join('・');
+    if (f.type === 'contacts') v = contactLines_(v).filter(function (c) { return c.name.trim() || c.address.trim() || c.tel.trim(); })
+      .map(function (c) { return [c.name.trim(), c.address.trim(), c.tel.trim()].join('／'); }).join('\n');
+    if (f.key === 'isNoshin') v = toSheetBool_(v); // シートは はい=TRUE／いいえ=FALSE／分からない=不明
+    values[f.key] = v;
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const row = findLotRow_(caseId, no);
+    if (!row) throw new Error('物件（案件ID ' + caseId + '・物件' + no + '）が見つかりません。');
+    updateLotCells_(row, values);
+    const caseRow = findCaseRow_(caseId);
+    if (caseRow) updateCaseCells_(caseRow, { updatedAt: new Date() });
+    SpreadsheetApp.flush();
+    const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+    const lotRows = getLotsByCase_()[caseId] || [];
+    if (c && RECALC_STATUSES.indexOf(c.status) >= 0) recalcCaseEstimate_(c, lotRows);
+    // 保存した入力内容（依頼画面で開き直す用）も、直した項目だけ合わせる
+    if (c && c.formData) {
+      try {
+        const form = JSON.parse(c.formData);
+        const r = lotRows.filter(function (x) { return Number(x.no) === Number(no); })[0];
+        const fl = form.lots && form.lots[Number(no) - 1];
+        if (r && fl) {
+          const conv = lotRowToFormLot_(r);
+          const formKeys = { kairyoSettlementNote: ['kairyoSettlementNote', 'kairyoSettlementUnit'], kairyoFee: ['kairyoFeeAmount', 'kairyoFeeUnit', 'kairyoFeeNote'],
+            drainFee: ['drainFeeAmount', 'drainFeeNote'], tenyoUketsuke: ['tenyoUkeNote'], jogaiUketsuke: ['jogaiJiki'] };
+          Object.keys(values).forEach(function (k) {
+            (formKeys[k] || [k]).forEach(function (fk) { fl[fk] = conv[fk]; });
+            if (k === 'tenyoUketsuke') ['tenyoUkeMode', 'tenyoUkeFrom', 'tenyoUkeTo', 'tenyoUkeDay', 'tenyoUkeDate'].forEach(function (x) { fl[x] = ''; });
+            if (k === 'jogaiUketsuke') fl.jogaiKaisu = '';
+          });
+          if (caseRow) updateCaseCells_(caseRow, { formData: JSON.stringify(form) });
+        }
+      } catch (e) { logError_('updateLotByAdmin.formData', e && e.message || e, String(caseId)); }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return {
+    case: getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0],
+    lots: getLotsByCase_()[caseId] || [],
   };
 }
 
