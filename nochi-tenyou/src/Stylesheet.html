@@ -54,6 +54,13 @@
   .contacts .linkbtn { justify-self: start; }
   @media (max-width: 560px) { .contact-row { grid-template-columns: minmax(0, 1fr) 32px; } .contact-row input { grid-column: 1; } .contact-row .contact-del { grid-column: 2; grid-row: 1; } }
   .callbox .step2 { display: grid; gap: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+  /* 電話先が変わる所：①の終わりの線と、②（土地改良区）の帯 */
+  .callbox .call-end { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .78rem; font-weight: 700; margin-top: 4px; }
+  .callbox .call-end::before, .callbox .call-end::after { content: ''; flex: 1; border-top: 2px solid var(--line); }
+  .callbox .call-band { background: var(--accent); color: #fff; border-radius: 6px; padding: 8px 12px; align-items: center; margin-top: 6px; }
+  .callbox .call-band .call-band-lbl { font-size: .72rem; font-weight: 700; background: #fff; color: var(--accent); border-radius: 999px; padding: 1px 8px; }
+  .callbox .call-band .tel { color: #fff; }
+  .callbox .step2:has(> .call-band:first-child), .gm-sec.gm-step:has(> .call-band) { border-top: none; padding-top: 0; }
   .row.row-addr { grid-template-columns: minmax(110px, .8fr) minmax(130px, 1fr) minmax(0, 2.4fr); }
   @media (max-width: 560px) { .row.row-addr { grid-template-columns: minmax(0, 1fr); } }
   .field { display: grid; gap: 4px; min-width: 0; align-content: start; } /* 横の欄に説明文があっても入力欄を引き伸ばさない */
