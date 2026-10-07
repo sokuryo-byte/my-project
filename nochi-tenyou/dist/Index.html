@@ -26,6 +26,7 @@
     font-size: 15px; line-height: 1.7;
   }
   .wrap { max-width: 800px; margin: 0 auto; padding: 24px 16px 150px; display: grid; gap: 16px; }
+  #caseForm { width: 100%; margin: 0; } /* 入れ子の .wrap は中身の幅に縮むため、物件が表示されるまで狭く見えていた */
   h1 { font-size: 1.45rem; margin: 0 0 6px; }
   .lead { margin: 0; color: var(--muted); font-size: .9rem; }
   .user { margin: 6px 0 0; font-size: .8rem; color: var(--muted); }
@@ -1396,25 +1397,34 @@ function doGet(e) {
     t.initialId = String(params.id || '').replace(/\D/g, ''); // 通知のリンクから開いた案件
     t.portalUrl = PORTAL_URL;
     // 案件一覧を画面に埋め込んで返す（開いた後にもう一度サーバーへ取りに行く往復を省く。失敗したら画面から取りに行く）
-    t.bootData = 'null';
-    try {
-      const bs = String.fromCharCode(92); // 円記号ではなくバックスラッシュ。画面に埋め込むので、文中の < は u003c 形式にして画面のスクリプトが途切れないようにする
-      t.bootData = JSON.stringify(getAdminData()).replace(/</g, bs + 'u003c').replace(/\u2028/g, bs + 'u2028').replace(/\u2029/g, bs + 'u2029');
-    } catch (err) {
-      logError_('doGet（管理画面の埋め込み）', err && err.message || err, '');
-    }
+    t.bootData = bootJson_(getAdminData);
     return t.evaluate()
       .setTitle('農地転用 案件管理（行政班）')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
   const index = HtmlService.createTemplateFromFile('Index');
   index.portalUrl = PORTAL_URL;
+  index.bootData = bootJson_(getInitialData); // 初期データを画面に埋め込む（開いた後にもう一度取りに行く往復を省く）
   return index.evaluate()
     .setTitle('農地転用 見積・調査依頼フォーム')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     // 社内ポータル（Google サイト等）のページに埋め込めるようにする。
     // アクセスできる人は Webアプリのデプロイ設定（組織内のみ）で制限されている。管理画面は埋め込み不可のまま。
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * 画面に埋め込むデータ（JSON）。失敗したら 'null'（画面がサーバーへ取りに行く）。
+ * 画面のスクリプトの中に置くので、文中の < は u003c 形式にしてスクリプトが途切れないようにする
+ */
+function bootJson_(fn) {
+  try {
+    const bs = String.fromCharCode(92); // バックスラッシュ
+    return JSON.stringify(fn()).replace(/</g, bs + 'u003c').replace(/\u2028/g, bs + 'u2028').replace(/\u2029/g, bs + 'u2029');
+  } catch (err) {
+    logError_('doGet（画面への埋め込み）', err && err.message || err, '');
+    return 'null';
+  }
 }
 
 /**
@@ -1668,12 +1678,13 @@ function submitCase(form, requestInvestigation, editId) {
   // 2) 資料フォルダの作成とファイル移動（失敗しても案件は残す）
   let attach = { folderUrl: '', count: 0, errors: [] };
   try {
-    if (editing && !input.attachments.length && editing.folderUrl) {
-      attach = { folderUrl: editing.folderUrl, count: 0, errors: [] }; // 追加の資料なし：これまでのフォルダのまま
+    if (!input.attachments.length) {
+      // 資料なし：フォルダは作らない（ドライブの操作は時間がかかるため。正式見積の提示など必要になった時に作る）。保存し直しはこれまでのフォルダのまま
+      attach = { folderUrl: editing ? editing.folderUrl || '' : '', count: 0, errors: [] };
     } else {
       attach = attachFilesToCase_(saved.caseNo, input, editing ? editing.folderUrl : '');
+      updateCaseCells_(saved.row, { folderUrl: attach.folderUrl, fileCount: (editing ? Number(editing.fileCount) || 0 : 0) + attach.count });
     }
-    updateCaseCells_(saved.row, { folderUrl: attach.folderUrl, fileCount: (editing ? Number(editing.fileCount) || 0 : 0) + attach.count });
   } catch (e) {
     attach.errors.push('資料フォルダの作成に失敗：' + (e && e.message || e));
   }
@@ -1724,22 +1735,29 @@ function getEditableSavedCase_(caseId) {
 function listSavedCases() {
   const me = getUserEmail_().toLowerCase();
   const admin = isAdmin_();
+  let lotsBy = null;
   return getAllCases_().filter(function (c) {
     return c.requestFlag !== true && (admin || String(c.submittedBy || '').toLowerCase() === me);
   }).map(function (c) {
+    if (!c.formData && !lotsBy) lotsBy = getLotsByCase_(); // 保存時の入力が無い古い案件だけ物件明細から組み立てる
     return { id: c.id, caseNo: c.caseNo, requesterName: c.requesterName, address: c.address, lotNumber: c.lotNumber,
-      updatedAt: c.updatedAt, submittedBy: c.submittedBy, mine: String(c.submittedBy || '').toLowerCase() === me };
+      updatedAt: c.updatedAt, submittedBy: c.submittedBy, mine: String(c.submittedBy || '').toLowerCase() === me,
+      saved: savedCasePayload_(c, lotsBy) }; // 選んだらすぐ開けるよう、入力内容も一緒に返す（往復を1回減らす）
   });
 }
 
 /** 保存した案件を画面に戻すための入力内容。保存時の入力が無い（この機能より前の）案件はシートから組み立てる */
 function getSavedCase(caseId) {
-  const c = getEditableSavedCase_(caseId);
+  return savedCasePayload_(getEditableSavedCase_(caseId));
+}
+
+/** 保存した案件を画面に戻すための内容（一覧からそのまま開けるよう、一覧にも載せる） */
+function savedCasePayload_(c, lotsBy) {
   let form = null;
   try { form = c.formData ? JSON.parse(c.formData) : null; } catch (e) { form = null; }
   const rebuilt = !form;
   if (!form) {
-    const lots = (getLotsByCase_()[c.id] || []).map(lotRowToFormLot_);
+    const lots = ((lotsBy || getLotsByCase_())[c.id] || []).map(lotRowToFormLot_);
     form = { requesterName: c.requesterName, trust: c.trust === true, extraLotFee: c.extraLotFee === 'あり', plan: c.plan, lots: lots,
       prefecture: lots.length ? lots[0].prefecture : c.prefecture };
   }
@@ -2346,6 +2364,7 @@ function getUserEmail_() { return ''; }
   </div>
 </div>
 
+<script>window.BOOT_INIT = <?!= bootData ?>;</script>
 <script>
   /**
    * 依頼画面の処理
@@ -2391,6 +2410,7 @@ function getUserEmail_() { return ''; }
   // 初期化
   // ---------------------------------------------------------
   document.addEventListener('DOMContentLoaded', function () {
+    if (window.BOOT_INIT) { init(window.BOOT_INIT); return; } // 画面と一緒に受け取った初期データ（サーバーへ取りに行かない）
     google.script.run
       .withSuccessHandler(init)
       .withFailureHandler(function (err) { showErrors(['初期データの読み込みに失敗しました：' + err.message]); })
@@ -4482,7 +4502,7 @@ function getUserEmail_() { return ''; }
           b.appendChild(el('b', {}, (c.caseNo || '#' + c.id) + '　' + (c.requesterName || '（依頼者名なし）')));
           b.appendChild(el('span', {}, [c.address, c.lotNumber].filter(Boolean).join(' ') || '―'));
           b.appendChild(el('small', {}, '保存 ' + (c.updatedAt || '') + (c.mine ? '' : '　入力者 ' + c.submittedBy)));
-          b.addEventListener('click', function () { loadSaved(c.id); });
+          b.addEventListener('click', function () { loadSaved(c.id, c.saved); });
           list.appendChild(b);
         });
       })
@@ -4490,11 +4510,10 @@ function getUserEmail_() { return ''; }
       .listSavedCases();
   }
 
-  function loadSaved(id) {
+  function loadSaved(id, preloaded) {
     var dirty = $('requesterName').value.trim() || qsa('.lot').some(function (k) { return lotInput(k, 'address').value.trim(); });
     if (dirty && !confirm('入力中の内容を消して、保存した案件を開きますか？')) return;
-    google.script.run
-      .withSuccessHandler(function (res) {
+    var open = function (res) {
         $('savedDialog').close();
         fillForm(res.form);
         state.editing = { id: res.id, caseNo: res.caseNo };
@@ -4503,7 +4522,10 @@ function getUserEmail_() { return ''; }
           (res.rebuilt ? '※ この案件は保存時の入力が残っていないため、シートの内容から戻しました。受付期間などは備考欄に文字で入っています。確認してください。' : '');
         $('editBanner').classList.remove('hidden');
         window.scrollTo(0, 0);
-      })
+    };
+    if (preloaded) { open(preloaded); return; } // 一覧と一緒に受け取った内容で開く（サーバーへ取りに行かない）
+    google.script.run
+      .withSuccessHandler(open)
       .withFailureHandler(function (err) { alert('開けませんでした：' + err.message); })
       .getSavedCase(id);
   }
