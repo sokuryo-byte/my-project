@@ -3112,10 +3112,10 @@ function getUserEmail_() { return ''; }
     nt.appendChild(r1);
     nt.appendChild(el('div', { 'class': 'kx-names', style: 'display:grid;gap:8px' })); // 2つ目以降の名称・電話（ブロックは②の後）
     ask.appendChild(pt(qEl('q-kairyo-name'), 'kairyoNq', 'text'));
-    ask.appendChild(pt(nt, 'kairyoNT', 'each'));
+    ask.appendChild(pt(nt, 'kairyoNT', 'one')); // 複数筆の票では1回だけ（同じ土地改良区の筆へ写す。別の改良区なら「筆ごとに入力」）
     var addK = el('button', { type: 'button', 'class': 'linkbtn kairyo-add' }, '＋ ほかの土地改良区にもかかっている（2つ目以降の名称・電話を追加）');
     addK.addEventListener('click', function () { var b = addKairyoExtra(card, {}); if (b && b._names) b._names.querySelector('input').focus(); });
-    ask.appendChild(pt(addK, 'kairyoAdd', 'each'));
+    ask.appendChild(pt(addK, 'kairyoAdd', 'one'));
     ask.appendChild(pt(el('p', { 'class': 'caution iin-remind hidden' }, '※（イ）地元委員の押印が未回答です。農業委員会の電話を切る前に確認してください。'), 'iinRemind', 'one'));
     ask.appendChild(pt(el('div', { 'class': 'call-end' }, '農業委員会への確認はここまで'), 'nogyoEnd', 'text'));
     s1.appendChild(ask);
@@ -3140,7 +3140,7 @@ function getUserEmail_() { return ''; }
     }).forEach(function (e) { s2.appendChild(e); });
     s2.appendChild(pt(el('div', { 'class': 'dc-slot-kairyo', style: 'display:grid;gap:8px' }), 'dcK', 'one', 'kairyo')); // 分家住宅：排水承諾の要否は土地改良区に聞く
     box.appendChild(s2);
-    box.appendChild(pt(el('div', { 'class': 'kairyo-extras', style: 'display:grid;gap:8px' }), 'kx', 'each'));
+    box.appendChild(pt(el('div', { 'class': 'kairyo-extras', style: 'display:grid;gap:8px' }), 'kx', 'one'));
     // ③ 排水先（転用目的が分家住宅のとき）
     var s3 = el('div', { 'class': 'step3 step2 hidden' });
     var h3 = el('div', { 'class': 'step-h' });
@@ -3557,6 +3557,16 @@ function getUserEmail_() { return ''; }
     return partValue(dst) !== before;
   }
 
+  /** 2つ目以降の土地改良区を src の筆と同じにする（同じ電話先で1回だけ聞いた内容を写す）。変わったら true */
+  function syncKairyoExtras(src, dst) {
+    var a = cqa(src, '.kairyo-extra').map(function (b) { return readKairyoExtra(src, b); });
+    var cur = cqa(dst, '.kairyo-extra');
+    if (JSON.stringify(a) === JSON.stringify(cur.map(function (b) { return readKairyoExtra(dst, b); }))) return false;
+    cur.forEach(function (b) { b.remove(); if (b._names) b._names.remove(); });
+    a.forEach(function (d) { addKairyoExtra(dst, d); });
+    return true;
+  }
+
   /** 筆ごとの欄：答えた値を、未回答（または自動で入れたまま）の筆にも入れる */
   function propagateAnswer(t) {
     var row = t.closest && t.closest('.gm-row');
@@ -3647,6 +3657,15 @@ function getUserEmail_() { return ''; }
           sec.same.addEventListener('click', function () { sameForAll(sec); });
           head.appendChild(sec.same);
         }
+        if (d.key === 'kairyoNT') { // 土地改良区は1回だけ聞く。筆によって別の改良区なら筆ごとに入力に切り替える
+          sec.split = el('button', { type: 'button', 'class': 'linkbtn gm-same' });
+          sec.split.addEventListener('click', function () {
+            g.kairyoSplit = !sec.splitMerge;
+            if (sec.splitMerge) sec.rows.forEach(function (r) { r._part._join = true; }); // まとめ直す：1筆目の内容に合わせる
+            refreshHearing(); schedulePreview();
+          });
+          head.appendChild(sec.split);
+        }
         sec.head = head;
         sec.el.appendChild(head);
         sec.q = el('div', { 'class': 'script q gm-q hidden' });
@@ -3729,16 +3748,24 @@ function getUserEmail_() { return ''; }
       var shown = sec.rows.filter(function (r) { return partShown(r._card, r._part); });
       if (sec.kind === 'one') {
         var leaders = {};
+        // 土地改良区の名称・電話と2つ目以降：「筆ごとに入力」にしたときは筆ごとの欄にする
+        var split = g.kairyoSplit && ['kairyoNT', 'kairyoAdd', 'kx'].indexOf(sec.key) >= 0;
+        var ntSec = g.secs.filter(function (x) { return x.key === 'kairyoNT'; })[0];
+        var ntJoin = function (card) { var rr = ntSec && ntSec.rows.filter(function (x) { return x._card === card; })[0]; return rr ? rr._part._join : undefined; };
         sec.rows.forEach(function (r) { r.classList.add('hidden'); r._covers = []; });
         shown.forEach(function (r) {
-          var k = subOf(sec, r._card), L = leaders[k];
+          var k = split ? 'lot' + shown.indexOf(r) : subOf(sec, r._card), L = leaders[k];
           if (!L) { leaders[k] = r; r.classList.remove('hidden'); r._covers = [r._card]; return; }
+          if (sec.key === 'kairyoAdd' || sec.key === 'kx') r._part._join = ntJoin(r._card) !== false; // 名称・電話をまとめた筆だけまとめる
           if (r._part._join === undefined) r._part._join = partEmpty(r._part) || partValue(r._part) === partValue(L._part);
           if (r._part._join) {
             L._covers.push(r._card);
-            if (copyPart(L._part, r._part)) updateCallBox(r._card);
+            var changed = copyPart(L._part, r._part);
+            if (sec.key === 'kairyoNT' && syncKairyoExtras(L._card, r._card)) changed = true; // 2つ目以降の土地改良区も同じに
+            if (changed) updateCallBox(r._card);
           } else { r.classList.remove('hidden'); r._covers = [r._card]; leaders[k + '#' + shown.indexOf(r)] = r; }
         });
+
         var vis = sec.rows.filter(function (r) { return !r.classList.contains('hidden'); });
         vis.forEach(function (r) {
           var lab = r.querySelector('.gm-lab');
@@ -3746,7 +3773,11 @@ function getUserEmail_() { return ''; }
           lab.textContent = !many ? '' : r._covers.map(function (k) { return '物件' + (qsa('.lot').indexOf(k) + 1); }).join('・') + (sec.sub === 'kairyo' && subOf(sec, r._card) ? '（' + subOf(sec, r._card) + '）' : '');
           r.classList.toggle('gm-full', !many);
         });
-        sec.head.classList.add('hidden');
+        if (sec.split) { // 分かれているときは「まとめる」、まとまっているときは「筆ごとに入力」
+          sec.splitMerge = vis.length > 1;
+          sec.split.textContent = sec.splitMerge ? '全筆同じ土地改良区にする（1筆目に合わせる）' : '筆によって土地改良区が違う（筆ごとに入力）';
+        }
+        sec.head.classList.toggle('hidden', !(sec.split && shown.length > 1));
         sec.q.classList.add('hidden');
         sec.el.classList.remove('sq');
         sec.el.classList.toggle('hidden', !vis.length);
