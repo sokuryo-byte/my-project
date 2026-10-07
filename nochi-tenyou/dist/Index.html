@@ -65,6 +65,7 @@
   .callbox .call-band { background: var(--accent); color: #fff; border-radius: 6px; padding: 8px 12px; align-items: center; margin-top: 6px; }
   .callbox .call-band .call-band-lbl { font-size: .72rem; font-weight: 700; background: #fff; color: var(--accent); border-radius: 999px; padding: 1px 8px; }
   .callbox .call-band .tel { color: #fff; }
+  .callbox .call-band .call-band-lots { font-size: .78rem; font-weight: 700; border: 1px solid rgba(255,255,255,.7); border-radius: 4px; padding: 0 6px; }
   .callbox .step2:has(> .call-band:first-child), .gm-sec.gm-step:has(> .call-band) { border-top: none; padding-top: 0; }
   .row.row-addr { grid-template-columns: minmax(110px, .8fr) minmax(130px, 1fr) minmax(0, 2.4fr); }
   @media (max-width: 560px) { .row.row-addr { grid-template-columns: minmax(0, 1fr); } }
@@ -3612,7 +3613,13 @@ function getUserEmail_() { return ''; }
     if (!box) return;
     if (lots.length < 2) { if (gm.on || gm.sig) restoreHearing(lots); return; }
     var sig = lots.map(function (k) { return k.getAttribute('data-uid') + '@' + groupKey(k); }).join(',');
-    if (sig !== gm.sig) layoutHearing(lots, sig);
+    // 土地改良区ごとのまとまり（筆によって改良区が違うときは改良区ごとに分けて並べる）
+    var bsig = lots.map(kairyoBucketKey).join('|');
+    if (sig !== gm.sig) { layoutHearing(lots, sig); gm.bsig = bsig; }
+    else if (bsig !== gm.bsig) {
+      if (gm.bucketDue) { gm.bucketDue = false; layoutHearing(lots, sig); gm.bsig = bsig; }
+      else scheduleBucketLayout();
+    }
     gm.groups.forEach(updateSheet);
   }
 
@@ -3624,10 +3631,32 @@ function getUserEmail_() { return ''; }
     });
     $('gmSheets').innerHTML = '';
     $('hearAll').classList.add('hidden');
-    gm.on = false; gm.sig = ''; gm.groups = [];
+    gm.on = false; gm.sig = ''; gm.groups = []; gm.bsig = undefined;
+  }
+
+  /**
+   * 改良区の名称が変わったときの並べ替えは少し待ってから行う。
+   * すぐ並べ替えると、名称の入力中に欄が移って入力が途切れたり、直後のクリックが空振りしたりするため
+   */
+  function scheduleBucketLayout() {
+    if (gm.bucketTimer) return;
+    gm.bucketTimer = setTimeout(function () {
+      gm.bucketTimer = null;
+      var ae = document.activeElement;
+      if (ae && ae.matches && ae.matches('[data-f=kairyoName]')) { scheduleBucketLayout(); return; } // 入力中は待つ
+      gm.bucketDue = true;
+      refreshHearing();
+    }, 400);
+  }
+
+  /** 土地改良区のまとまりの鍵（改良区にかかる筆は名称、かからない筆は空） */
+  function kairyoBucketKey(card) {
+    return getRadio(card, 'landImprovement') === 'はい' ? lotInput(card, 'kairyoName').value.replace(/[\s　]/g, '') : '';
   }
 
   function layoutHearing(lots, sig) {
+    var bkey = {};
+    lots.forEach(function (card) { bkey[card.getAttribute('data-uid')] = kairyoBucketKey(card); }); // 部品を外す前に読む
     var sheets = $('gmSheets');
     sheets.innerHTML = '';
     var groups = [], byKey = {};
@@ -3641,12 +3670,26 @@ function getUserEmail_() { return ''; }
     var defs = lots[0]._parts.map(function (p) {
       return { key: p.getAttribute('data-part'), kind: p.getAttribute('data-kind'), sub: p.getAttribute('data-sub') || '' };
     });
+    var ki = defs.map(function (d) { return d.key; }).indexOf('kairyoH'), ke = defs.map(function (d) { return d.key; }).indexOf('kx');
     groups.forEach(function (g, gi) {
       var sheet = el('div', { 'class': 'callbox gm-sheet' });
       g.head = el('div', { 'class': 'gm-sheet-h' });
       sheet.appendChild(g.head);
-      g.secs = defs.map(function (d) {
-        var sec = { key: d.key, kind: d.kind, sub: d.sub, noProp: d.key === 'kx' || d.key === 'kairyoAdd' || d.key === 'stop', rows: [] };
+      // ②（土地改良区への電話）は改良区ごとに、帯から最後の質問までをひと続きに並べる（電話する順）
+      var keys = [];
+      g.cards.forEach(function (c) { var k = bkey[c.getAttribute('data-uid')]; if (k && keys.indexOf(k) < 0) keys.push(k); });
+      if (!keys.length) keys = [''];
+      g.buckets = keys.map(function (k) {
+        return { key: k, cards: g.cards.filter(function (c) { var b = bkey[c.getAttribute('data-uid')]; return (b && keys.indexOf(b) >= 0 ? b : keys[0]) === k; }) };
+      });
+      var plan = [];
+      defs.forEach(function (d, i) {
+        if (i === ki) g.buckets.forEach(function (bk) { defs.slice(ki, ke + 1).forEach(function (dd) { plan.push({ d: dd, cards: bk.cards }); }); });
+        if (i < ki || i > ke) plan.push({ d: d, cards: g.cards });
+      });
+      g.secs = plan.map(function (it) {
+        var d = it.d, cards = it.cards;
+        var sec = { key: d.key, kind: d.kind, sub: d.sub, cards: cards, noProp: d.key === 'kx' || d.key === 'kairyoAdd' || d.key === 'stop', rows: [] };
         sec.el = el('div', { 'class': 'gm-sec gm-' + d.kind + (d.key === 'kairyoH' || d.key === 'drainH' ? ' gm-step' : '') });
         if (d.kind === 'text') { sheet.appendChild(sec.el); return sec; }
         var head = el('div', { 'class': 'gm-head hidden' });
@@ -3670,7 +3713,7 @@ function getUserEmail_() { return ''; }
         sec.el.appendChild(head);
         sec.q = el('div', { 'class': 'script q gm-q hidden' });
         sec.el.appendChild(sec.q);
-        g.cards.forEach(function (card) {
+        cards.forEach(function (card) {
           var p = card._parts.filter(function (x) { return x.getAttribute('data-part') === d.key; })[0];
           if (!p) return;
           if (!p._ph) { p._ph = document.createComment('part'); p.parentNode.insertBefore(p._ph, p); }
@@ -3729,15 +3772,23 @@ function getUserEmail_() { return ''; }
     g.secs.forEach(function (sec) {
       if (sec.kind === 'text') {
         var seen = {}, nodes = [];
-        var on = g.cards.map(function (card) {
+        var on = (sec.cards || g.cards).map(function (card) {
           var p = card._parts.filter(function (x) { return x.getAttribute('data-part') === sec.key; })[0];
           return p && partShown(card, p) && p.textContent.trim() ? { card: card, p: p } : null;
         }).filter(Boolean);
         var onCards = on.map(function (x) { return x.card; });
+        // 土地改良区の見出し・あいさつは、同じ改良区の筆だけをまとめる（筆によって改良区が違う場合）
+        var nameOf = function (card) { return lotInput(card, 'kairyoName').value.replace(/[\s　]/g, ''); };
+        var names = [];
+        on.forEach(function (x) { if (names.indexOf(nameOf(x.card)) < 0) names.push(nameOf(x.card)); });
         on.forEach(function (x) {
-          var c = groupText(x.p, x.card, onCards);
+          var same = sec.sub === 'kairyo' ? onCards.filter(function (k) { return nameOf(k) === nameOf(x.card); }) : onCards;
+          var c = groupText(x.p, x.card, same);
           if (seen[c.textContent]) return;
           seen[c.textContent] = 1;
+          if (sec.key === 'kairyoH' && g.buckets.length > 1) { // どの筆の土地改良区か
+            c.insertBefore(el('span', { 'class': 'call-band-lots' }, same.map(function (k) { return '物件' + (qsa('.lot').indexOf(k) + 1); }).join('・')), c.querySelector('.tel'));
+          }
           nodes.push(c);
         });
         sec.el.innerHTML = '';
