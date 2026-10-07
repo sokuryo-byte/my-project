@@ -1383,6 +1383,16 @@
           var k = split ? 'lot' + shown.indexOf(r) : subOf(sec, r._card), L = leaders[k];
           if (!L) { leaders[k] = r; r.classList.remove('hidden'); r._covers = [r._card]; return; }
           if (sec.key === 'kairyoAdd' || sec.key === 'kx') r._part._join = ntJoin(r._card) !== false; // 名称・電話をまとめた筆だけまとめる
+          if (sec.key === 'kairyoNT' && r._part._join === undefined) {
+            // 名称が同じ（片方が未入力も含む）なら同じ土地改良区。片方にしか入っていない欄（電話など）は代表の欄へ補ってからまとめる
+            var nm1 = lotInput(L._card, 'kairyoName').value.replace(/[\s　]/g, ''), nm2 = lotInput(r._card, 'kairyoName').value.replace(/[\s　]/g, '');
+            if (!nm1 || !nm2 || nm1 === nm2) {
+              var ga = ctlGroups(L._part), gb = ctlGroups(r._part), filled = false;
+              ga.forEach(function (x, i) { if (gb[i] && emptyG(x) && !emptyG(gb[i])) { setG(x, getG(gb[i])); filled = true; } });
+              if (filled) updateCallBox(L._card);
+              r._part._join = true;
+            }
+          }
           if (r._part._join === undefined) r._part._join = partEmpty(r._part) || partValue(r._part) === partValue(L._part);
           if (r._part._join) {
             L._covers.push(r._card);
