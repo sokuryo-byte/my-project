@@ -179,6 +179,7 @@ function getInitialData() {
     master: getMasterList_(),
     municipalities: MUNICIPALITIES,
     nogyoIinkai: NOGYO_IINKAI,
+    nogyoWardDesks: NOGYO_WARD_DESKS,
     noCityPlanningTax: NO_CITY_PLANNING_TAX,
     fees: getFeeSettings_(), // 画面で概算見積を即時計算するための料金（見積設定シート）
     userEmail: getUserEmail_(),
@@ -285,6 +286,7 @@ function submitCase(form, requestInvestigation, editId) {
       drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
       drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
       drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
+      nogyoTanto: l.nogyoTanto, kairyoTanto: l.kairyoTanto, drainTanto: l.drainTanto,
       municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
     };
   });
@@ -404,7 +406,7 @@ function lotRowToFormLot_(r) {
     tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke), chimokuDate: s(r.chimokuDate),
     readFromTohon: s(r.readFromTohon) === '謄本から読取',
     kairyoExtra: extra.map(function (e) {
-      return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
+      return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoTanto: e.kairyoTanto || '', kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
         kairyoSettlement: e.kairyoSettlement, kairyoSettlementNote: e.settlementAmount ? String(e.settlementAmount) : '', kairyoSettlementUnit: e.settlementUnit,
         kairyoFeeAmount: e.kairyoFeeAmount ? String(e.kairyoFeeAmount) : '', kairyoFeeUnit: e.kairyoFeeUnit, kairyoFeeNote: after(e.kairyoFee),
         localConsent: e.localConsent, localContacts: e.localContacts || [] };
@@ -413,7 +415,8 @@ function lotRowToFormLot_(r) {
   ['zone', 'landImprovement', 'kairyoName', 'kairyoTel', 'kairyoBenefit', 'kairyoProcedure', 'kairyoSettlement', 'iinStamp', 'localConsent', 'purpose',
     'tenyoRireki', 'rirekiNo', 'rirekiNote', 'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'saiShinsei', 'saiShinseiNote',
     'hinochi', 'hinochiYears', 'hinochiNote', 'zeseiKyoka', 'zeseiNote', 'tenyoKanou', 'noutiKubun', 'kanouNote', 'jogaiKanou',
-    'hojoKuiki', 'hojo8nen', 'jogaiJisseki', 'jogaiNote', 'drainAdjacent', 'drainConsent', 'drainName', 'drainTel', 'drainLocalConsent']
+    'hojoKuiki', 'hojo8nen', 'jogaiJisseki', 'jogaiNote', 'drainAdjacent', 'drainConsent', 'drainName', 'drainTel', 'drainLocalConsent',
+    'nogyoTanto', 'kairyoTanto', 'drainTanto']
     .forEach(function (k) { lot[k] = s(r[k]); });
   return lot;
 }
@@ -540,7 +543,7 @@ function normalizeKairyoEntry_(e, area) {
   const feeUnit = pick_(e.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり';
   const local = pick_(e.localConsent, FORM_OPTIONS.localConsent);
   return {
-    kairyoName: str_(e.kairyoName, 100), kairyoTel: str_(e.kairyoTel, 20), kairyoBenefit: benefit,
+    kairyoName: str_(e.kairyoName, 100), kairyoTel: str_(e.kairyoTel, 20), kairyoTanto: str_(e.kairyoTanto, 50), kairyoBenefit: benefit,
     kairyoProcedure: on ? pick_(e.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
     kairyoSettlement: settlement,
     kairyoSettlementNote: settlement === '必要' ? settlementText_(e.kairyoSettlementNote, unit, area) : '',
@@ -557,7 +560,7 @@ function normalizeKairyoEntry_(e, area) {
 /** 2つ目以降の土地改良区を、シートで読める1行ずつの文字にする */
 function kairyoExtraText_(list) {
   return (list || []).map(function (e) {
-    return [e.kairyoName || '名称未入力', e.kairyoTel, e.kairyoBenefit && '受益地 ' + e.kairyoBenefit, e.kairyoProcedure && '地区除外 ' + e.kairyoProcedure,
+    return [e.kairyoName || '名称未入力', e.kairyoTel, e.kairyoTanto && '担当 ' + e.kairyoTanto, e.kairyoBenefit && '受益地 ' + e.kairyoBenefit, e.kairyoProcedure && '地区除外 ' + e.kairyoProcedure,
       e.kairyoSettlement && '決済金 ' + [e.kairyoSettlement, e.kairyoSettlementNote].filter(String).join(' '), e.kairyoFee && '手数料等 ' + e.kairyoFee,
       e.localConsent && '地元同意 ' + e.localConsent + (e.localContacts && e.localContacts.length ? '（' + contactsToText_(e.localContacts).split('\n').join('、') + '）' : '')]
       .filter(Boolean).join('／');
@@ -697,6 +700,8 @@ function normalizeLot_(l, prefecture, master) {
     // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
+    kairyoTanto: kairyoOn ? str_(l.kairyoTanto, 50) : '',
+    nogyoTanto: str_(l.nogyoTanto, 50), // 電話でお話しした方（誰に聞いたか分かるように）
     kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
     // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
     kairyoProcedure: benefitOn ? pick_(l.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
@@ -758,6 +763,7 @@ function normalizeLot_(l, prefecture, master) {
     jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
+    drainTanto: drainOn ? str_(l.drainTanto, 50) : '',
     drainConsent: drainOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
     drainName: drainConsentOn ? str_(l.drainName, 100) : '',
     drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',

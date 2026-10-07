@@ -251,6 +251,21 @@ const MAX_CONTACTS = 5;
  * 「マスタ」シートの「農業委員会 電話番号」列に入力した番号があれば、そちらを優先します。
  * { 都道府県: { 市区町村: { office: 窓口名, tel: 電話番号, url: 確認したページ } } }
  */
+/**
+ * 申請地の区で農地転用の窓口が分かれる市（所在に区が入っていれば、その区の窓口と電話番号だけを出す）。
+ * 名古屋市：出典 https://www.city.nagoya.jp/kurashi/nougyou/1015576/index.html （農地転用相談・受付窓口）
+ */
+const NOGYO_WARD_DESKS = {
+  '愛知県': {
+    '名古屋市': [
+      { office: '緑区役所 東部・緑農政課', tel: '052-625-3932', wards: ['千種区', '昭和区', '瑞穂区', '南区', '緑区', '名東区', '天白区'] },
+      { office: '守山区役所 西部・守山農政課', tel: '052-796-4551', wards: ['東区', '北区', '西区', '中村区', '中区', '守山区'] },
+      { office: '中川区役所 中川農政課', tel: '052-363-4360', wards: ['熱田区', '中川区'] },
+      { office: '港区役所南陽支所 港農政課', tel: '052-301-8209', wards: ['港区'] },
+    ],
+  },
+};
+
 const NOGYO_IINKAI = {
   '愛知県': {
     '名古屋市': { office: '名古屋市農業委員会事務局 農政課（転用は区担当の農政課へ：東部・緑 052-625-3932／西部・守山 052-796-4551／中川 052-363-4360／港 052-301-8209）', tel: '052-972-2469', url: 'https://www.city.nagoya.jp/nogyou/soshiki_list.html' },
@@ -576,6 +591,9 @@ const LOT_COLUMNS = [
   { key: 'kairyoExtra', header: '2つ目以降の土地改良区' },
   { key: 'kairyoExtraData', header: '（自動）2つ目以降の土地改良区のデータ・変更しない' },
   { key: 'chimokuDate', header: '地目変更の原因日付（既に転用済みの物件・転用した時期）' },
+  { key: 'nogyoTanto', header: '農業委員会でお話しした方（担当者名）' },
+  { key: 'kairyoTanto', header: '土地改良区でお話しした方（担当者名）' },
+  { key: 'drainTanto', header: '排水の確認でお話しした方（担当課・担当者名）' },
 ];
 
 /**
@@ -583,6 +601,9 @@ const LOT_COLUMNS = [
  * opt：選択肢（FORM_OPTIONS のキー）、type：select / multi（複数選択・「・」区切り）/ text / textarea / contacts（1行に「氏名／住所／電話」）
  */
 const LOT_EDIT_FIELDS = [
+  { group: '電話でお話しした方', key: 'nogyoTanto', label: '農業委員会', type: 'text', ph: '例）農政課 山田様' },
+  { group: '電話でお話しした方', key: 'kairyoTanto', label: '土地改良区', type: 'text', ph: '例）鈴木様' },
+  { group: '電話でお話しした方', key: 'drainTanto', label: '排水の確認先', type: 'text', ph: '例）下水道課 佐藤様' },
   { group: '過去の転用履歴・始末書', key: 'tenyoRireki', label: '転用履歴', type: 'select', opt: 'tenyoRireki' },
   { group: '過去の転用履歴・始末書', key: 'rirekiDate', label: '受理・許可日', type: 'text', ph: '例）2015/04/10' },
   { group: '過去の転用履歴・始末書', key: 'rirekiNo', label: '番号', type: 'text' },

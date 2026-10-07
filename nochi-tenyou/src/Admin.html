@@ -317,6 +317,7 @@
     state.statuses = data.statuses;
     state.lotsByCase = data.lotsByCase || {};
     state.nogyoIinkai = data.nogyoIinkai || {};
+    state.nogyoWardDesks = data.nogyoWardDesks || {};
     state.apptStatuses = data.appointmentStatuses || [];
     state.lotEditFields = data.lotEditFields || [];
     $('userInfo').textContent = data.userEmail;
@@ -408,10 +409,22 @@
     return n ? dl : null;
   }
 
+  /** 農業委員会の窓口。名古屋市など区で分かれる市は所在の区の窓口（区が分からなければ市の窓口） */
+  function nogyoDeskOf(l) {
+    var desks = ((state.nogyoWardDesks || {})[l.prefecture] || {})[l.municipality];
+    if (desks) {
+      var t = String(l.address || '').replace(/\s/g, ''), hit = null, best = 0;
+      desks.forEach(function (d) { d.wards.forEach(function (w) { if (w.length > best && t.indexOf(w) >= 0) { hit = d; best = w.length; } }); });
+      if (hit) return hit;
+    }
+    return ((state.nogyoIinkai || {})[l.prefecture] || {})[l.municipality];
+  }
+
   /** 物件の電話確認の結果を、確認する順（依頼画面のトーク例の順）に並べる */
   function lotSteps(l) {
     var bad = function (v) { return v === '難しい' ? 'bad' : ''; };
     var steps = [
+      ['電話でお話しした方', [['農業委員会', l.nogyoTanto], ['土地改良区', l.kairyoTanto], ['排水の確認先', l.drainTanto]]],
       ['非農地証明・是正', [
         ['非農地証明', l.hinochi, l.hinochi === '不可' ? 'bad' : ''], ['利用年数', l.hinochiYears], ['証明資料', l.hinochiDocs], ['要件・備考', l.hinochiNote],
         ['是正の許可申請', l.zeseiKyoka, l.zeseiKyoka === 'できない' ? 'bad' : ''], ['是正の備考', l.zeseiNote]]],
@@ -438,7 +451,7 @@
     var at = steps.map(function (x) { return x[0]; }).indexOf('土地改良区') + 1;
     kairyoExtras(l).forEach(function (e, k) {
       steps.splice(at + k, 0, ['土地改良区（' + (k + 2) + '）', [
-        ['名称', e.kairyoName], ['電話', e.kairyoTel], ['受益地', e.kairyoBenefit], ['地区除外の手続き', e.kairyoProcedure],
+        ['名称', e.kairyoName], ['電話', e.kairyoTel], ['お話しした方', e.kairyoTanto], ['受益地', e.kairyoBenefit], ['地区除外の手続き', e.kairyoProcedure],
         ['決済金', [e.kairyoSettlement, e.kairyoSettlementNote].filter(has).join('／')], ['手数料等', e.kairyoFee],
         ['地元の同意', e.localConsent], ['同意が必要な方', (e.localContacts || []).map(function (c) { return [c.name, c.address, c.tel].join('／'); }).join('\n')]]]);
     });
@@ -625,16 +638,16 @@
     };
     var ORDER = ['農業委員会', '土地改良区', '地元委員', '地元関係者', '用水（排水）', '排水の地元'];
     lots.forEach(function (l) {
-      var iin = ((state.nogyoIinkai || {})[l.prefecture] || {})[l.municipality];
+      var iin = nogyoDeskOf(l);
       var iinTodo = [
         has(l.tenyoRireki) && '転用履歴 ' + l.tenyoRireki + (has(l.shimatsusho) ? '・始末書 ' + l.shimatsusho : ''),
         has(l.jogaiKanou) && '農振除外 ' + l.jogaiKanou + (has(l.jogaiUketsuke) ? '（受付 ' + l.jogaiUketsuke + '）' : ''),
         has(l.tenyoKanou) && '転用 ' + l.tenyoKanou + (has(l.noutiKubun) ? '（' + l.noutiKubun + '）' : ''),
         has(l.tenyoUketsuke) && '農転受付 ' + l.tenyoUketsuke
       ];
-      if (iin) add('農業委員会', String(iin.office).replace(/（.*$/, ''), iin.tel, '', iinTodo, l.no);
+      if (iin) add('農業委員会', String(iin.office).replace(/（.*$/, '') + (has(l.nogyoTanto) ? '（担当 ' + l.nogyoTanto + '）' : ''), iin.tel, '', iinTodo, l.no);
       if (has(l.kairyoName) || has(l.kairyoTel)) {
-        add('土地改良区', l.kairyoName, l.kairyoTel, '', [
+        add('土地改良区', l.kairyoName + (has(l.kairyoTanto) ? '（担当 ' + l.kairyoTanto + '）' : ''), l.kairyoTel, '', [
           has(l.kairyoBenefit) && '受益地 ' + l.kairyoBenefit,
           has(l.kairyoProcedure) && '地区除外 ' + l.kairyoProcedure,
           has(l.kairyoSettlement) && '決済金 ' + [l.kairyoSettlement, l.kairyoSettlementNote].filter(has).join(' '),

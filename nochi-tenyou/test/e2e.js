@@ -308,6 +308,14 @@ const OUT = path.join(__dirname, 'out');
   assert.strictEqual(await a.$eval('#detail table.ct a.tel', (e) => e.getAttribute('href')).then((h) => h.startsWith('tel:')), true);
   const ct = await a.$$eval('#detail table.ct tr:not(.appt)', (rows) => rows.map((r) => r.querySelector('.kind').textContent + '|' + r.querySelector('.lots').textContent));
   assert.deepStrictEqual(ct, ['農業委員会|物件1・2', '土地改良区|物件1・2', '地元委員|物件1']);
+  // 名古屋市は所在の区の窓口だけ、お話しした方（担当者名）も出す
+  const ngy = await a.evaluate(() => {
+    const ls = JSON.parse(JSON.stringify(state.lotsByCase[state.cases[0].id]));
+    ls[0].prefecture = '愛知県'; ls[0].municipality = '名古屋市'; ls[0].address = '名古屋市港区○○町'; ls[0].nogyoTanto = '港農政課 田中様';
+    const c = buildContacts(ls).filter((x) => x.kind === '農業委員会')[0];
+    return [c.name, c.tel, lotSteps(ls[0])[0][1][0][1]];
+  });
+  assert.deepStrictEqual(ngy, ['港区役所南陽支所 港農政課（担当 港農政課 田中様）', '052-301-8209', '港農政課 田中様']);
 
   // 訪問のアポイント（地元委員など伺う相手だけ）：入力するとその場で保存、PDFにも出る
   assert.strictEqual((await a.$$('#detail tr.appt')).length, 1);
