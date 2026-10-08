@@ -97,16 +97,16 @@ function runMigrations_() {
     }
   }
   // 地目変更登記の計算を変えたため（3筆目から筆数加算）、提示前の案件の概算を1回計算し直す
-  if (props.getProperty('RECALC_2026_06') !== '1') {
+  if (props.getProperty('RECALC_2026_07') !== '1') {
     const lock1 = LockService.getScriptLock();
     lock1.waitLock(30 * 1000);
     try {
-      if (props.getProperty('RECALC_2026_06') !== '1') {
-        props.setProperty('RECALC_2026_06_RESULT', String(recalcOpenEstimates_()));
-        props.setProperty('RECALC_2026_06', '1');
+      if (props.getProperty('RECALC_2026_07') !== '1') {
+        props.setProperty('RECALC_2026_07_RESULT', String(recalcOpenEstimates_()));
+        props.setProperty('RECALC_2026_07', '1');
       }
     } catch (e) {
-      logError_('RECALC_2026_06', e && e.message || e, '');
+      logError_('RECALC_2026_07', e && e.message || e, '');
     } finally {
       lock1.releaseLock();
     }
@@ -275,7 +275,7 @@ function submitCase(form, requestInvestigation, editId) {
       address: l.address, lotNumber: l.lotNumber, chimoku: l.chimoku, area: l.area === null ? '' : l.area,
       zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
-      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
+      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure, kairyoDrain: l.kairyoDrain,
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote, kairyoFee: l.kairyoFee,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
@@ -423,7 +423,7 @@ function lotRowToFormLot_(r) {
     tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke), chimokuDate: s(r.chimokuDate),
     readFromTohon: s(r.readFromTohon) === '謄本から読取',
     kairyoExtra: extra.map(function (e) {
-      return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoTanto: e.kairyoTanto || '', kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
+      return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoTanto: e.kairyoTanto || '', kairyoDrain: e.kairyoDrain || '', kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
         kairyoSettlement: e.kairyoSettlement, kairyoSettlementNote: e.settlementAmount ? String(e.settlementAmount) : '', kairyoSettlementUnit: e.settlementUnit,
         kairyoFeeAmount: e.kairyoFeeAmount ? String(e.kairyoFeeAmount) : '', kairyoFeeUnit: e.kairyoFeeUnit, kairyoFeeNote: after(e.kairyoFee),
         localConsent: e.localConsent, localContacts: e.localContacts || [] };
@@ -433,7 +433,7 @@ function lotRowToFormLot_(r) {
     'tenyoRireki', 'rirekiNo', 'rirekiNote', 'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'saiShinsei', 'saiShinseiNote',
     'hinochi', 'hinochiYears', 'hinochiNote', 'zeseiKyoka', 'zeseiNote', 'tenyoKanou', 'noutiKubun', 'kanouNote', 'jogaiKanou',
     'hojoKuiki', 'hojo8nen', 'jogaiJisseki', 'jogaiNote', 'drainAdjacent', 'drainConsent', 'drainName', 'drainTel', 'drainLocalConsent',
-    'nogyoTanto', 'kairyoTanto', 'drainTanto']
+    'nogyoTanto', 'kairyoTanto', 'drainTanto', 'kairyoDrain']
     .forEach(function (k) { lot[k] = s(r[k]); });
   return lot;
 }
@@ -561,6 +561,7 @@ function normalizeKairyoEntry_(e, area) {
   const local = pick_(e.localConsent, FORM_OPTIONS.localConsent);
   return {
     kairyoName: str_(e.kairyoName, 100), kairyoTel: str_(e.kairyoTel, 20), kairyoTanto: str_(e.kairyoTanto, 50), kairyoBenefit: benefit,
+    kairyoDrain: pick_(e.kairyoDrain, FORM_OPTIONS.drainConsent),
     kairyoProcedure: on ? pick_(e.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
     kairyoSettlement: settlement,
     kairyoSettlementNote: settlement === '必要' ? settlementText_(e.kairyoSettlementNote, unit, area) : '',
@@ -579,6 +580,7 @@ function kairyoExtraText_(list) {
   return (list || []).map(function (e) {
     return [e.kairyoName || '名称未入力', e.kairyoTel, e.kairyoTanto && '担当 ' + e.kairyoTanto, e.kairyoBenefit && '受益地 ' + e.kairyoBenefit, e.kairyoProcedure && '地区除外 ' + e.kairyoProcedure,
       e.kairyoSettlement && '決済金 ' + [e.kairyoSettlement, e.kairyoSettlementNote].filter(String).join(' '), e.kairyoFee && '手数料等 ' + e.kairyoFee,
+      e.kairyoDrain && '排水同意 ' + e.kairyoDrain,
       e.localConsent && '地元同意 ' + e.localConsent + (e.localContacts && e.localContacts.length ? '（' + contactsToText_(e.localContacts).split('\n').join('、') + '）' : '')]
       .filter(Boolean).join('／');
   }).join('\n');
@@ -691,7 +693,8 @@ function normalizeLot_(l, prefecture, master) {
   const drainOn = go && purpose === '分家住宅';
   const hinochiOn = convOn && !rirekiOn && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域';
   const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
-  const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
+  // 排水承諾：土地改良区にかかる物件は②で土地改良区ごとに聞く（kairyoDrain）。かからない分家住宅だけここで聞く
+  const drainConsentOn = drainOn && !kairyoOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要'; // 排水に伴う地元承諾は排水承諾の要否にかかわらず聞く
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
@@ -718,6 +721,7 @@ function normalizeLot_(l, prefecture, master) {
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
     kairyoTanto: kairyoOn ? str_(l.kairyoTanto, 50) : '',
+    kairyoDrain: kairyoOn ? pick_(l.kairyoDrain, FORM_OPTIONS.drainConsent) : '', // 排水同意（同意書の発行）は土地改良区ごとに確認
     nogyoTanto: str_(l.nogyoTanto, 50), // 電話でお話しした方（誰に聞いたか分かるように）
     kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
     // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
@@ -781,7 +785,7 @@ function normalizeLot_(l, prefecture, master) {
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
     drainTanto: drainOn ? str_(l.drainTanto, 50) : '',
-    drainConsent: drainOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
+    drainConsent: drainOn && !kairyoOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
     drainName: drainConsentOn ? str_(l.drainName, 100) : '',
     drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',
     drainFee: drainConsentOn ? [yenText_(l.drainFeeAmount), str_(l.drainFeeNote, 100)].filter(String).join('／') : '',

@@ -62,7 +62,8 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
       lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') + (l.kairyoTanto ? '／担当 ' + l.kairyoTanto : '') +
         '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +
         (l.kairyoSettlement ? '／決済金:' + l.kairyoSettlement : '') +
-        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : ''));
+        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : '') +
+        (l.kairyoDrain ? '／排水同意 ' + l.kairyoDrain : ''));
     }
     (l.landImprovement === 'はい' ? l.kairyoExtra || [] : []).forEach(function (e, k) {
       lines.push('　　土地改良区（' + (k + 2) + '）：' + kairyoExtraText_([e]));

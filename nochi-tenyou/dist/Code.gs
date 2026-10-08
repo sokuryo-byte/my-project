@@ -115,10 +115,16 @@ const DEFAULT_FEES = [
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
   { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）（1人あたり）', amount: 20000,
     note: '同意（押印）が必要な人数分を加算（土地改良区で確認した地元関係者＋排水の地元承諾者。同じ人は1人）。人数が未確認（「未確認」「分からない」）の場合は1人分で仮計上' },
+  { key: 'ADD_JIZEN_BUNKE', label: '事前相談等（分家住宅）', amount: 40000,
+    note: '転用目的が「分家住宅」の物件がある場合に、報酬の最初に1回加算' },
+  { key: 'ADD_JIZEN_KYOKA', label: '事前相談等（農地転用許可）', amount: 25000,
+    note: '農地転用の許可（市街化調整区域・非線引き・都市計画区域外）がある場合に、報酬の最初に1回加算（分家住宅のときは「事前相談等（分家住宅）」）' },
+  { key: 'COST_KENCHIKU', label: '建築許可 実費（分家住宅）', amount: 7300,
+    note: '転用目的が「分家住宅」の場合に実費として加算。計画により開発行為を伴う場合は別途見積' },
   { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 300000,
     note: '転用目的が「分家住宅」で、市街化調整区域の物件がある場合に加算（料金表 4001。開発許可（29条）となる場合は 4002）' },
-  { key: 'ADD_DRAINAGE', label: '排水承諾手続', amount: 40000,
-    note: '転用目的が「分家住宅」で、排水承諾が「必要」「未確認」（未回答を含む）の物件がある場合に加算（料金表 4203）' },
+  { key: 'ADD_DRAINAGE', label: '排水同意手続（同意書）', amount: 40000,
+    note: '土地改良区ごとに、排水同意（同意書の発行）が「必要」と回答があった改良区の数だけ加算。分家住宅は未確認の改良区も仮に加算。土地改良区にかからない分家住宅は排水承諾が「必要」「未確認」なら1件（料金表 4203）' },
   { key: 'ADD_GENKYO', label: '現況証明（非農地証明）願出', amount: 120000,
     note: '農業委員会に確認し、非農地証明（現況証明）で対応できると回答があった物件がある場合に加算（その物件は許可申請を計上しない。料金表 4100）' },
   { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
@@ -158,7 +164,8 @@ const FEE_PATCHES = {
   '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
   '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
   '2026-05': ['ADD_CHIMOKU:label'],
-  '2026-08': ['ADD_CHIMOKU:label'],       // 地目変更登記の別申請（登記所・原因日付が異なる場合は2件目以降50%）の説明を更新       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
+  '2026-08': ['ADD_CHIMOKU:label'],
+  '2026-09': ['ADD_DRAINAGE:label'],       // 排水同意は土地改良区ごと（事前相談等・建築許可の実費は新しい行として追加される）       // 地目変更登記の別申請（登記所・原因日付が異なる場合は2件目以降50%）の説明を更新       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
   '2026-06': ['ADD_WATER_ASSOCIATION:label'], // 地元承諾書は人数分（名称と条件だけ更新、金額はそのまま）
   '2026-07': ['ADD_GENKYO:label'],            // 現況証明は「非農地証明で対応できる」と回答があった場合だけ（条件の説明だけ更新）
 };
@@ -596,6 +603,7 @@ const LOT_COLUMNS = [
   { key: 'chimokuDate', header: '地目変更の原因日付（既に転用済みの物件・転用した時期）' },
   { key: 'nogyoTanto', header: '農業委員会でお話しした方（担当者名）' },
   { key: 'kairyoTanto', header: '土地改良区でお話しした方（担当者名）' },
+  { key: 'kairyoDrain', header: '土地改良区 排水同意（同意書の発行）' },
   { key: 'drainTanto', header: '排水の確認でお話しした方（担当課・担当者名）' },
 ];
 
@@ -642,6 +650,7 @@ const LOT_EDIT_FIELDS = [
   { group: '土地改良区', key: 'kairyoSettlement', label: '決済金', type: 'select', opt: 'kairyoSettlement' },
   { group: '土地改良区', key: 'kairyoSettlementNote', label: '決済金の金額', type: 'text', ph: '例）1㎡あたり 300円（または 150,000円）' },
   { group: '土地改良区', key: 'kairyoFee', label: '手数料等', type: 'text', ph: '例）1申請あたり 5,000円／事務手数料' },
+  { group: '土地改良区', key: 'kairyoDrain', label: '排水同意（同意書の発行）', type: 'select', opt: 'drainConsent' },
   { group: '地元委員の押印', key: 'iinStamp', label: '押印', type: 'select', opt: 'iinStamp' },
   { group: '地元委員の押印', key: 'iinContacts', label: '委員', type: 'contacts' },
   { group: '地元関係者の同意（押印）', key: 'localConsent', label: '同意', type: 'select', opt: 'localConsent' },
@@ -925,16 +934,16 @@ function runMigrations_() {
     }
   }
   // 地目変更登記の計算を変えたため（3筆目から筆数加算）、提示前の案件の概算を1回計算し直す
-  if (props.getProperty('RECALC_2026_06') !== '1') {
+  if (props.getProperty('RECALC_2026_07') !== '1') {
     const lock1 = LockService.getScriptLock();
     lock1.waitLock(30 * 1000);
     try {
-      if (props.getProperty('RECALC_2026_06') !== '1') {
-        props.setProperty('RECALC_2026_06_RESULT', String(recalcOpenEstimates_()));
-        props.setProperty('RECALC_2026_06', '1');
+      if (props.getProperty('RECALC_2026_07') !== '1') {
+        props.setProperty('RECALC_2026_07_RESULT', String(recalcOpenEstimates_()));
+        props.setProperty('RECALC_2026_07', '1');
       }
     } catch (e) {
-      logError_('RECALC_2026_06', e && e.message || e, '');
+      logError_('RECALC_2026_07', e && e.message || e, '');
     } finally {
       lock1.releaseLock();
     }
@@ -1103,7 +1112,7 @@ function submitCase(form, requestInvestigation, editId) {
       address: l.address, lotNumber: l.lotNumber, chimoku: l.chimoku, area: l.area === null ? '' : l.area,
       zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
       isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
-      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
+      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure, kairyoDrain: l.kairyoDrain,
       kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote, kairyoFee: l.kairyoFee,
       iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
       localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
@@ -1251,7 +1260,7 @@ function lotRowToFormLot_(r) {
     tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke), chimokuDate: s(r.chimokuDate),
     readFromTohon: s(r.readFromTohon) === '謄本から読取',
     kairyoExtra: extra.map(function (e) {
-      return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoTanto: e.kairyoTanto || '', kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
+      return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoTanto: e.kairyoTanto || '', kairyoDrain: e.kairyoDrain || '', kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
         kairyoSettlement: e.kairyoSettlement, kairyoSettlementNote: e.settlementAmount ? String(e.settlementAmount) : '', kairyoSettlementUnit: e.settlementUnit,
         kairyoFeeAmount: e.kairyoFeeAmount ? String(e.kairyoFeeAmount) : '', kairyoFeeUnit: e.kairyoFeeUnit, kairyoFeeNote: after(e.kairyoFee),
         localConsent: e.localConsent, localContacts: e.localContacts || [] };
@@ -1261,7 +1270,7 @@ function lotRowToFormLot_(r) {
     'tenyoRireki', 'rirekiNo', 'rirekiNote', 'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'saiShinsei', 'saiShinseiNote',
     'hinochi', 'hinochiYears', 'hinochiNote', 'zeseiKyoka', 'zeseiNote', 'tenyoKanou', 'noutiKubun', 'kanouNote', 'jogaiKanou',
     'hojoKuiki', 'hojo8nen', 'jogaiJisseki', 'jogaiNote', 'drainAdjacent', 'drainConsent', 'drainName', 'drainTel', 'drainLocalConsent',
-    'nogyoTanto', 'kairyoTanto', 'drainTanto']
+    'nogyoTanto', 'kairyoTanto', 'drainTanto', 'kairyoDrain']
     .forEach(function (k) { lot[k] = s(r[k]); });
   return lot;
 }
@@ -1389,6 +1398,7 @@ function normalizeKairyoEntry_(e, area) {
   const local = pick_(e.localConsent, FORM_OPTIONS.localConsent);
   return {
     kairyoName: str_(e.kairyoName, 100), kairyoTel: str_(e.kairyoTel, 20), kairyoTanto: str_(e.kairyoTanto, 50), kairyoBenefit: benefit,
+    kairyoDrain: pick_(e.kairyoDrain, FORM_OPTIONS.drainConsent),
     kairyoProcedure: on ? pick_(e.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
     kairyoSettlement: settlement,
     kairyoSettlementNote: settlement === '必要' ? settlementText_(e.kairyoSettlementNote, unit, area) : '',
@@ -1407,6 +1417,7 @@ function kairyoExtraText_(list) {
   return (list || []).map(function (e) {
     return [e.kairyoName || '名称未入力', e.kairyoTel, e.kairyoTanto && '担当 ' + e.kairyoTanto, e.kairyoBenefit && '受益地 ' + e.kairyoBenefit, e.kairyoProcedure && '地区除外 ' + e.kairyoProcedure,
       e.kairyoSettlement && '決済金 ' + [e.kairyoSettlement, e.kairyoSettlementNote].filter(String).join(' '), e.kairyoFee && '手数料等 ' + e.kairyoFee,
+      e.kairyoDrain && '排水同意 ' + e.kairyoDrain,
       e.localConsent && '地元同意 ' + e.localConsent + (e.localContacts && e.localContacts.length ? '（' + contactsToText_(e.localContacts).split('\n').join('、') + '）' : '')]
       .filter(Boolean).join('／');
   }).join('\n');
@@ -1519,7 +1530,8 @@ function normalizeLot_(l, prefecture, master) {
   const drainOn = go && purpose === '分家住宅';
   const hinochiOn = convOn && !rirekiOn && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域';
   const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
-  const drainConsentOn = drainOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
+  // 排水承諾：土地改良区にかかる物件は②で土地改良区ごとに聞く（kairyoDrain）。かからない分家住宅だけここで聞く
+  const drainConsentOn = drainOn && !kairyoOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
   const drainLocalOn = drainOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要'; // 排水に伴う地元承諾は排水承諾の要否にかかわらず聞く
 
   const areaText = str_(l.area).replace(/[,，]/g, '');
@@ -1546,6 +1558,7 @@ function normalizeLot_(l, prefecture, master) {
     kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
     kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
     kairyoTanto: kairyoOn ? str_(l.kairyoTanto, 50) : '',
+    kairyoDrain: kairyoOn ? pick_(l.kairyoDrain, FORM_OPTIONS.drainConsent) : '', // 排水同意（同意書の発行）は土地改良区ごとに確認
     nogyoTanto: str_(l.nogyoTanto, 50), // 電話でお話しした方（誰に聞いたか分かるように）
     kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
     // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
@@ -1609,7 +1622,7 @@ function normalizeLot_(l, prefecture, master) {
     // 排水先（分家住宅のとき）
     drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
     drainTanto: drainOn ? str_(l.drainTanto, 50) : '',
-    drainConsent: drainOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
+    drainConsent: drainOn && !kairyoOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
     drainName: drainConsentOn ? str_(l.drainName, 100) : '',
     drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',
     drainFee: drainConsentOn ? [yenText_(l.drainFeeAmount), str_(l.drainFeeNote, 100)].filter(String).join('／') : '',
@@ -2276,20 +2289,40 @@ function calculateEstimate_(input) {
     }
   }
 
-  // --- 4-3. 分家住宅：分家建築許可（調整区域）・排水承諾手続 ---
+  // --- 4-3. 分家住宅：分家建築許可（調整区域）・建築許可の実費 ---
   const bunkeLots = lots.filter(function (l) { return l.purpose === '分家住宅'; }); // 目的は調整区域の物件のみ
   if (bunkeLots.length) {
     items.push(item('ADD_BUNKE'));
-    notes.push('開発許可（都市計画法29条）となる場合は金額が変わります。');
-    const drainLots = bunkeLots.filter(function (l) { return l.drainConsent !== '不要'; });
-    if (drainLots.length) {
-      items.push(item('ADD_DRAINAGE'));
-      if (!drainLots.some(function (l) { return l.drainConsent === '必要'; })) {
-        notes.push('排水承諾の要否が未確認のため加算しています。不要な場合は減額となります。');
-      }
-    }
-
+    items.push(cost(item('COST_KENCHIKU')));
+    notes.push('計画により開発行為を伴う場合は、別途見積となります。');
   }
+  // --- 4-4. 排水同意（同意書）：土地改良区ごとに確認。分家住宅は未確認の改良区も仮に計上 ---
+  const drainTo = {};
+  let drainUnknown = false;
+  lots.forEach(function (l) {
+    const bunke = l.purpose === '分家住宅';
+    const entries = kairyoEntries_(l);
+    if (entries.length) {
+      entries.forEach(function (e) {
+        const ans = e.kairyoDrain || '';
+        if (ans === '必要' || (bunke && ans !== '不要')) {
+          drainTo[e.kairyoName || '土地改良区'] = true;
+          if (ans !== '必要') drainUnknown = true;
+        }
+      });
+    } else if (bunke && l.drainConsent !== '不要') { // 土地改良区にかからない分家住宅
+      drainTo['（排水先）'] = true;
+      if (l.drainConsent !== '必要') drainUnknown = true;
+    }
+  });
+  const drainN = Object.keys(drainTo).length;
+  if (drainN) {
+    items.push(item('ADD_DRAINAGE', drainN));
+    if (drainUnknown) notes.push('排水同意（同意書）の要否が未確認の土地改良区（排水先）があるため加算しています。不要な場合は減額となります。');
+  }
+  // --- 0. 事前相談等（報酬の最初）：分家住宅 40,000円、農地転用許可のみ 25,000円 ---
+  if (bunkeLots.length) items.unshift(item('ADD_JIZEN_BUNKE'));
+  else if (lots.some(function (l) { return PERMIT_ZONES.indexOf(l.zone) >= 0; })) items.unshift(item('ADD_JIZEN_KYOKA'));
   lots.forEach(function (l, i) {
     // 現況利用と「既に転用済み」の食い違い
     if (CONVERTED_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'いいえ') {
@@ -2429,7 +2462,7 @@ function lotRowToEstimateLot_(r) {
     prefecture: String(r.prefecture || ''), municipality: String(r.municipality || ''), address: String(r.address || ''),
     chimokuDate: String(r.chimokuDate || ''),
   };
-  ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'localConsent', 'iinStamp', 'purpose',
+  ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'kairyoDrain', 'localConsent', 'iinStamp', 'purpose',
     'drainConsent', 'drainLocalConsent', 'drainName', 'jogaiKanou', 'jogaiNote', 'jogaiUketsuke', 'tenyoKanou', 'kanouNote',
     'noutiKubun', 'tenyoUketsuke', 'tenyoRireki', 'rirekiDate', 'rirekiNo', 'rirekiNote', 'saiShinsei', 'saiShinseiNote',
     'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'hojoKuiki', 'hojo8nen',
@@ -2542,7 +2575,7 @@ function addActualCosts_(lots, items, notes) {
 function kairyoEntries_(l) {
   if (l.landImprovement !== 'はい') return [];
   return [{
-    kairyoName: l.kairyoName, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
+    kairyoName: l.kairyoName, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure, kairyoDrain: l.kairyoDrain,
     settlementAmount: l.settlementAmount, settlementUnit: l.settlementUnit, kairyoFeeAmount: l.kairyoFeeAmount, kairyoFeeUnit: l.kairyoFeeUnit,
     localConsent: l.localConsent, localContacts: l.localContacts,
   }].concat(Array.isArray(l.kairyoExtra) ? l.kairyoExtra : []);
@@ -3030,7 +3063,8 @@ function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
       lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') + (l.kairyoTanto ? '／担当 ' + l.kairyoTanto : '') +
         '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +
         (l.kairyoSettlement ? '／決済金:' + l.kairyoSettlement : '') +
-        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : ''));
+        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : '') +
+        (l.kairyoDrain ? '／排水同意 ' + l.kairyoDrain : ''));
     }
     (l.landImprovement === 'はい' ? l.kairyoExtra || [] : []).forEach(function (e, k) {
       lines.push('　　土地改良区（' + (k + 2) + '）：' + kairyoExtraText_([e]));

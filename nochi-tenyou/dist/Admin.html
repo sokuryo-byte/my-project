@@ -649,7 +649,7 @@
       ['農地転用の受付', [['受付', l.tenyoUketsuke]]],
       ['土地改良区', [
         ['名称', l.kairyoName], ['電話', l.kairyoTel], ['受益地', l.kairyoBenefit], ['地区除外の手続き', l.kairyoProcedure],
-        ['決済金', [l.kairyoSettlement, l.kairyoSettlementNote].filter(has).join('／')], ['手数料等', l.kairyoFee]]],
+        ['決済金', [l.kairyoSettlement, l.kairyoSettlementNote].filter(has).join('／')], ['手数料等', l.kairyoFee], ['排水同意', l.kairyoDrain]]],
       ['地元委員の押印', [['押印', l.iinStamp], ['委員', l.iinContacts]]],
       ['地元関係者の同意（押印）', [['同意', l.localConsent], ['同意が必要な方', l.localContacts]]],
       ['排水', [
@@ -661,7 +661,7 @@
     kairyoExtras(l).forEach(function (e, k) {
       steps.splice(at + k, 0, ['土地改良区（' + (k + 2) + '）', [
         ['名称', e.kairyoName], ['電話', e.kairyoTel], ['お話しした方', e.kairyoTanto], ['受益地', e.kairyoBenefit], ['地区除外の手続き', e.kairyoProcedure],
-        ['決済金', [e.kairyoSettlement, e.kairyoSettlementNote].filter(has).join('／')], ['手数料等', e.kairyoFee],
+        ['決済金', [e.kairyoSettlement, e.kairyoSettlementNote].filter(has).join('／')], ['手数料等', e.kairyoFee], ['排水同意', e.kairyoDrain],
         ['地元の同意', e.localConsent], ['同意が必要な方', (e.localContacts || []).map(function (c) { return [c.name, c.address, c.tel].join('／'); }).join('\n')]]]);
     });
     return steps;

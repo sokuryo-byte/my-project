@@ -177,20 +177,40 @@ function calculateEstimate_(input) {
     }
   }
 
-  // --- 4-3. 分家住宅：分家建築許可（調整区域）・排水承諾手続 ---
+  // --- 4-3. 分家住宅：分家建築許可（調整区域）・建築許可の実費 ---
   const bunkeLots = lots.filter(function (l) { return l.purpose === '分家住宅'; }); // 目的は調整区域の物件のみ
   if (bunkeLots.length) {
     items.push(item('ADD_BUNKE'));
-    notes.push('開発許可（都市計画法29条）となる場合は金額が変わります。');
-    const drainLots = bunkeLots.filter(function (l) { return l.drainConsent !== '不要'; });
-    if (drainLots.length) {
-      items.push(item('ADD_DRAINAGE'));
-      if (!drainLots.some(function (l) { return l.drainConsent === '必要'; })) {
-        notes.push('排水承諾の要否が未確認のため加算しています。不要な場合は減額となります。');
-      }
-    }
-
+    items.push(cost(item('COST_KENCHIKU')));
+    notes.push('計画により開発行為を伴う場合は、別途見積となります。');
   }
+  // --- 4-4. 排水同意（同意書）：土地改良区ごとに確認。分家住宅は未確認の改良区も仮に計上 ---
+  const drainTo = {};
+  let drainUnknown = false;
+  lots.forEach(function (l) {
+    const bunke = l.purpose === '分家住宅';
+    const entries = kairyoEntries_(l);
+    if (entries.length) {
+      entries.forEach(function (e) {
+        const ans = e.kairyoDrain || '';
+        if (ans === '必要' || (bunke && ans !== '不要')) {
+          drainTo[e.kairyoName || '土地改良区'] = true;
+          if (ans !== '必要') drainUnknown = true;
+        }
+      });
+    } else if (bunke && l.drainConsent !== '不要') { // 土地改良区にかからない分家住宅
+      drainTo['（排水先）'] = true;
+      if (l.drainConsent !== '必要') drainUnknown = true;
+    }
+  });
+  const drainN = Object.keys(drainTo).length;
+  if (drainN) {
+    items.push(item('ADD_DRAINAGE', drainN));
+    if (drainUnknown) notes.push('排水同意（同意書）の要否が未確認の土地改良区（排水先）があるため加算しています。不要な場合は減額となります。');
+  }
+  // --- 0. 事前相談等（報酬の最初）：分家住宅 40,000円、農地転用許可のみ 25,000円 ---
+  if (bunkeLots.length) items.unshift(item('ADD_JIZEN_BUNKE'));
+  else if (lots.some(function (l) { return PERMIT_ZONES.indexOf(l.zone) >= 0; })) items.unshift(item('ADD_JIZEN_KYOKA'));
   lots.forEach(function (l, i) {
     // 現況利用と「既に転用済み」の食い違い
     if (CONVERTED_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'いいえ') {
@@ -330,7 +350,7 @@ function lotRowToEstimateLot_(r) {
     prefecture: String(r.prefecture || ''), municipality: String(r.municipality || ''), address: String(r.address || ''),
     chimokuDate: String(r.chimokuDate || ''),
   };
-  ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'localConsent', 'iinStamp', 'purpose',
+  ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'kairyoDrain', 'localConsent', 'iinStamp', 'purpose',
     'drainConsent', 'drainLocalConsent', 'drainName', 'jogaiKanou', 'jogaiNote', 'jogaiUketsuke', 'tenyoKanou', 'kanouNote',
     'noutiKubun', 'tenyoUketsuke', 'tenyoRireki', 'rirekiDate', 'rirekiNo', 'rirekiNote', 'saiShinsei', 'saiShinseiNote',
     'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'hojoKuiki', 'hojo8nen',
@@ -443,7 +463,7 @@ function addActualCosts_(lots, items, notes) {
 function kairyoEntries_(l) {
   if (l.landImprovement !== 'はい') return [];
   return [{
-    kairyoName: l.kairyoName, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure,
+    kairyoName: l.kairyoName, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure, kairyoDrain: l.kairyoDrain,
     settlementAmount: l.settlementAmount, settlementUnit: l.settlementUnit, kairyoFeeAmount: l.kairyoFeeAmount, kairyoFeeUnit: l.kairyoFeeUnit,
     localConsent: l.localConsent, localContacts: l.localContacts,
   }].concat(Array.isArray(l.kairyoExtra) ? l.kairyoExtra : []);

@@ -350,6 +350,7 @@
       ['nogyoTanto', 'kairyoTanto', 'drainTanto'].forEach(function (k) { lotInput(card, k).value = inherit[k] || ''; }); // 同じ電話で聞いた相手
       // 同じ土地改良区なら、受益地・手続き・決済金（単価）・手数料も同じことが多いので引き継ぐ（筆ごとに変更可）
       setRadio(card, 'kairyoBenefit', inherit.kairyoBenefit);
+      setRadio(card, 'kairyoDrain', inherit.kairyoDrain);
       setRadio(card, 'kairyoProcedure', inherit.kairyoProcedure);
       setRadio(card, 'kairyoSettlement', inherit.kairyoSettlement);
       lotInput(card, 'kairyoSettlementNote').value = inherit.kairyoSettlementNote || '';
@@ -446,6 +447,7 @@
       kairyoName: lotInput(card, 'kairyoName').value,
       kairyoTel: lotInput(card, 'kairyoTel').value,
       kairyoBenefit: getRadio(card, 'kairyoBenefit'),
+      kairyoDrain: getRadio(card, 'kairyoDrain'),
       kairyoProcedure: getRadio(card, 'kairyoProcedure'),
       kairyoSettlement: getRadio(card, 'kairyoSettlement'),
       kairyoSettlementNote: lotInput(card, 'kairyoSettlementNote').value,
@@ -764,7 +766,6 @@
       cls: function (name) { return { detail: 'kairyo-detail', settleNote: 'settle-note', calc: 'settle-calc' }[name] || name; },
       tag: function (e, key, kind) { return pt(e, key, kind, kind === 'one' ? 'kairyo' : undefined); }
     }).forEach(function (e) { s2.appendChild(e); });
-    s2.appendChild(pt(el('div', { 'class': 'dc-slot-kairyo', style: 'display:grid;gap:8px' }), 'dcK', 'one', 'kairyo')); // 分家住宅：排水承諾の要否は土地改良区に聞く
     box.appendChild(s2);
     box.appendChild(pt(el('div', { 'class': 'kairyo-extras', style: 'display:grid;gap:8px' }), 'kx', 'one'));
     // ③ 排水先（転用目的が分家住宅のとき）
@@ -773,7 +774,7 @@
     h3.appendChild(el('span', { 'class': 'step3-title' }, '③ 排水先の確認（分家住宅）'));
     s3.appendChild(pt(h3, 'drainH', 'text'));
     s3.appendChild(pt(el('div', { 'class': 'script script3a' }), 'drainS', 'text'));
-    s3.appendChild(pt(tantoField(id('drainTanto'), 'drainTanto', 'お話しした方（担当課・担当者名）', '例）下水道課 佐藤様'), 'drainTanto', 'one'));
+    s3.appendChild(pt(tantoField(id('drainTanto'), 'drainTanto', 'お話しした方（担当者名）', '例）農政課 佐藤様'), 'drainTanto', 'one'));
     var adj = el('div', { 'class': 'choices' });
     renderChoices(adj, id('drainAdjacent'), o.drainAdjacent);
     var dc = el('div', { 'class': 'choices' });
@@ -841,6 +842,8 @@
     feeBox.appendChild(feeNote);
     kd.appendChild(k.tag(prependQ(field('手数料など（決済金以外）', feeBox.firstChild, null, false, feeBox), k.cls('q-fee')), 'fee', 'one'));
     out.push(kd);
+    out.push(k.tag(prependQ(radioField('排水同意（同意書の発行）', k.radio('kairyoDrain', o.drainConsent),
+      el('p', { 'class': 'help' }, '排水を土地改良区の水路へ流す場合。土地改良区ごとに確認（受益地に該当しなくても聞く）')), k.cls('q-drain')), 'drain', 'one'));
     out.push(k.tag(prependQ(radioField('地元関係者の同意（押印）', k.radio('localConsent', o.localConsent),
       el('p', { 'class': 'help' }, '自治会長・水利組合・農事組合・地元の委員や理事など、説明や同意書への押印が必要な方がいるか')), k.cls('q-local')), 'local', 'one'));
     out.push(k.tag(prependQ(k.contacts('同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'), k.cls('q-local-contacts')), 'localC', 'one'));
@@ -855,6 +858,7 @@
       'q-proc': '「地区除外の手続きは必要でしょうか。」',
       'q-settle': '「決済金は必要でしょうか。必要な場合は、金額の目安（㎡単価など）をお教えいただけますでしょうか。」',
       'q-fee': '「決済金とは別に、手数料などはかかりますでしょうか。」',
+      'q-drain': '「排水を貴改良区の水路へ流す場合、排水同意（同意書の発行）は必要でしょうか。」',
       'q-local': '「また、地元の自治会長さんや水利組合、地元の委員・理事の方など、ご説明や同意書への押印が必要な方はいらっしゃいますでしょうか。」',
       'q-local-contacts': '「その方のお名前、ご住所、お電話番号をお教えいただけますでしょうか。」'
     };
@@ -904,7 +908,7 @@
     ['kairyoName', 'kairyoTel', 'kairyoTanto', 'kairyoSettlementNote', 'kairyoFeeAmount', 'kairyoFeeNote'].forEach(function (k) { if (d[k] !== undefined) kq(b, '[data-k=' + k + ']').value = d[k]; });
     if (d.kairyoSettlementUnit) kq(b, '[data-k=kairyoSettlementUnit]').value = d.kairyoSettlementUnit;
     if (d.kairyoFeeUnit) kq(b, '[data-k=kairyoFeeUnit]').value = d.kairyoFeeUnit;
-    ['kairyoBenefit', 'kairyoProcedure', 'kairyoSettlement', 'localConsent'].forEach(function (f) {
+    ['kairyoBenefit', 'kairyoProcedure', 'kairyoSettlement', 'kairyoDrain', 'localConsent'].forEach(function (f) {
       qsa('input[type=radio][name="' + nm(f) + '"]', b).forEach(function (r) { r.checked = r.value === d[f]; });
     });
     if (d.localContacts && d.localContacts.length) setContacts(card, 'kx' + n + '_local', d.localContacts);
@@ -924,7 +928,7 @@
   function readKairyoExtra(card, b) {
     var v = function (k) { return kq(b, '[data-k=' + k + ']').value; };
     return {
-      kairyoName: v('kairyoName'), kairyoTel: v('kairyoTel'), kairyoTanto: v('kairyoTanto'),
+      kairyoName: v('kairyoName'), kairyoTel: v('kairyoTel'), kairyoTanto: v('kairyoTanto'), kairyoDrain: kxRadio(b, 'kairyoDrain'),
       kairyoBenefit: kxRadio(b, 'kairyoBenefit'), kairyoProcedure: kxRadio(b, 'kairyoProcedure'), kairyoSettlement: kxRadio(b, 'kairyoSettlement'),
       kairyoSettlementNote: v('kairyoSettlementNote'), kairyoSettlementUnit: v('kairyoSettlementUnit'),
       kairyoFeeAmount: v('kairyoFeeAmount'), kairyoFeeUnit: v('kairyoFeeUnit'), kairyoFeeNote: v('kairyoFeeNote'),
@@ -1616,7 +1620,8 @@
     var dOn = getRadio(card, 'drainConsent') === '必要';
     cq(card, '.step3b').classList.toggle('hidden', !dOn);
     cq(card, '[data-contacts=drainContacts]').classList.toggle('hidden', getRadio(card, 'drainLocalConsent') !== '必要');
-    scriptLines(cq(card, '.script3a'), ['（農業委員会、または市の道路・下水の担当課へ）']);
+    scriptLines(cq(card, '.script3a'), [getRadio(card, 'landImprovement') === 'はい'
+      ? '（農業委員会へ。排水同意（同意書）は②で土地改良区ごとに確認済み）' : '（農業委員会へ）']);
     setQ(card, 'q-adj', ['「' + where + 'で分家住宅を予定しております。隣接の水路へ排水してもよろしいでしょうか。」',
       '→ 水路がない場合：「側溝への排水になるかと思います。」']);
     setQ(card, 'q-dc', '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
@@ -1671,14 +1676,9 @@
     cq(card, '.kairyo-add').classList.toggle('hidden', extras.length >= MAX_KAIRYO_EXTRA_UI);
     extras.forEach(function (b, k) { updateKairyoExtra(card, b, k, where, sArea); });
     // 分家住宅で土地改良区にかかる場合、排水承諾の要否は②（土地改良区への質問）で聞く
-    var dcField = cq(card, '.dc-field');
-    var inKairyo = on && purpose === '分家住宅';
-    var slot = cq(card, inKairyo ? '.dc-slot-kairyo' : '.dc-slot-drain');
-    if (dcField.parentNode !== slot) { slot.appendChild(dcField); slot.appendChild(cq(card, '.step3b')); } // 手数料の欄も一緒に
-    setQ(card, 'q-dc', inKairyo
-      ? ['「また、分家住宅からの排水を貴改良区の水路へ流す場合、排水承諾の手続きは必要でしょうか。」'].concat(extras.length
-        ? ['→ 排水先の水路が2つ目以降の土地改良区の管理なら、そちらの電話で聞いて、ここに記録してください（排水承諾は物件に1つ）。'] : [])
-      : '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
+    // 土地改良区にかかる場合の排水同意は②で土地改良区ごとに聞く。③の排水承諾は改良区にかからない場合だけ
+    cq(card, '.dc-slot-drain').classList.toggle('hidden', on);
+    setQ(card, 'q-dc', '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
     var talk = kairyoTalk(kname, where); // 2つ目以降と同じ文
     scriptLines(cq(card, '.script2'), [talk.greet]);
     Object.keys(talk).forEach(function (key) { if (key !== 'greet') setQ(card, key, talk[key]); });

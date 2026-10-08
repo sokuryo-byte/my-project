@@ -112,10 +112,16 @@ const DEFAULT_FEES = [
     note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
   { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）（1人あたり）', amount: 20000,
     note: '同意（押印）が必要な人数分を加算（土地改良区で確認した地元関係者＋排水の地元承諾者。同じ人は1人）。人数が未確認（「未確認」「分からない」）の場合は1人分で仮計上' },
+  { key: 'ADD_JIZEN_BUNKE', label: '事前相談等（分家住宅）', amount: 40000,
+    note: '転用目的が「分家住宅」の物件がある場合に、報酬の最初に1回加算' },
+  { key: 'ADD_JIZEN_KYOKA', label: '事前相談等（農地転用許可）', amount: 25000,
+    note: '農地転用の許可（市街化調整区域・非線引き・都市計画区域外）がある場合に、報酬の最初に1回加算（分家住宅のときは「事前相談等（分家住宅）」）' },
+  { key: 'COST_KENCHIKU', label: '建築許可 実費（分家住宅）', amount: 7300,
+    note: '転用目的が「分家住宅」の場合に実費として加算。計画により開発行為を伴う場合は別途見積' },
   { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 300000,
     note: '転用目的が「分家住宅」で、市街化調整区域の物件がある場合に加算（料金表 4001。開発許可（29条）となる場合は 4002）' },
-  { key: 'ADD_DRAINAGE', label: '排水承諾手続', amount: 40000,
-    note: '転用目的が「分家住宅」で、排水承諾が「必要」「未確認」（未回答を含む）の物件がある場合に加算（料金表 4203）' },
+  { key: 'ADD_DRAINAGE', label: '排水同意手続（同意書）', amount: 40000,
+    note: '土地改良区ごとに、排水同意（同意書の発行）が「必要」と回答があった改良区の数だけ加算。分家住宅は未確認の改良区も仮に加算。土地改良区にかからない分家住宅は排水承諾が「必要」「未確認」なら1件（料金表 4203）' },
   { key: 'ADD_GENKYO', label: '現況証明（非農地証明）願出', amount: 120000,
     note: '農業委員会に確認し、非農地証明（現況証明）で対応できると回答があった物件がある場合に加算（その物件は許可申請を計上しない。料金表 4100）' },
   { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
@@ -155,7 +161,8 @@ const FEE_PATCHES = {
   '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
   '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
   '2026-05': ['ADD_CHIMOKU:label'],
-  '2026-08': ['ADD_CHIMOKU:label'],       // 地目変更登記の別申請（登記所・原因日付が異なる場合は2件目以降50%）の説明を更新       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
+  '2026-08': ['ADD_CHIMOKU:label'],
+  '2026-09': ['ADD_DRAINAGE:label'],       // 排水同意は土地改良区ごと（事前相談等・建築許可の実費は新しい行として追加される）       // 地目変更登記の別申請（登記所・原因日付が異なる場合は2件目以降50%）の説明を更新       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
   '2026-06': ['ADD_WATER_ASSOCIATION:label'], // 地元承諾書は人数分（名称と条件だけ更新、金額はそのまま）
   '2026-07': ['ADD_GENKYO:label'],            // 現況証明は「非農地証明で対応できる」と回答があった場合だけ（条件の説明だけ更新）
 };
@@ -593,6 +600,7 @@ const LOT_COLUMNS = [
   { key: 'chimokuDate', header: '地目変更の原因日付（既に転用済みの物件・転用した時期）' },
   { key: 'nogyoTanto', header: '農業委員会でお話しした方（担当者名）' },
   { key: 'kairyoTanto', header: '土地改良区でお話しした方（担当者名）' },
+  { key: 'kairyoDrain', header: '土地改良区 排水同意（同意書の発行）' },
   { key: 'drainTanto', header: '排水の確認でお話しした方（担当課・担当者名）' },
 ];
 
@@ -639,6 +647,7 @@ const LOT_EDIT_FIELDS = [
   { group: '土地改良区', key: 'kairyoSettlement', label: '決済金', type: 'select', opt: 'kairyoSettlement' },
   { group: '土地改良区', key: 'kairyoSettlementNote', label: '決済金の金額', type: 'text', ph: '例）1㎡あたり 300円（または 150,000円）' },
   { group: '土地改良区', key: 'kairyoFee', label: '手数料等', type: 'text', ph: '例）1申請あたり 5,000円／事務手数料' },
+  { group: '土地改良区', key: 'kairyoDrain', label: '排水同意（同意書の発行）', type: 'select', opt: 'drainConsent' },
   { group: '地元委員の押印', key: 'iinStamp', label: '押印', type: 'select', opt: 'iinStamp' },
   { group: '地元委員の押印', key: 'iinContacts', label: '委員', type: 'contacts' },
   { group: '地元関係者の同意（押印）', key: 'localConsent', label: '同意', type: 'select', opt: 'localConsent' },
