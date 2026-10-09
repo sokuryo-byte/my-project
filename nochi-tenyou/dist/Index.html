@@ -3172,7 +3172,8 @@ function getUserEmail_() { return ''; }
       select: function (f, attrs) { return el('select', Object.assign({ id: id(f), 'data-f': f }, attrs)); },
       contacts: function (title, ph) { return contactList('localContacts', title, ph); },
       cls: function (name) { return { detail: 'kairyo-detail', settleNote: 'settle-note', calc: 'settle-calc' }[name] || name; },
-      tag: function (e, key, kind) { return pt(e, key, kind, kind === 'one' ? 'kairyo' : undefined); }
+      tag: function (e, key, kind) { return pt(e, key, kind, kind === 'one' ? 'kairyo' : undefined); },
+      afterDrain: function () { return [pt(el('div', { 'class': 'drain-slot-k', style: 'display:grid;gap:8px' }), 'drainK', 'one', 'kairyo')]; }
     }).forEach(function (e) { s2.appendChild(e); });
     s2.appendChild(pt(tantoField(id('kairyoTanto'), 'kairyoTanto', 'お話しした方（土地改良区の担当者名）', '例）鈴木様'), 'kairyoTanto', 'one', 'kairyo'));
     box.appendChild(s2);
@@ -3187,8 +3188,13 @@ function getUserEmail_() { return ''; }
     renderChoices(adj, id('drainAdjacent'), o.drainAdjacent);
     var dc = el('div', { 'class': 'choices' });
     renderChoices(dc, id('drainConsent'), o.drainConsent);
+    // 隣接水路・排水に伴う地元承諾：土地改良区にかかる場合は②（土地改良区への電話）の排水同意の後へ移す。かからない場合はここで聞く
+    var dq = el('div', { 'class': 'drain-q', style: 'display:grid;gap:8px' });
+    dq.appendChild(prependQ(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')), 'q-adj'));
+    var dsD = el('div', { 'class': 'drain-slot-d', style: 'display:grid;gap:8px' });
+    dsD.appendChild(dq);
+    s3.appendChild(pt(dsD, 'drainD', 'one'));
     var r3 = el('div', { style: 'display:grid;gap:8px' });
-    r3.appendChild(pt(prependQ(radioField('隣接に水路があるか', adj, el('p', { 'class': 'help' }, 'ない場合は側溝への排水')), 'q-adj'), 'adj', 'one'));
     // 排水承諾の要否：土地改良区にかかる場合は②（土地改良区への質問）の中へ移す。かからない場合はここで聞く
     var dcField = prependQ(radioField('排水承諾の要否', dc, el('p', { 'class': 'help' }, '農業用水（用排水路など）へ排水する場合など')), 'q-dc');
     dcField.classList.add('dc-field');
@@ -3209,8 +3215,8 @@ function getUserEmail_() { return ''; }
     renderChoices(dl, id('drainLocalConsent'), o.localConsent);
     dcSlot.appendChild(s3b);
     // 排水に伴う地元承諾（排水承諾の要否にかかわらず聞く）
-    s3.appendChild(pt(prependQ(radioField('排水に伴う地元承諾（押印）', dl, el('p', { 'class': 'help' }, '地元の委員・自治会長など、排水について承諾（押印）が必要な方がいるか')), 'q-dlocal'), 'dlocal', 'one'));
-    s3.appendChild(pt(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'), 'dlocalC', 'one'));
+    dq.appendChild(prependQ(radioField('排水に伴う地元承諾（押印）', dl, el('p', { 'class': 'help' }, '地元の委員・自治会長など、排水について承諾（押印）が必要な方がいるか')), 'q-dlocal'));
+    dq.appendChild(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'));
     s3.appendChild(pt(tantoField(id('drainTanto'), 'drainTanto', 'お話しした方（担当者名）', '例）農政課 佐藤様'), 'drainTanto', 'one'));
     box.appendChild(s3);
     return box;
@@ -3253,6 +3259,7 @@ function getUserEmail_() { return ''; }
     out.push(kd);
     out.push(k.tag(prependQ(radioField('排水同意（同意書の発行）', k.radio('kairyoDrain', o.drainConsent),
       el('p', { 'class': 'help' }, '排水を土地改良区の水路へ流す場合。土地改良区ごとに確認（受益地に該当しなくても聞く）')), k.cls('q-drain')), 'drain', 'one'));
+    if (k.afterDrain) out = out.concat(k.afterDrain()); // 分家住宅：隣接水路・排水に伴う地元承諾（1つ目の土地改良区で聞く）
     out.push(k.tag(prependQ(radioField('地元関係者の同意（押印）', k.radio('localConsent', o.localConsent),
       el('p', { 'class': 'help' }, '自治会長・水利組合・農事組合・地元の委員や理事など、説明や同意書への押印が必要な方がいるか')), k.cls('q-local')), 'local', 'one'));
     out.push(k.tag(prependQ(k.contacts('同意（押印）が必要な方', '例）田中 一郎（○○自治会長）'), k.cls('q-local-contacts')), 'localC', 'one'));
@@ -4092,6 +4099,14 @@ function getUserEmail_() { return ''; }
     // 分家住宅で土地改良区にかかる場合、排水承諾の要否は②（土地改良区への質問）で聞く
     // 土地改良区にかかる場合の排水同意は②で土地改良区ごとに聞く。③の排水承諾は改良区にかからない場合だけ
     cq(card, '.dc-slot-drain').classList.toggle('hidden', on);
+    // 分家住宅で土地改良区にかかる場合：排水のことは土地改良区への電話でまとめて聞く（③は出さない）
+    var dqBox = cq(card, '.drain-q'), dqSlot = cq(card, on && bunke ? '.drain-slot-k' : '.drain-slot-d');
+    if (dqBox.parentNode !== dqSlot) {
+      if (dqBox.contains(document.activeElement)) document.activeElement.blur(); // 移す前に入力を確定する（入力中の欄ごと移すと壊れる）
+      if (dqBox.parentNode !== dqSlot) dqSlot.appendChild(dqBox);
+    }
+    dqBox.classList.toggle('hidden', !bunke);
+    if (on) cq(card, '.step3').classList.add('hidden');
     setQ(card, 'q-dc', '「排水先が農業用水（用排水路など）にかかる場合、排水承諾の手続きは必要でしょうか。」');
     var talk = kairyoTalk(kname, where); // 2つ目以降と同じ文
     scriptLines(cq(card, '.script2'), [talk.greet]);
