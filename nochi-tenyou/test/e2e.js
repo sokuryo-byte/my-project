@@ -235,6 +235,9 @@ const OUT = path.join(__dirname, 'out');
   await a.click('#rows .case-card');
   await a.waitForSelector('#detail .lot-card');
   assert.strictEqual((await a.$$('#detail .lot-card')).length, 2);
+  // 転用物件の所在は見出しのすぐ下に全筆（いちばん大事な情報）
+  const where = await a.$$eval('#detail .dhead .where .where-row .addr', (x) => x.map((e) => e.textContent));
+  assert.deepStrictEqual(where, ['豊田市○○町字△△ 123番1', '豊田市○○町字△△ 123番2']);
   // 地目変更登記の物件があれば、詳細の上部に帯、案件リストに札
   await a.evaluate(() => { state.lotsByCase[state.cases[0].id][1].chimokuHenko = 'はい'; renderRows(); renderDetail(state.cases[0].id); });
   assert.ok((await a.textContent('#detail .chimoku-alert')).includes('地目変更登記あり（1筆）'));
@@ -308,7 +311,7 @@ const OUT = path.join(__dirname, 'out');
   await a.waitForFunction(() => !document.querySelector('#pdfDialog').open, null, { timeout: 5000 });
   assert.strictEqual(dl.suggestedFilename(), '農地転用_案件詳細_' + caseNo + '_田中一郎.pdf');
   const printHtml = await a.evaluate(() => window.LAST_PDF_HTML);
-  for (const w of [caseNo, '田中 一郎', '概算見積の内訳', '¥737,000', '地元協力金等（○○区 協力金）', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない ' + (printHtml.match(/¥[0-9,]+/g) || []).join(' '));
+  for (const w of [caseNo, '田中 一郎', '転用物件の所在（2筆）', '豊田市○○町字△△ 123番1', '概算見積の内訳', '¥737,000', '地元協力金等（○○区 協力金）', '物件2', '123番2', '正式見積提示済', '¥850,000']) assert.ok(printHtml.includes(w), 'PDFに「' + w + '」がない ' + (printHtml.match(/¥[0-9,]+/g) || []).join(' '));
   fs.writeFileSync(path.join(OUT, 'case_print.html'), printHtml);
   // 案件カルテ番号：見出しに出る・案件に保存され、次に開くと入っている
   assert.ok(/案件カルテ番号<\/div><b>260001<\/b>/.test(printHtml) && printHtml.includes('受付番号 ' + caseNo), 'PDFの見出しにカルテ番号がない');

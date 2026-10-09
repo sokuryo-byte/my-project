@@ -252,6 +252,13 @@
     .detail { display: grid; gap: 12px; min-width: 0; background: none; border: none; padding: 0; border-radius: 0; }
     .dhead { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 24px; align-items: center; }
     .dhead .flow { grid-column: 1; }
+    /* 転用物件の所在（いちばん大事な情報なので見出しのすぐ下） */
+    .dhead .where { grid-column: 1; display: grid; gap: 4px; margin: 0; padding: 8px 12px; background: var(--accent-soft); border-left: 4px solid var(--accent); border-radius: 4px; }
+    .dhead .where-h { font-size: .72rem; font-weight: 700; color: var(--accent); letter-spacing: .04em; }
+    .dhead .where-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+    .dhead .where-row .no { font-size: .78rem; font-weight: 700; color: var(--accent); min-width: 3.2em; }
+    .dhead .where-row .addr { font-size: 1.02rem; font-weight: 700; }
+    .dhead .where-row .sub { font-size: .78rem; color: var(--muted); }
     .dhead-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
     .dhead h2 { margin: 0; font-size: 1.2rem; padding: 0; border: none; }
     .dhead .meta { font-size: .8rem; color: var(--muted); flex-basis: 100%; }
@@ -616,6 +623,12 @@
       n++;
     });
     return n ? dl : null;
+  }
+
+  /** 物件の所在（都道府県は愛知県以外のときだけ付ける）＋地番 */
+  function lotPlace(l) {
+    var pref = l.prefecture && l.prefecture !== '愛知県' ? l.prefecture : '';
+    return (pref + [l.address, l.lotNumber].filter(has).join(' ')) || '（所在未入力）';
   }
 
   /** 農業委員会の窓口。名古屋市など区で分かれる市は所在の区の窓口（区が分からなければ市の窓口） */
@@ -1040,6 +1053,12 @@
       'table.band .no b { font-size: 15pt; letter-spacing: .05em; }',
       'table.band .no .sub { font-size: 8pt; opacity: .85; margin-top: 2px; }',
       // 要点（4マス）
+      'table.where { margin-top: 6px; border-left: 5px solid ' + G + '; }',
+      'table.where th { text-align: left; font-size: 8pt; color: ' + G + '; padding: 5px 10px 2px; letter-spacing: .05em; }',
+      'table.where td { text-align: left; padding: 3px 10px; border-bottom: 1px solid ' + LINE + '; vertical-align: baseline; }',
+      'table.where td.no { width: 12%; font-size: 8.5pt; font-weight: bold; color: ' + G + '; white-space: nowrap; }',
+      'table.where td.addr { font-size: 11.5pt; font-weight: bold; }',
+      'table.where td.sub { width: 34%; font-size: 8.5pt; color: ' + MUTED + '; }',
       'table.facts { margin-top: 6px; }',
       'table.facts td { border: 1px solid ' + LINE + '; padding: 6px 10px; vertical-align: top; width: 25%; }',
       'table.facts .l { font-size: 7.5pt; color: ' + MUTED + '; }',
@@ -1101,6 +1120,12 @@
       '<td class="no">' + (has(c.karteNo) && String(c.karteNo).trim()
         ? '<div class="kind">案件カルテ番号</div><b>' + esc(String(c.karteNo).trim()) + '</b><div class="sub">受付番号 ' + esc(c.caseNo || c.id) + '</div>'
         : '<div class="kind">受付番号</div><b>' + esc(c.caseNo || c.id) + '</b>') + '</td></tr></table>');
+    // ---- 転用物件の所在（いちばん大事な情報なので帯のすぐ下） ----
+    h.push('<table class="where"><colgroup><col style="width:12%"><col><col style="width:34%"></colgroup><tr><th colspan="3">転用物件の所在（' + lots.length + '筆）</th></tr>' +
+      (lots.length ? lots.map(function (l) {
+        return '<tr><td class="no">物件' + esc(l.no) + '</td><td class="addr">' + esc(lotPlace(l)) + '</td><td class="sub">' +
+          esc([l.chimoku, has(l.area) ? l.area + '㎡' : '', l.zone, l.purpose].filter(has).join('　')) + '</td></tr>';
+      }).join('') : '<tr><td colspan="3">物件明細がありません。</td></tr>') + '</table>');
     // ---- 要点 ----
     h.push('<table class="facts"><tr>' +
       '<td><div class="l">対応状況</div><div class="v">' + esc(c.status || '―') + '</div></td>' +
@@ -1342,6 +1367,19 @@
     if (formal) amt.appendChild(document.createTextNode('概算 ' + yen(c.estimate)));
     head.appendChild(top);
     head.appendChild(amt);
+    // ---- 転用物件の所在（全筆） ----
+    var where = el('div', { 'class': 'where', 'aria-label': '転用物件の所在' });
+    where.appendChild(el('div', { 'class': 'where-h' }, '転用物件の所在（' + lots.length + '筆）'));
+    lots.forEach(function (l) {
+      var r = el('div', { 'class': 'where-row' });
+      r.appendChild(el('span', { 'class': 'no' }, '物件' + l.no));
+      r.appendChild(el('span', { 'class': 'addr' }, lotPlace(l)));
+      var sub = [l.chimoku, has(l.area) ? l.area + '㎡' : '', l.zone, l.purpose].filter(has).join('　');
+      if (sub) r.appendChild(el('span', { 'class': 'sub' }, sub));
+      where.appendChild(r);
+    });
+    if (!lots.length) where.appendChild(el('div', { 'class': 'where-row' }, '物件明細がありません。'));
+    head.appendChild(where);
 
     var flowSteps = ['新規', '調査中', '正式見積提示済', '受任', '完了'];
     var cur = flowSteps.indexOf(c.status);
