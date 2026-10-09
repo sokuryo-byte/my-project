@@ -525,7 +525,6 @@
     var s1 = el('div', { 'class': 'step1' });
     s1.appendChild(pt(el('div', { 'class': 'step-h nogyo-h' }), 'nogyoH', 'text'));
     s1.appendChild(pt(el('div', { 'class': 'script script-open' }), 'open', 'text'));
-    s1.appendChild(pt(tantoField(id('nogyoTanto'), 'nogyoTanto', 'お話しした方（農業委員会の担当者名）', '例）農政課 山田様'), 'nogyoTanto', 'one'));
     // 青地かどうか（聞かないと分からないので、ヒアリングの最初に聞く）
     var nb = el('div', { 'class': 'noshin-block', style: 'display:grid;gap:8px' });
     nb.appendChild(pt(el('div', { 'class': 'script script-noshin' }), 'noshinS', 'text'));
@@ -745,8 +744,10 @@
     addK.addEventListener('click', function () { var b = addKairyoExtra(card, {}); if (b && b._names) b._names.querySelector('input').focus(); });
     ask.appendChild(pt(addK, 'kairyoAdd', 'one'));
     ask.appendChild(pt(el('p', { 'class': 'caution iin-remind hidden' }, '※（イ）地元委員の押印が未回答です。農業委員会の電話を切る前に確認してください。'), 'iinRemind', 'one'));
-    ask.appendChild(pt(el('div', { 'class': 'call-end' }, '農業委員会への確認はここまで'), 'nogyoEnd', 'text'));
     s1.appendChild(ask);
+    // お話しした方の名前は最後に確認する（最初に名乗られた場合も改めて）
+    s1.appendChild(pt(tantoField(id('nogyoTanto'), 'nogyoTanto', 'お話しした方（農業委員会の担当者名）', '例）農政課 山田様'), 'nogyoTanto', 'one'));
+    s1.appendChild(pt(el('div', { 'class': 'call-end hidden' }, '農業委員会への確認はここまで'), 'nogyoEnd', 'text'));
     box.appendChild(s1);
     // ② 土地改良区（「はい」のときだけ表示）。電話先が変わることを帯で示す
     var s2 = el('div', { 'class': 'step2 hidden' });
@@ -756,7 +757,6 @@
     h2.appendChild(el('a', { 'class': 'tel kairyo-tel hidden' }));
     s2.appendChild(pt(h2, 'kairyoH', 'text', 'kairyo'));
     s2.appendChild(pt(el('div', { 'class': 'script script2' }), 'kairyoS', 'text', 'kairyo'));
-    s2.appendChild(pt(tantoField(id('kairyoTanto'), 'kairyoTanto', 'お話しした方（土地改良区の担当者名）', '例）鈴木様'), 'kairyoTanto', 'one', 'kairyo'));
     // 質問の部品は2つ目以降と共通（kairyoQuestions）。1つ目だけ複数筆の票で使う印を付ける
     kairyoQuestions(o, {
       radio: function (f, values) { var c = el('div', { 'class': 'choices' }); renderChoices(c, id(f), values); return c; },
@@ -766,6 +766,7 @@
       cls: function (name) { return { detail: 'kairyo-detail', settleNote: 'settle-note', calc: 'settle-calc' }[name] || name; },
       tag: function (e, key, kind) { return pt(e, key, kind, kind === 'one' ? 'kairyo' : undefined); }
     }).forEach(function (e) { s2.appendChild(e); });
+    s2.appendChild(pt(tantoField(id('kairyoTanto'), 'kairyoTanto', 'お話しした方（土地改良区の担当者名）', '例）鈴木様'), 'kairyoTanto', 'one', 'kairyo'));
     box.appendChild(s2);
     box.appendChild(pt(el('div', { 'class': 'kairyo-extras', style: 'display:grid;gap:8px' }), 'kx', 'one'));
     // ③ 排水先（転用目的が分家住宅のとき）
@@ -774,7 +775,6 @@
     h3.appendChild(el('span', { 'class': 'step3-title' }, '③ 排水先の確認（分家住宅）'));
     s3.appendChild(pt(h3, 'drainH', 'text'));
     s3.appendChild(pt(el('div', { 'class': 'script script3a' }), 'drainS', 'text'));
-    s3.appendChild(pt(tantoField(id('drainTanto'), 'drainTanto', 'お話しした方（担当者名）', '例）農政課 佐藤様'), 'drainTanto', 'one'));
     var adj = el('div', { 'class': 'choices' });
     renderChoices(adj, id('drainAdjacent'), o.drainAdjacent);
     var dc = el('div', { 'class': 'choices' });
@@ -803,6 +803,7 @@
     // 排水に伴う地元承諾（排水承諾の要否にかかわらず聞く）
     s3.appendChild(pt(prependQ(radioField('排水に伴う地元承諾（押印）', dl, el('p', { 'class': 'help' }, '地元の委員・自治会長など、排水について承諾（押印）が必要な方がいるか')), 'q-dlocal'), 'dlocal', 'one'));
     s3.appendChild(pt(prependQ(contactList('drainContacts', '承諾（押印）が必要な方', '例）田中 一郎（○○自治会長）'), 'q-dcontacts'), 'dlocalC', 'one'));
+    s3.appendChild(pt(tantoField(id('drainTanto'), 'drainTanto', 'お話しした方（担当者名）', '例）農政課 佐藤様'), 'drainTanto', 'one'));
     box.appendChild(s3);
     return box;
   }
@@ -892,9 +893,6 @@
     cq(card, '.kx-names').appendChild(r1);
     b._names = r1;
     b.appendChild(el('div', { 'class': 'script kx-greet' }));
-    var kxt = field('お話しした方（土地改良区の担当者名）', inp('kairyoTanto', { maxlength: '50', placeholder: '例）鈴木様' }));
-    kxt.classList.add('tanto-field');
-    b.appendChild(kxt);
     kairyoQuestions(o, {
       radio: function (f, values) { var c = el('div', { 'class': 'choices' }); renderChoices(c, nm(f), values); return c; },
       input: function (f, attrs) { return inp(f, attrs); },
@@ -903,6 +901,7 @@
       cls: function (name) { return { detail: 'kx-detail', settleNote: 'kx-settle-note', calc: 'kx-calc' }[name] || 'kx-' + name; },
       tag: function (e) { return e; }
     }).forEach(function (e) { b.appendChild(e); });
+    b.appendChild(tantoQ(field('お話しした方（土地改良区の担当者名）', inp('kairyoTanto', { maxlength: '50', placeholder: '例）鈴木様' })))); // 名前は最後に確認
     wrap.appendChild(b);
     // 初期値
     ['kairyoName', 'kairyoTel', 'kairyoTanto', 'kairyoSettlementNote', 'kairyoFeeAmount', 'kairyoFeeNote'].forEach(function (k) { if (d[k] !== undefined) kq(b, '[data-k=' + k + ']').value = d[k]; });
@@ -1011,8 +1010,14 @@
   /** 農業委員会の問い合わせ先（マスタの電話番号 → 組み込みの一覧 の順） */
   /** 電話でお話しした方（担当者名）の欄。誰に聞いたか後から分かるように */
   function tantoField(fid, f, label, ph) {
-    var w = field(label, el('input', { type: 'text', id: fid, maxlength: '50', placeholder: ph, 'data-f': f }));
+    return tantoQ(field(label, el('input', { type: 'text', id: fid, maxlength: '50', placeholder: ph, 'data-f': f })));
+  }
+  /** 担当者名の欄にトーク例を付ける（電話の最後に確認する） */
+  function tantoQ(w) {
     w.classList.add('tanto-field');
+    var q = qEl('q-tanto');
+    scriptLines(q, ['「最後に、ご担当の方のお名前をお伺いしてもよろしいでしょうか。」', '→ 最初に名乗られていた場合も、ここで改めて確認する']);
+    w.insertBefore(q, w.firstChild);
     return w;
   }
 
@@ -1656,6 +1661,7 @@
     var on = !stop && getRadio(card, 'landImprovement') === 'はい';
     cq(card, '.step2').classList.toggle('hidden', !on);
     cq(card, '.kairyo-ask').classList.toggle('hidden', !on); // 名称・電話は農業委員会で聞く（①の最後）
+    cq(card, '.call-end').classList.toggle('hidden', !on);
     cq(card, '.iin-remind').classList.toggle('hidden', !on || !!getRadio(card, 'iinStamp'));
     var benefitOn = getRadio(card, 'kairyoBenefit') === '該当する';
     cq(card, '.kairyo-detail').classList.toggle('hidden', !benefitOn);
