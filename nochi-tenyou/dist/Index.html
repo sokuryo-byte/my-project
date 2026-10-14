@@ -181,7 +181,10 @@
   .lot-sec.hear b { color: var(--accent); }
   /* 複数筆のヒアリング（電話先ごとの票） */
   .lot.gm > .lot-sec.hear, .lot.gm > .callbox { display: none; }
-  .tanto-field input { max-width: 22em; } /* お話しした方（担当者名） */
+  .tanto-field input { max-width: 22em; }
+  .gis-check { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: .85rem; }
+  .gis-check a { font-weight: 700; color: var(--accent); }
+  .gis-check .help { flex-basis: 100%; margin: 0; } /* お話しした方（担当者名） */
   .hear-all { display: grid; gap: 12px; margin-top: 4px; }
   .gm-sheets { display: grid; gap: 14px; }
   .gm-sheet { gap: 10px; }
@@ -2425,6 +2428,7 @@ function getUserEmail_() { return ''; }
     '分からない':     { desc: '行政班にて確認します', proc: '見積は「届出」で仮計算' }
   };
   var TOHON = '謄本';
+  var TOSHIKEIKAKU_GIS_URL = 'https://toshikeikaku-info.jp/'; // 全国都市計画GISビューア（公益財団法人 都市計画協会）。トップページはリンクフリー
   var MAX_CONTACTS_UI = 5; // Config.gs の MAX_CONTACTS と同じ
   var NON_FARM_USES = ['駐車場', '宅地', '資材置場']; // Config.gs の CONVERTED_LAND_USES と同じ
   // 所在・地番欄の末尾から地番を切り出す（Config.gs の LOT_NUMBER_TAIL_RE と同じ規則）
@@ -2684,6 +2688,20 @@ function getUserEmail_() { return ''; }
     zoneHelp.appendChild(el('a', { 'class': 'hidden city-link', target: '_blank', rel: 'noopener' }, ' この市区町村の都市計画情報を開く'));
     var zoneField = radioField('区域区分', zones, zoneHelp, true);
     zoneField.appendChild(el('p', { 'class': 'caution tax-note hidden' }));
+    // 全国都市計画GISビューア（公益財団法人 都市計画協会）：トップページへのリンク（位置を指定して開く方法はないため、所在をコピーして「地名で検索」に貼る）
+    var gis = el('div', { 'class': 'gis-check' });
+    gis.appendChild(el('a', { href: TOSHIKEIKAKU_GIS_URL, target: '_blank', rel: 'noopener' }, '全国都市計画GISビューア（都市計画協会のサイト）で区域区分を確認する'));
+    var copyBtn = el('button', { type: 'button', 'class': 'linkbtn gis-copy' }, '所在をコピー');
+    copyBtn.addEventListener('click', function () {
+      var t = (lotInput(card, 'municipality').value.trim() + splitLotNumber(lotInput(card, 'address').value.trim()).place).trim();
+      if (!t) { copyBtn.textContent = '先に市区町村・所在を入力してください'; return; }
+      var done = function () { copyBtn.textContent = 'コピーしました：' + t; setTimeout(function () { copyBtn.textContent = '所在をコピー'; }, 3000); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, function () { window.prompt('コピーしてください', t); });
+      else window.prompt('コピーしてください', t);
+    });
+    gis.appendChild(copyBtn);
+    gis.appendChild(el('span', { 'class': 'help' }, '開いたページで利用条件に同意 →「地名で検索」に貼り付け → 左の「区域区分」を表示'));
+    zoneField.appendChild(gis);
     card.appendChild(zoneField);
 
     // 転用目的（市街化調整区域のときだけ。区域区分のすぐ下）
