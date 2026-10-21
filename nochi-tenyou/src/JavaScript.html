@@ -279,7 +279,7 @@
     zoneField.appendChild(el('p', { 'class': 'caution tax-note hidden' }));
     // 全国都市計画GISビューア（公益財団法人 都市計画協会）：トップページへのリンク（位置を指定して開く方法はないため、所在をコピーして「地名で検索」に貼る）
     var gis = el('div', { 'class': 'gis-check' });
-    gis.appendChild(el('a', { href: TOSHIKEIKAKU_GIS_URL, target: '_blank', rel: 'noopener' }, '全国都市計画GISビューア（都市計画協会のサイト）で区域区分を確認する'));
+    gis.appendChild(el('a', { href: TOSHIKEIKAKU_GIS_URL, target: '_blank', rel: 'noopener' }, 'まず確認：全国都市計画GISビューア（都市計画協会のサイト）'));
     var copyBtn = el('button', { type: 'button', 'class': 'linkbtn gis-copy' }, '所在をコピー');
     copyBtn.addEventListener('click', function () {
       var t = (lotInput(card, 'municipality').value.trim() + splitLotNumber(lotInput(card, 'address').value.trim()).place).trim();
@@ -290,7 +290,9 @@
     });
     gis.appendChild(copyBtn);
     gis.appendChild(el('span', { 'class': 'help' }, '開いたページで利用条件に同意 →「地名で検索」に貼り付け → 左の「区域区分」を表示'));
-    zoneField.appendChild(gis);
+    // 上から順に入力するので、確認の手段（リンク・目安）は選択肢より前に置く
+    zoneField.insertBefore(gis, zones);
+    zoneField.insertBefore(zoneHelp, zones);
     card.appendChild(zoneField);
 
     // 転用目的（市街化調整区域のときだけ。区域区分のすぐ下）
