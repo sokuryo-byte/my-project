@@ -208,5 +208,19 @@
   .from-tohon { background: var(--warn-bg) !important; border-color: var(--warn-fg) !important; }
   .tohon-drop { padding: 18px 10px; font-weight: 700; }
 
+  /* 物件の位置図（全筆に番号のピン。LotMap.html）・地図のボタン */
+  .lotmap { height: 340px; border: 1px solid var(--line); border-radius: 6px; }
+  .lotmap-note { font-size: .76rem; color: var(--muted); }
+  .lotpin { background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 26px; height: 26px; line-height: 22px; text-align: center; font-weight: 700; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+  .lotpin.interp { background: #d9822b; border-style: dashed; }
+  .lotpin.town { background: #7a7f87; border-style: dashed; }
+  .map-btns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .map-btn { font: inherit; font-size: .74rem; padding: 1px 8px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface); color: var(--accent); text-decoration: none; cursor: pointer; white-space: nowrap; }
+  .map-btn:disabled { opacity: .6; cursor: default; }
+  .place-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 0 10px; }
+  .place-tools .help { margin: 0; }
+  .lotmap-box { margin: 4px 0 14px; }
+  .lotmap-box h3 { font-size: .9rem; margin: 0 0 4px; }
+
   .hidden { display: none !important; }
 </style>

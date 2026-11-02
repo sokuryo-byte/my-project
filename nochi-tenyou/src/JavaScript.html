@@ -246,6 +246,7 @@
     row1.appendChild(field('市区町村', city, null, true));
     row1.appendChild(field('所在・地番', address, '町名・字から地番まで（登記地番。住居表示ではありません）', true));
     card.appendChild(row1);
+    card.appendChild(buildPlaceTools(card));
 
     // 地目・面積
     var chimoku = el('select', { id: id('chimoku'), 'data-f': 'chimoku' });
@@ -430,6 +431,82 @@
   }
 
   function lotInput(card, f) { return cq(card, '[data-f=' + f + ']'); }
+
+  // ---------------------------------------------------------
+  // 所在の下の地図ボタン：ストリートビュー・Googleマップ（役調ナビの現況確認）と、地理院地図に全筆のピン（LotMap.html）
+  // ---------------------------------------------------------
+  /** 地図用の物件 { no, prefecture, municipality, address(町名・字), lotNumber } */
+  function mapLot(card) {
+    var a = splitLotNumber(lotInput(card, 'address').value.trim());
+    return { no: qsa('.lot').indexOf(card) + 1, prefecture: lotPref(card), municipality: lotInput(card, 'municipality').value.trim(), address: a.place.trim(), lotNumber: a.lotNumber };
+  }
+
+  function buildPlaceTools(card) {
+    var box = el('div', { 'class': 'place-tools' });
+    var sv = el('a', { 'class': 'map-btn', target: '_blank', rel: 'noopener', title: '役調ナビの現況確認：土地の方を向いたストリートビュー（赤い印）と航空写真（社内LANから）' }, 'ストリートビュー');
+    var gm = el('a', { 'class': 'map-btn', target: '_blank', rel: 'noopener', title: '筆の位置でGoogleマップを開く（役調ナビ経由・社内LANから）' }, 'Googleマップ');
+    var mp = el('button', { type: 'button', 'class': 'map-btn map-toggle' }, '地図で位置を見る（全筆のピン）');
+    var msg = el('span', { 'class': 'help' });
+    [[sv, '/sv'], [gm, '/gmap']].forEach(function (x) {
+      x[0].addEventListener('click', function (e) {
+        var l = mapLot(card);
+        if (!l.municipality || !l.address) { e.preventDefault(); msg.textContent = '先に市区町村と所在・地番を入力してください'; return; }
+        msg.textContent = '';
+        x[0].href = LotMap.yakuchoUrl(YAKUCHO_NAVI_URL, x[1], l);
+      });
+    });
+    mp.addEventListener('click', function () { toggleLotMap(card); });
+    if (typeof YAKUCHO_NAVI_URL !== 'undefined' && YAKUCHO_NAVI_URL) { box.appendChild(sv); box.appendChild(gm); }
+    box.appendChild(mp);
+    box.appendChild(msg);
+    return box;
+  }
+
+  /** 地図は1つだけ作り、ボタンを押した物件の所在の下へ動かす（もう一度押すと閉じる） */
+  var lotMap = null, lotMapBox = null, lotMapCard = null, lotMapTimer = null;
+  function toggleLotMap(card) {
+    if (lotMapCard === card && lotMapBox && !lotMapBox.classList.contains('hidden')) { lotMapBox.classList.add('hidden'); lotMapCard = null; setMapToggleLabels(); return; }
+    if (!lotMapBox) {
+      lotMapBox = el('div', { 'class': 'lotmap-box' });
+      var m = el('div', { 'class': 'lotmap' }), note = el('div', { 'class': 'lotmap-note' });
+      lotMapBox.appendChild(m); lotMapBox.appendChild(note);
+      cq(card, '.place-tools').after(lotMapBox);
+      lotMap = LotMap.create(m, note);
+      // 所在の入力・物件の追加削除に合わせて描き直す（入力の途中では検索しないよう少し待つ）
+      $('lots').addEventListener('input', scheduleLotMap);
+      $('lots').addEventListener('change', scheduleLotMap);
+      new MutationObserver(scheduleLotMap).observe($('lots'), { childList: true });
+    } else {
+      cq(card, '.place-tools').after(lotMapBox);
+    }
+    lotMapBox.classList.remove('hidden');
+    lotMapCard = card;
+    setMapToggleLabels();
+    lotMap.map.invalidateSize();
+    refreshLotMap(true);
+  }
+
+  function setMapToggleLabels() {
+    qsa('.lot').forEach(function (k) {
+      var b = cq(k, '.map-toggle');
+      if (b) b.textContent = k === lotMapCard ? '地図を閉じる' : '地図で位置を見る（全筆のピン）';
+    });
+  }
+
+  function scheduleLotMap(e) {
+    if (!lotMapCard) return;
+    if (e && e.target && e.target.closest && !e.target.closest('[data-f=address],[data-f=municipality],[data-f=prefecture]')) return; // 所在以外の入力では描き直さない
+    clearTimeout(lotMapTimer);
+    lotMapTimer = setTimeout(function () { refreshLotMap(false); }, 900);
+  }
+
+  function refreshLotMap(focus) {
+    if (!lotMapCard) return;
+    if (qsa('.lot').indexOf(lotMapCard) < 0) { lotMapBox.classList.add('hidden'); lotMapCard = null; return; } // 物件が削除された
+    var lots = qsa('.lot').map(mapLot);
+    var no = qsa('.lot').indexOf(lotMapCard) + 1;
+    lotMap.update(lots).then(function () { if (focus) lotMap.focus(no); });
+  }
 
   function radioName(card, f) { return 'lot' + card.getAttribute('data-uid') + '_' + f; }
 
