@@ -314,6 +314,9 @@
     .step dd.bad { color: var(--danger); font-weight: 700; }
     .nocall { padding: 10px 16px; font-size: .82rem; color: var(--muted); }
     .lot-head .lot-edit { margin-left: auto; }
+    .map-btns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .map-btn { font: inherit; font-size: .74rem; padding: 1px 8px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface); color: var(--accent); text-decoration: none; cursor: pointer; white-space: nowrap; }
+    .map-btn:disabled { opacity: .6; cursor: default; }
     /* 調査結果の修正（小窓） */
     dialog.modal.lot-dlg { max-width: min(760px, calc(100vw - 32px)); width: 760px; padding: 0; }
     .lot-dlg form { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-height: min(86vh, 900px); }
@@ -628,6 +631,53 @@
     return n ? dl : null;
   }
 
+  /**
+   * Googleマップ・ストリートビューのボタン。
+   *  ・Googleマップ：所在＋地番でそのまま検索
+   *  ・ストリートビュー：地番は住所検索で位置が出ないため、国土地理院の住所検索で町・字（または街区）の位置を出し、その付近を開く。
+   *    市区町村までしか分からないときは開かない（違う場所を見せないため）
+   */
+  function mapButtons(l) {
+    var box = el('span', { 'class': 'map-btns' });
+    var full = (l.prefecture || '') + [l.address, l.lotNumber].filter(has).join(' ');
+    var a = el('a', { 'class': 'map-btn', target: '_blank', rel: 'noopener',
+      href: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(full) }, 'Googleマップ');
+    var sv = el('button', { type: 'button', 'class': 'map-btn' }, 'ストリートビュー（付近）');
+    sv.addEventListener('click', function () { openStreetView(l, sv); });
+    box.appendChild(a); box.appendChild(sv);
+    return box;
+  }
+
+  function openStreetView(l, btn) {
+    var city = String(l.municipality || ''), addr = String(l.address || '');
+    var place = addr.indexOf(city) === 0 ? addr.slice(city.length) : addr; // 町名・字
+    var town = place.replace(/^大字/, '').replace(/字.*$/, '').trim();   // 町名（字より前）
+    var q = (l.prefecture || '') + city + place;
+    var w = window.open('', '_blank'); // クリックの直後に開いておく（後から開くとブラウザに止められる）
+    var label = btn.textContent;
+    btn.disabled = true; btn.textContent = '位置を確認中…';
+    var done = function () { btn.disabled = false; btn.textContent = label; };
+    fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (list) {
+        done();
+        var hit = (list || []).filter(function (x) { return town && x.properties && String(x.properties.title).indexOf(city + town) >= 0; })[0];
+        if (!hit) {
+          if (w) w.close();
+          alert('所在から町・字の位置を特定できませんでした（' + q + '）。「Googleマップ」で場所を確かめ、地図上の人型アイコンからストリートビューを開いてください。');
+          return;
+        }
+        var c = hit.geometry.coordinates; // [経度, 緯度]
+        var url = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + c[1] + ',' + c[0];
+        if (w) w.location.href = url; else window.open(url, '_blank');
+      })
+      .catch(function (err) {
+        done();
+        if (w) w.close();
+        alert('位置の確認に失敗しました：' + (err && err.message || err) + '。「Googleマップ」から確認してください。');
+      });
+  }
+
   /** 物件の所在（都道府県は愛知県以外のときだけ付ける）＋地番 */
   function lotPlace(l) {
     var pref = l.prefecture && l.prefecture !== '愛知県' ? l.prefecture : '';
@@ -791,6 +841,7 @@
     tag(l.readFromTohon === true ? '謄本読取' : '');
     head.appendChild(tags);
     if (state.lotEditFields && state.lotEditFields.length) {
+      head.appendChild(mapButtons(l));
       var eb = el('button', { type: 'button', 'class': 'lot-edit' }, '修正');
       eb.addEventListener('click', function () { editLot(l); });
       head.appendChild(eb);
@@ -1377,6 +1428,7 @@
       var r = el('div', { 'class': 'where-row' });
       r.appendChild(el('span', { 'class': 'no' }, '物件' + l.no));
       r.appendChild(el('span', { 'class': 'addr' }, lotPlace(l)));
+      r.appendChild(mapButtons(l));
       var sub = [l.chimoku, has(l.area) ? l.area + '㎡' : '', l.zone, l.purpose].filter(has).join('　');
       if (sub) r.appendChild(el('span', { 'class': 'sub' }, sub));
       where.appendChild(r);
