@@ -108,7 +108,8 @@
     .lotmap { height: 340px; border: 1px solid var(--line); border-radius: 6px; }
     .lotmap-note { font-size: .76rem; color: var(--muted); }
     .lotpin { background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 26px; height: 26px; line-height: 22px; text-align: center; font-weight: 700; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
-    .lotpin.approx { background: #d9822b; border-style: dashed; }
+    .lotpin.interp { background: #d9822b; border-style: dashed; }
+    .lotpin.town { background: #7a7f87; border-style: dashed; }
     .map-btns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
     .map-btn { font: inherit; font-size: .74rem; padding: 1px 8px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface); color: var(--accent); text-decoration: none; cursor: pointer; white-space: nowrap; }
     .map-btn:disabled { opacity: .6; cursor: default; }
@@ -445,17 +446,48 @@
 
   /**
    * 物件の位置図（地理院地図の標準地図・航空写真に、物件番号のピン）。
-   * 位置は所有地位置図アプリの地番検索（役調ナビと同じ）。地番の位置が無いものは近くの筆・町の位置（橙の点線のピン）
+   * 位置は所有地位置図アプリの地番検索（役調ナビと同じ）。地番まで当たらないものは、
+   *  ・近くの地番からの推定（橙の点線）／町・字の位置（灰の点線）と分けて表示
+   *  ・市の中心しか分からないものはピンを立てない（違う場所を見せないため）。代わりに国土地理院の住所検索で町・字まで出れば町・字の位置
    */
   var LOT_POINTS = {}; // 所在＋地番 → {lat,lng,approx}（画面を開いている間は使い回す）
   var SHOYUCHI_LOOKUP = 'https://shoyuchi-map-api.ld066001.workers.dev/api/lookup';
 
   function lotKey(l) { return (l.prefecture || '') + '|' + (l.address || '') + '|' + (l.lotNumber || ''); }
 
-  /** 所在「豊田市○○町字△△」→ 市区町村と町名・字に分ける（物件の市区町村の欄を使う） */
+  /** 所在「豊田市○○町字△△」→ 市区町村と町名・字に分ける（物件の市区町村の欄を使う。名古屋市は区まで市区町村に含める） */
   function lotTown(l) {
     var city = String(l.municipality || ''), addr = String(l.address || '');
-    return { city: city, town: addr.indexOf(city) === 0 ? addr.slice(city.length) : addr };
+    var town = addr.indexOf(city) === 0 ? addr.slice(city.length) : addr;
+    var ku = city === '名古屋市' && town.match(/^[^区]{1,3}区/);
+    if (ku) { city += ku[0]; town = town.slice(ku[0].length); }
+    return { city: city, town: town };
+  }
+
+  /** 町名（大字を除き、字より前）。国土地理院の住所検索の結果がその町か確かめるのに使う */
+  function townName(t) { return t.town.replace(/^大字/, '').replace(/字.*$/, '').trim(); }
+
+  /** 国土地理院の住所検索で町・字の位置（その市区町村＋町名の結果だけ採用） */
+  function gsiTownPoint(l) {
+    var t = lotTown(l), tn = townName(t);
+    if (!tn) return Promise.resolve(null);
+    var q = (l.prefecture || '') + t.city + t.town;
+    return fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (list) {
+        var hit = (list || []).filter(function (x) { return x.properties && String(x.properties.title).indexOf(t.city + tn) >= 0; })[0];
+        return hit ? { found: true, kind: 'town', lat: hit.geometry.coordinates[1], lng: hit.geometry.coordinates[0] } : null;
+      })
+      .catch(function () { return null; });
+  }
+
+  /** 地番検索の結果 → 種類（exact=地番の位置／interp=近くの地番から推定／town=町・字の位置／null=不明） */
+  function pointKind(r) {
+    if (!r || !r.found) return null;
+    if (!r.approx) return 'exact';
+    if (r.source === 'interp') return 'interp';
+    if (r.source === 'isj') return 'town';
+    return null; // 市の中心（場所としては使えない）
   }
 
   function buildLotMapPanel(lots) {
@@ -477,29 +509,40 @@
       var photo = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { maxZoom: 19, maxNativeZoom: 18,
         attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>' });
       L.control.layers({ '標準地図': std, '航空写真': photo }).addTo(map);
-      var pts = [], missing = [], approx = [];
+      var pts = [], by = { interp: [], town: [], none: [] };
+      var NOTE = { interp: '地番の位置が無いため、近くの地番から推定した位置', town: '地番までは分からないため、町・字の位置' };
       lots.forEach(function (l) {
         var pt = LOT_POINTS[lotKey(l)];
-        if (!pt || !pt.found) { missing.push('物件' + l.no); return; }
-        if (pt.approx) approx.push('物件' + l.no);
-        var icon = L.divIcon({ className: '', html: '<div class="lotpin' + (pt.approx ? ' approx' : '') + '">' + l.no + '</div>', iconSize: [26, 26], iconAnchor: [13, 13] });
+        if (!pt || !pt.kind) { by.none.push('物件' + l.no); return; }
+        if (pt.kind !== 'exact') by[pt.kind].push('物件' + l.no);
+        var cls = pt.kind === 'exact' ? '' : ' ' + pt.kind;
+        var icon = L.divIcon({ className: '', html: '<div class="lotpin' + cls + '">' + l.no + '</div>', iconSize: [26, 26], iconAnchor: [13, 13] });
         L.marker([pt.lat, pt.lng], { icon: icon, title: '物件' + l.no + ' ' + lotPlace(l) }).addTo(map)
-          .bindPopup('<b>物件' + esc(l.no) + '</b><br>' + esc(lotPlace(l)) + (pt.approx ? '<br>※ 地番の位置が無いため近くの筆・町の位置' : ''));
+          .bindPopup('<b>物件' + esc(l.no) + '</b><br>' + esc(lotPlace(l)) + (NOTE[pt.kind] ? '<br>※ ' + NOTE[pt.kind] : '<br>地番の位置'));
         pts.push([pt.lat, pt.lng]);
       });
       if (pts.length === 1) map.setView(pts[0], 17);
       else if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 18 });
       else map.setView([35.08, 137.15], 10);
       var msg = [];
-      if (approx.length) msg.push(approx.join('・') + 'は地番の位置が無いため近くの筆・町の位置（橙の点線）');
-      if (missing.length) msg.push(missing.join('・') + 'は位置が分かりませんでした');
-      note.textContent = (msg.length ? msg.join('。') + '。' : '') + '番号は物件番号。右上で航空写真に切り替え。位置は目安（所有地位置図の地番検索）。';
+      if (by.interp.length) msg.push(by.interp.join('・') + 'は近くの地番から推定した位置（橙の点線）');
+      if (by.town.length) msg.push(by.town.join('・') + 'は地番まで分からず町・字の位置（灰の点線）');
+      if (by.none.length) msg.push(by.none.join('・') + 'は位置が分からないためピンなし');
+      note.textContent = (msg.length ? msg.join('。') + '。' : '全筆を地番の位置に表示。') + '番号は物件番号。右上で航空写真に切り替え。';
     };
     if (!need.length) { draw(); return; }
     var items = need.map(function (l) { var t = lotTown(l); return { city: t.city, town: t.town, chiban: String(l.lotNumber || '').replace(/番地?/g, '-').replace(/-$/, '') }; });
     fetch(SHOYUCHI_LOOKUP, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: items }) })
       .then(function (r) { return r.json(); })
-      .then(function (d) { (d.results || []).forEach(function (r, i) { LOT_POINTS[lotKey(need[i])] = r; }); draw(); })
+      .then(function (d) {
+        var res = d.results || [];
+        return Promise.all(need.map(function (l, i) {
+          var r = res[i], kind = pointKind(r);
+          if (kind) { LOT_POINTS[lotKey(l)] = { kind: kind, lat: r.lat, lng: r.lng }; return null; }
+          return gsiTownPoint(l).then(function (g) { LOT_POINTS[lotKey(l)] = g || { kind: null }; });
+        }));
+      })
+      .then(draw)
       .catch(function (e) { note.textContent = '位置の確認に失敗しました（' + (e && e.message || e) + '）。'; });
   }
 
