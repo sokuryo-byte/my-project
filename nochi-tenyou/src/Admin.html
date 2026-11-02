@@ -471,10 +471,10 @@
     if (typeof L === 'undefined') { note.textContent = '地図を読み込めませんでした。'; return; }
     var need = lots.filter(function (l) { return !LOT_POINTS[lotKey(l)]; });
     var draw = function () {
-      var map = L.map(box, { scrollWheelZoom: false });
-      var std = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { maxZoom: 18,
+      var map = L.map(box, { scrollWheelZoom: true, maxZoom: 19 });
+      var std = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { maxZoom: 19, maxNativeZoom: 18,
         attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>' }).addTo(map);
-      var photo = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { maxZoom: 18,
+      var photo = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { maxZoom: 19, maxNativeZoom: 18,
         attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>' });
       L.control.layers({ '標準地図': std, '航空写真': photo }).addTo(map);
       var pts = [], missing = [], approx = [];
