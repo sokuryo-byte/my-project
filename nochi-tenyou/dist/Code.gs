@@ -155,6 +155,9 @@ const FEE_TABLE_VERSION = '2026-01';
 /** 社内ポータル（依頼画面・管理画面・送信後の画面からのリンク先） */
 const PORTAL_URL = 'http://192.168.24.54:8000/';
 
+/** 役調ナビ（社内LAN）。管理画面の「ストリートビュー」「Googleマップ」は役調ナビの現況確認を開く（所在・地番から筆の位置を出し、赤い印・土地の方向つき） */
+const YAKUCHO_NAVI_URL = 'http://192.168.24.54:8070';
+
 /**
  * 料金の個別修正。キーに版を付け、未適用の版だけ「見積設定」シートの該当項目を DEFAULT_FEES の値で上書きする
  * （ほかの項目のシート上の変更は残す）。
@@ -3168,6 +3171,7 @@ function getAdminData() {
     statuses: CASE_STATUSES,
     nogyoIinkai: NOGYO_IINKAI, // 連絡先・訪問先の一覧に農業委員会の電話番号を出すため
     nogyoWardDesks: NOGYO_WARD_DESKS, // 名古屋市など、区で窓口が分かれる市
+    yakuchoUrl: YAKUCHO_NAVI_URL, // 現況確認（ストリートビュー・Googleマップ）
     appointmentStatuses: APPOINTMENT_STATUSES,
     lotEditFields: LOT_EDIT_FIELDS.map(function (f) { return Object.assign({ options: f.opt ? FORM_OPTIONS[f.opt] : null }, f); }),
     userEmail: getUserEmail_(),

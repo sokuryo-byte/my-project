@@ -16,6 +16,7 @@ function getAdminData() {
     statuses: CASE_STATUSES,
     nogyoIinkai: NOGYO_IINKAI, // 連絡先・訪問先の一覧に農業委員会の電話番号を出すため
     nogyoWardDesks: NOGYO_WARD_DESKS, // 名古屋市など、区で窓口が分かれる市
+    yakuchoUrl: YAKUCHO_NAVI_URL, // 現況確認（ストリートビュー・Googleマップ）
     appointmentStatuses: APPOINTMENT_STATUSES,
     lotEditFields: LOT_EDIT_FIELDS.map(function (f) { return Object.assign({ options: f.opt ? FORM_OPTIONS[f.opt] : null }, f); }),
     userEmail: getUserEmail_(),
