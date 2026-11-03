@@ -1,0 +1,148 @@
+/**
+ * ============================================================
+ *  Google Chat 通知
+ * ============================================================
+ *  Incoming Webhook に JSON を POST するだけのシンプルな実装です。
+ *  通知に失敗しても例外は投げず、結果を返します（保存処理を巻き戻さないため）。
+ */
+
+/** 使用する Webhook URL（スクリプトプロパティ優先 → Config.gs の定数） */
+function getWebhookUrl_() {
+  const fromProps = PropertiesService.getScriptProperties().getProperty('CHAT_WEBHOOK_URL');
+  return (fromProps || CHAT_WEBHOOK_URL || '').trim();
+}
+
+/**
+ * Chat にテキストを送る。
+ * @param {string} text
+ * @return {{ok:boolean, message:string}}
+ */
+function postToChat_(text) {
+  const url = getWebhookUrl_();
+  if (!url) {
+    return { ok: false, message: 'Webhook URLが未設定です（管理画面の設定タブで登録）' };
+  }
+  try {
+    const res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json; charset=UTF-8',
+      payload: JSON.stringify({ text: text }),
+      muteHttpExceptions: true, // HTTPエラーでも例外にせず、ステータスで判定する
+    });
+    const code = res.getResponseCode();
+    if (code >= 200 && code < 300) return { ok: true, message: '送信済み' };
+    return { ok: false, message: 'HTTP ' + code + ': ' + res.getContentText().slice(0, 200) };
+  } catch (e) {
+    return { ok: false, message: String(e && e.message || e) };
+  }
+}
+
+/**
+ * 見積調査依頼の通知文を組み立てる。
+ * Chat の書式： *太字*、<URL|リンク文字>
+ */
+function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
+  const adminUrl = getAdminUrl_(caseId);
+  const lines = [
+    '*【農地転用】見積調査依頼が届きました*',
+    '受付番号：' + (caseNo || caseId),
+    '依頼者名：' + (input.requesterName || '（未入力）') + (input.trust ? '（信託手続きに付随）' : ''),
+    '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
+  ];
+  // 地目変更登記は登記担当へ連絡するため、物件の明細より前に目立たせて出す
+  const chimoku = chimokuHenkoText_(input.lots);
+  if (chimoku) lines.push('*【地目変更登記あり・登記担当へ連絡】' + chimoku.replace(/^あり/, '') + '*');
+  input.lots.forEach(function (l, i) {
+    lines.push('　' + (i + 1) + '. ' + (l.address || '（所在未入力）') + ' ' + l.lotNumber +
+      '／' + (l.chimoku || '地目-') + (l.area !== null ? ' ' + l.area + '㎡' : '') +
+      '／' + (l.zone || '区域-') + '／農振:' + (l.isNoshin || '-') + '／現況:' + (l.landUse || '-') +
+      (l.readFromTohon ? '（謄本読取）' : '') + (l.chimokuHenko ? '／地目変更登記あり' : ''));
+    if (l.nogyoTanto) lines.push('　　農業委員会でお話しした方：' + l.nogyoTanto);
+    if (l.landImprovement === 'はい' && (l.kairyoName || l.kairyoBenefit || l.kairyoSettlement)) {
+      lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') + (l.kairyoTanto ? '／担当 ' + l.kairyoTanto : '') +
+        '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +
+        (l.kairyoSettlement ? '／決済金:' + l.kairyoSettlement : '') +
+        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : '') +
+        (l.kairyoDrain ? '／排水同意 ' + l.kairyoDrain : ''));
+    }
+    (l.landImprovement === 'はい' ? l.kairyoExtra || [] : []).forEach(function (e, k) {
+      lines.push('　　土地改良区（' + (k + 2) + '）：' + kairyoExtraText_([e]));
+    });
+    if (l.iinStamp === '必要') {
+      lines.push('　　農業委員等の押印：必要');
+      (l.iinContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
+    }
+    if (l.tenyoRireki) {
+      lines.push('　　過去の転用届出・許可の履歴：' + l.tenyoRireki +
+        (l.tenyoRireki === 'あり' ? '（' + [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・') + '）' : ''));
+    }
+    if (l.saiShinsei) {
+      lines.push('　　再申請の要否：' + l.saiShinsei + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : ''));
+    }
+    if (l.hinochi) {
+      lines.push('　　非農地証明（現況証明）：' + l.hinochi +
+        (l.hinochi === '可能' ? [l.hinochiYears && '利用 ' + l.hinochiYears, l.hinochiDocs, l.hinochiNote].filter(String).map(function (x) { return '／' + x; }).join('') : '') +
+        (l.hinochi === '不可' ? '／是正の許可申請：' + (l.zeseiKyoka || '-') + (l.zeseiNote ? '（' + l.zeseiNote + '）' : '') : ''));
+    }
+    if (l.shimatsusho) {
+      lines.push('　　始末書の提出：' + l.shimatsusho + (l.shimatsuStamp ? '／押印 ' + l.shimatsuStamp : '') + (l.shimatsuNote ? '（' + l.shimatsuNote + '）' : ''));
+    }
+    if (l.tenyoKanou || l.noutiKubun) {
+      lines.push('　　転用の見込み（農業委員会）：' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') +
+        (l.kanouNote ? '／' + l.kanouNote : ''));
+    }
+    if (l.jogaiKanou || l.hojoKuiki || l.jogaiJisseki || l.jogaiUketsuke) {
+      lines.push('　　農振除外の見込み：' + (l.jogaiKanou || '-') + '／ほ場整備等 ' + (l.hojoKuiki || '-') + (l.hojo8nen ? '（8年' + l.hojo8nen + '）' : '') +
+        '／近隣の除外実績 ' + (l.jogaiJisseki || '-') + (l.jogaiUketsuke ? '／受付 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''));
+    }
+    if (l.tenyoUketsuke) lines.push('　　農地転用の受付：' + l.tenyoUketsuke);
+    if (l.drainConsent || l.drainAdjacent) {
+      lines.push('　　排水：隣接水路 ' + (l.drainAdjacent || '-') + '／排水承諾 ' + (l.drainConsent || '-') +
+        (l.drainName ? '／' + l.drainName + (l.drainTel ? '（' + l.drainTel + '）' : '') : '') +
+        (l.drainFee ? '／手数料 ' + l.drainFee : '') + (l.drainLocalConsent ? '／地元承諾 ' + l.drainLocalConsent : '') + (l.drainTanto ? '／担当 ' + l.drainTanto : ''));
+      (l.drainContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
+    }
+    if (l.localConsent) {
+      lines.push('　　地元関係者の同意（押印）：' + l.localConsent);
+      (l.localContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
+    }
+  });
+  lines.push(
+    '概算見積金額：' + (estimate.ok ? formatYen_(estimate.total) : '算出不可'),
+    '資料：' + (input.documents.join('、') || 'なし'),
+    '入力者：' + (input.submittedBy || '不明')
+  );
+  if (attach && attach.folderUrl) {
+    lines.push('<' + attach.folderUrl + '|アップロード資料（' + attach.count + '件）を開く>');
+  }
+  if (attach && attach.errors.length) {
+    lines.push('⚠ 資料の保存でエラー：' + attach.errors.join(' / '));
+  }
+  if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
+  lines.push('<' + rowUrl + '|スプレッドシートで案件行を開く>');
+  return lines.join('\n');
+}
+
+/** 正式見積を提示したときの Chat 通知文 */
+function buildEstimateMessage_(c, pdfUrl) {
+  const adminUrl = getAdminUrl_(c.id);
+  const lines = [
+    '*【農地転用】正式見積を提示しました*',
+    '受付番号：' + (c.caseNo || c.id) + '　依頼者名：' + (c.requesterName || '（未入力）'),
+    '所在：' + [c.address, c.lotNumber].filter(String).join(' '),
+    c.formalEstimate !== '' && c.formalEstimate !== undefined ? '正式見積：' + formatYen_(c.formalEstimate) : '',
+    '見積書：<' + pdfUrl + '|PDFを開く>',
+  ].filter(String);
+  if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
+  return lines.join('\n');
+}
+
+/** 管理画面で案件を開くURL（Webアプリとしてデプロイされていない場合は空文字） */
+function getAdminUrl_(caseId) {
+  try {
+    const base = ScriptApp.getService().getUrl();
+    return base ? base + '?page=admin&id=' + caseId : '';
+  } catch (e) {
+    return '';
+  }
+}

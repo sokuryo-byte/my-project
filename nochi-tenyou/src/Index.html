@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <?!= include('Stylesheet'); ?>
+  <?!= include('LotMap'); ?>
+  <?!= include('EstimateLib'); ?>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="page-head"><h1>農地転用 見積・調査依頼フォーム</h1>
+      <span class="head-links"><button type="button" class="ghost saved-open" id="savedOpen">保存した案件を開く</button>
+      <a class="portal-link" href="<?= portalUrl ?>" target="_top">← 社内ポータル</a></span></div>
+    <div class="edit-banner hidden" id="editBanner" role="status">
+      <span>受付番号 <b id="editNo"></b> の続きを入力中です。送信するとこの案件に上書き保存されます。<span id="editFiles"></span></span>
+      <button type="button" class="linkbtn" id="editCancel">新しい案件の入力に切り替える</button>
+    </div>
+    <p class="lead">
+      ご入力内容に応じて、画面下部に概算見積を表示します。
+      送信後、行政班より正式なお見積りをご連絡いたします。
+    </p>
+    <p class="user" id="userInfo"></p>
+  </header>
+
+  <!-- 登記地目が農地以外のときの確認 -->
+  <dialog id="nonFarmDialog" class="modal" aria-labelledby="nfTitle">
+    <h2 id="nfTitle">農地転用の手続きは原則不要です</h2>
+    <p id="nfText"></p>
+    <p class="help">※ 登記地目が農地以外でも、現況が農地（耕作中など）の場合は手続きが必要になることがあります。</p>
+    <div class="btns">
+      <button type="button" class="ghost" id="nfFix">地目を修正する</button>
+      <button type="button" class="primary" id="nfConfirm">農地以外で間違いない</button>
+    </div>
+  </dialog>
+
+  <!-- 保存した案件の一覧 -->
+  <dialog class="modal" id="savedDialog" aria-labelledby="savedTitle" style="max-width:min(560px, calc(100vw - 32px))">
+    <h2 id="savedTitle">保存した案件</h2>
+    <p class="help" style="margin:0 0 8px">「保存のみ」で保存し、まだ見積調査依頼していない案件です。選ぶと続きを入力できます。</p>
+    <div id="savedList" class="saved-list"><p class="help">読み込み中…</p></div>
+    <div class="btns"><button type="button" class="ghost" id="savedClose">閉じる</button></div>
+  </dialog>
+
+  <!-- 送信結果（送信後にフォームの代わりに表示） -->
+  <section id="resultBox" class="result hidden" role="status">
+    <h2 id="resultTitle"></h2>
+    <p id="resultText"></p>
+    <div class="btns"><button type="button" class="ghost" id="againBtn">新しい案件を入力する</button><a class="ghost" href="<?= portalUrl ?>" target="_top">社内ポータルに戻る</a></div>
+  </section>
+
+  <form id="caseForm" autocomplete="off" novalidate class="wrap" style="padding:0">
+
+    <!-- ===================== STEP 1 依頼者 ===================== -->
+    <section>
+      <h2><span class="step">STEP 1</span>依頼者</h2>
+      <div class="row">
+        <div class="field">
+          <label for="requesterName">依頼者名<span class="req">必須</span></label>
+          <input type="text" id="requesterName" maxlength="50" placeholder="例）山田 太郎">
+          <p class="help">ご依頼者またはお客様のお名前</p>
+        </div>
+        <div class="field">
+          <span class="lbl">信託手続き</span>
+          <label style="font-weight:400;display:inline-flex;gap:6px;align-items:center;min-height:40px"><input type="checkbox" id="trust"> 信託手続きに付随する依頼</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== STEP 2 物件（複数可） ===================== -->
+    <section>
+      <h2><span class="step">STEP 2</span>物件<span class="help">1筆ごとに入力・複数可</span>
+        <label class="check-line talk-toggle"><input type="checkbox" id="showTalk" checked> トーク例を表示</label></h2>
+
+
+      <div class="field">
+        <span class="lbl">謄本から読み取る</span>
+        <div class="drop tohon-drop" id="tohonDrop" tabindex="0" role="button">
+          謄本（PDF・画像）をドラッグすると、所在・地番・地目・地積を読み取ります（複数可）
+        </div>
+        <input type="file" id="tohonFile" multiple class="hidden">
+        <p class="help">読取結果（黄色）は<strong>必ず謄本と照合してください。</strong>区域区分・農振・現況はご選択ください。</p>
+        <ul class="files" id="tohonStatus"></ul>
+      </div>
+
+      <div class="lots" id="lots"></div>
+      <div class="btns">
+        <button type="button" class="ghost" id="addLotBtn">＋ 物件を追加</button>
+        <button type="button" class="ghost" id="copyLotBtn">＋ 最後の物件の区域などを引き継いで追加</button>
+      </div>
+      <div class="hear-all hidden" id="hearAll">
+        <div class="lot-sec hear"><span class="lot-sec-n">2</span><b>ヒアリング（架電）</b><span class="lot-sec-help">電話先ごとに、質問ごとに全筆の回答を記録（最初の回答は未回答の筆にも入ります。違う筆だけ直してください）</span></div>
+        <div class="gm-sheets" id="gmSheets"></div>
+      </div>
+      <label class="check-line hidden" id="extraLotWrap"><input type="checkbox" id="extraLotFee"> 筆数加算をする<span class="caution" style="margin-left:6px">※ 申請が分かれる場合など。1申請で足りる場合は不要</span></label>
+    </section>
+
+    <!-- ===================== STEP 3 計画 ===================== -->
+    <section>
+      <h2><span class="step">STEP 3</span>計画</h2>
+      <div class="field">
+        <label for="plan">今後の転用計画<span class="req hidden" id="planReq">必須</span></label>
+        <textarea id="plan" rows="3" maxlength="1000" placeholder="例）自己用住宅の建築、月極駐車場として貸したい、売却予定 など"></textarea>
+        <p class="help">現況が農地の場合は必須</p>
+      </div>
+    </section>
+
+    <!-- ===================== STEP 4 資料 ===================== -->
+    <section>
+      <h2><span class="step">STEP 4</span>資料</h2>
+      <div class="field">
+        <p class="help" id="uploadHelp">お手元にデータがあれば、各枠へドラッグまたはクリックで添付してください。</p>
+        <div class="docs" id="docs"></div>
+      </div>
+    </section>
+
+    <!-- ===================== STEP 5 概算見積の内訳 ===================== -->
+    <section id="detail">
+      <h2><span class="step">STEP 5</span>概算見積の内訳</h2>
+      <table class="breakdown"><tbody id="estimateItems"></tbody></table>
+      <ul class="notes" id="estimateNotes"></ul>
+    </section>
+  </form>
+</div>
+
+<!-- 画面下部に固定：概算見積と送信ボタン -->
+<div class="estimate-bar" id="estimateBar">
+  <div class="in">
+    <p id="formErrors" class="errors hidden" role="alert"></p>
+    <div class="main">
+      <div class="total">
+        <small>概算見積（報酬は税込・実費込み・目安）</small>
+        <strong id="estimateTotal">―</strong>
+        <button type="button" class="linkbtn" id="toDetail">内訳を見る</button>
+      </div>
+      <div class="btns">
+        <button type="button" class="ghost" id="saveOnlyBtn">保存のみ</button>
+        <button type="button" class="primary" id="requestBtn">見積調査依頼</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>window.BOOT_INIT = <?!= bootData ?>;</script>
+<?!= include('JavaScript'); ?>
+</body>
+</html>

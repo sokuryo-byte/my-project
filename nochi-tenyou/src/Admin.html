@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <?!= include('Stylesheet'); ?>
+  <?!= include('LotMap'); ?>
+  <style>
+    /* 画面いっぱいを使う：左＝案件リスト（細く）、右＝案件の詳細（広く） */
+    body { background: var(--bg); }
+    .admin { padding: 10px 16px 24px; display: grid; gap: 10px; }
+    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .topbar h1 { font-size: 1.15rem; margin: 0; }
+    .topbar .spacer { flex: 1; }
+    .topbar .user { margin: 0; font-size: .8rem; color: var(--muted); }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+    .tab { border: 1px solid transparent; border-bottom: none; background: none; padding: 6px 18px; font-size: .9rem; font-weight: 700; color: var(--muted); cursor: pointer; border-radius: 6px 6px 0 0; margin-bottom: -1px; }
+    .tab[aria-selected=true] { background: var(--surface); border-color: var(--line); color: var(--accent); }
+
+    .md { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 14px; align-items: start; }
+    .master, .side { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow-y: auto; }
+    .master { display: grid; gap: 8px; align-content: start; padding-right: 2px; }
+    .master input[type=text] { width: 100%; }
+    .master-opts { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .82rem; }
+    .master-opts label { font-weight: 400; display: inline-flex; gap: 6px; align-items: center; }
+    .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 1px 10px; font-size: .78rem; cursor: pointer; }
+    .chip[aria-pressed=true] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+    #rows { display: grid; gap: 6px; }
+    .case-card { display: grid; gap: 2px; text-align: left; width: 100%; font: inherit; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 6px; padding: 7px 10px; cursor: pointer; color: var(--fg); }
+    .case-card:hover { border-color: var(--accent); }
+    .case-card.sel { background: var(--accent-soft); border-color: var(--accent); border-left-color: var(--accent); }
+    .case-card.st-新規 { border-left-color: var(--danger); }
+    .case-card .l1, .case-card .l4 { display: flex; justify-content: space-between; gap: 8px; font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .case-card .l2 { font-weight: 700; font-size: .92rem; }
+    .case-card .l3 { font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pill { display: inline-block; border-radius: 999px; padding: 0 8px; font-size: .72rem; font-weight: 700; border: 1px solid currentColor; white-space: nowrap; }
+    .st-新規 .pill, .pill.st-新規 { color: var(--danger); }
+    .pill.st-調査中 { color: var(--warn-fg); }
+    .pill.st-正式見積提示済, .pill.st-受任 { color: var(--accent); }
+    .pill.st-完了, .pill.st-失注・取下げ { color: var(--muted); }
+
+    /* 詳細 */
+    .detail { display: grid; gap: 12px; min-width: 0; background: none; border: none; padding: 0; border-radius: 0; }
+    .dhead { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 24px; align-items: center; }
+    .dhead .flow { grid-column: 1; }
+    /* 転用物件の所在（いちばん大事な情報なので見出しのすぐ下） */
+    .dhead .where { grid-column: 1; display: grid; gap: 4px; margin: 0; padding: 8px 12px; background: var(--accent-soft); border-left: 4px solid var(--accent); border-radius: 4px; }
+    .dhead .where-h { font-size: .72rem; font-weight: 700; color: var(--accent); letter-spacing: .04em; }
+    .dhead .where-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+    .dhead .where-row .no { font-size: .78rem; font-weight: 700; color: var(--accent); min-width: 3.2em; }
+    .dhead .where-row .addr { font-size: 1.02rem; font-weight: 700; }
+    .dhead .where-row .sub { font-size: .78rem; color: var(--muted); }
+    .dhead-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+    .dhead h2 { margin: 0; font-size: 1.2rem; padding: 0; border: none; }
+    .dhead .meta { font-size: .8rem; color: var(--muted); flex-basis: 100%; }
+    .pdf-btn { padding: 2px 12px; font-size: .8rem; }
+    /* 地目変更登記（登記担当へ連絡） */
+    .chimoku-badge { margin-left: 6px; font-size: .68rem; font-weight: 700; color: #7a3d00; background: #ffe2c2; border-radius: 4px; padding: 0 6px; vertical-align: 2px; }
+    .chimoku-alert { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; background: #fff1e0; border: 1px solid #f0b46e; border-left: 6px solid #d9822b; border-radius: 6px; padding: 8px 12px; }
+    .chimoku-alert b { color: #7a3d00; font-size: .95rem; }
+    .chimoku-alert .to { font-size: .75rem; font-weight: 700; color: #fff; background: #d9822b; border-radius: 999px; padding: 1px 10px; }
+    .chimoku-alert .cl-list { font-size: .85rem; color: #4a3520; }
+    .dhead .amt { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: .75rem; color: var(--muted); }
+    .dhead .amt b { display: block; font-size: 1.35rem; color: var(--fg); font-variant-numeric: tabular-nums; }
+    /* 対応の流れ（対応状況の進み具合） */
+    .flow { display: flex; list-style: none; margin: 0; padding: 0; counter-reset: f; }
+    .flow li { flex: 1; position: relative; text-align: center; font-size: .75rem; color: var(--muted); padding-top: 22px; }
+    .flow li::before { counter-increment: f; content: counter(f); position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 18px; height: 18px; line-height: 18px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); font-size: .7rem; z-index: 1; }
+    .flow li + li::after { content: ''; position: absolute; top: 9px; right: 50%; width: 100%; border-top: 2px solid var(--line); }
+    .flow li.done { color: var(--accent); }
+    .flow li.done::before { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .flow li.done + li.done::after, .flow li.done + li.now::after { border-color: var(--accent); }
+    .flow li.now { color: var(--fg); font-weight: 700; }
+    .flow.lost li { opacity: .5; }
+
+    .dbody { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
+    .main { display: grid; gap: 12px; min-width: 0; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; display: grid; gap: 8px; }
+    .panel > h3 { margin: 0; font-size: .85rem; color: var(--muted); letter-spacing: .04em; }
+    .kvg { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 20px; margin: 0; }
+    .kvg > div { display: grid; gap: 1px; min-width: 0; }
+    .kvg dt { font-size: .72rem; color: var(--muted); }
+    .kvg dd { margin: 0; font-size: .88rem; white-space: pre-line; overflow-wrap: anywhere; }
+    .kvg .wide { grid-column: 1 / -1; }
+
+    /* 物件カード：基本情報タグ ＋ 電話確認の結果（確認する順） */
+    .lot-card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .lot-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 9px 16px; background: var(--accent-soft); border-bottom: 1px solid var(--line); }
+    .lot-head .no { font-weight: 700; color: var(--accent); }
+    .lot-head .addr { font-weight: 700; font-size: .95rem; }
+    .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+    .tag { font-size: .74rem; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
+    .tag.warn { background: var(--warn-bg); color: var(--warn-fg); border-color: transparent; }
+    .tag.bad { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+    .step { padding: 10px 16px; border-top: 1px solid var(--line); border-right: 1px solid var(--line); display: grid; gap: 4px; align-content: start; }
+    .step h4 { margin: 0; font-size: .78rem; color: var(--accent); display: flex; gap: 6px; align-items: center; }
+    .step h4 .n { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-size: .68rem; }
+    .step dl { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); gap: 2px 10px; margin: 0; font-size: .84rem; }
+    .step dt { color: var(--muted); font-size: .78rem; }
+    .step dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+    .step dd.bad { color: var(--danger); font-weight: 700; }
+    .nocall { padding: 10px 16px; font-size: .82rem; color: var(--muted); }
+    .lot-head .lot-edit { margin-left: auto; }
+    /* 調査結果の修正（小窓） */
+    dialog.modal.lot-dlg { max-width: min(760px, calc(100vw - 32px)); width: 760px; padding: 0; }
+    .lot-dlg form { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-height: min(86vh, 900px); }
+    .lot-dlg .dlg-h { padding: 14px 20px 8px; border-bottom: 1px solid var(--line); }
+    .lot-dlg .dlg-h h2 { margin: 0; }
+    .lot-dlg .dlg-h p { margin: 4px 0 0; font-size: .8rem; color: var(--muted); }
+    .lot-dlg .dlg-b { overflow: auto; padding: 4px 20px 12px; }
+    .lot-dlg .dlg-f { padding: 10px 20px 14px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+    .lot-dlg h4 { margin: 14px 0 6px; font-size: .78rem; color: var(--accent); }
+    .lot-dlg .eg { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 14px; }
+    .lot-dlg .eg .wide { grid-column: 1 / -1; }
+    .lot-dlg .eg > label, .lot-dlg .eg > div { display: grid; gap: 2px; font-size: .74rem; color: var(--muted); }
+    .lot-dlg .eg input, .lot-dlg .eg select, .lot-dlg .eg textarea { font: inherit; font-size: .86rem; color: var(--fg); }
+    .lot-dlg .multi { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: .84rem; color: var(--fg); }
+    .lot-dlg .multi label { display: inline-flex; gap: 4px; align-items: center; font-size: .84rem; color: var(--fg); }
+
+    .side { display: grid; gap: 12px; align-content: start; }
+    .side .field { gap: 4px; }
+    .side .row { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; }
+    .breakdown-text { font-size: .8rem; white-space: pre-line; margin: 0; }
+    /* 概算見積の内訳（表） */
+    .est { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px 24px; align-items: start; }
+    table.est-t { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+    table.est-t td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table.est-t td.y { text-align: right; white-space: nowrap; width: 7em; }
+    table.est-t tr.grp td { font-size: .75rem; font-weight: 700; color: var(--accent); border-bottom: 2px solid var(--accent-soft); padding-top: 10px; }
+    table.est-t tr.sub td { color: var(--muted); font-size: .8rem; }
+    table.est-t tr.sum td { font-weight: 700; font-size: .95rem; border-bottom: none; border-top: 2px solid var(--fg); }
+    .est-notes { margin: 0; padding: 0 0 0 1.1em; font-size: .8rem; color: var(--muted); display: grid; gap: 4px; }
+    @media (max-width: 1000px) { .est { grid-template-columns: minmax(0, 1fr); } }
+    /* 正式見積：PDFをドラッグ */
+    .pdf-drop { border: 2px dashed var(--line); border-radius: 8px; padding: 16px 10px; text-align: center; font-size: .85rem; color: var(--muted); cursor: pointer; background: var(--bg); }
+    .pdf-drop:hover, .pdf-drop.over { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+    .pdf-drop b { display: block; color: var(--fg); font-size: .9rem; margin-bottom: 2px; }
+    .pdf-done { font-size: .82rem; display: grid; gap: 2px; background: var(--accent-soft); border-radius: 6px; padding: 8px 10px; }
+    .pdf-confirm { display: grid; gap: 8px; }
+    .pdf-confirm .fname { font-size: .85rem; font-weight: 700; overflow-wrap: anywhere; }
+    .side-links { display: grid; gap: 4px; font-size: .85rem; }
+    table.ct { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    table.ct td { border-top: 1px solid var(--line); padding: 7px 8px; vertical-align: top; }
+    table.ct td.ck { width: 8.5em; }
+    table.ct .kind { display: block; font-weight: 700; color: var(--accent); font-size: .8rem; }
+    table.ct .lots, table.ct .addr { display: block; color: var(--muted); font-size: .75rem; }
+    table.ct td.ctel { white-space: nowrap; font-size: 1rem; font-weight: 700; width: 10em; }
+    table.ct td.ctodo { white-space: pre-line; font-size: .8rem; color: var(--muted); }
+    table.ct tr.appt td { border-top: none; padding: 0 8px 9px; }
+    .appt-box { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; background: var(--bg); border-radius: 6px; padding: 6px 8px; margin-left: 8.5em; }
+    .appt-box .appt-l { font-size: .75rem; font-weight: 700; color: var(--accent); }
+    .appt-box input[type=datetime-local] { width: auto; padding: 3px 6px; font-size: .85rem; }
+    .appt-box select { width: auto; padding: 3px 6px; font-size: .85rem; }
+    .appt-box input[type=text] { flex: 1; min-width: 12em; padding: 3px 8px; font-size: .85rem; }
+    @media (max-width: 820px) { .appt-box { margin-left: 0; } table.ct tr.appt { border-top: none; padding-top: 0; } }
+    @media (max-width: 820px) { table.ct td { display: block; border-top: none; padding: 2px 8px; } table.ct tr { display: block; border-top: 1px solid var(--line); padding: 6px 0; } table.ct td.ck, table.ct td.ctel { width: auto; } }
+    a.tel { color: var(--accent); font-weight: 700; text-decoration: underline; white-space: nowrap; }
+    .danger-link { justify-self: start; background: none; border: 1px solid var(--danger); color: var(--danger); border-radius: 6px; padding: 4px 12px; font-size: .8rem; cursor: pointer; margin-top: 4px; }
+    .danger-link:hover { background: var(--danger-bg); }
+    .danger-link:disabled { opacity: .5; cursor: not-allowed; }
+
+    .empty { color: var(--muted); padding: 24px; text-align: center; }
+    .saved { color: var(--accent); font-size: .85rem; }
+    .saved.err { color: var(--danger); }
+
+    @media (max-width: 1180px) { .dbody { grid-template-columns: minmax(0, 1fr); } .side { position: static; max-height: none; } }
+    @media (max-width: 820px) {
+      .md { grid-template-columns: minmax(0, 1fr); }
+      .master { position: static; max-height: 50vh; }
+      .steps { grid-template-columns: minmax(0, 1fr); }
+      .flow li { font-size: .65rem; }
+    }
+
+    /* 設定タブ */
+    .list { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+    table.cases { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+    table.cases th, table.cases td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    table.cases th { font-size: .75rem; color: var(--muted); font-weight: 700; }
+    .num { text-align: right !important; }
+    .settings { display: grid; gap: 16px; max-width: 900px; }
+    table.fees td { white-space: normal; vertical-align: middle; }
+    table.fees input[type=text] { width: 100%; }
+    table.fees td.lbl-cell { width: 46%; min-width: 20em; }
+    table.fees td.amt { width: 8em; min-width: 7em; }
+    .settings .btns { align-items: center; }
+    table.fees td.amt input { text-align: right; }
+    table.fees td.cond { font-size: .78rem; color: var(--muted); min-width: 14em; }
+  </style>
+</head>
+<body>
+<div class="admin">
+  <header class="topbar">
+    <h1>農地転用 案件管理（行政班）</h1>
+    <span class="spacer"></span>
+    <p class="user" id="userInfo"></p>
+    <a class="portal-link" href="<?= portalUrl ?>" target="_top">← 社内ポータル</a>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab" role="tab" id="tabCases" aria-selected="true">案件一覧</button>
+    <button type="button" class="tab" role="tab" id="tabSettings" aria-selected="false">設定</button>
+  </div>
+
+  <div id="casesView" class="md">
+    <aside class="master" aria-label="案件リスト">
+      <input type="text" id="q" placeholder="受付番号・依頼者名・地番・市区町村・担当で検索" aria-label="検索">
+      <div class="chips" id="statusChips"></div>
+      <div class="master-opts">
+        <label><input type="checkbox" id="requestOnly" checked> 見積調査依頼のみ</label>
+        <button type="button" class="ghost" id="reload" style="padding:2px 10px;font-size:.8rem">再読み込み</button>
+      </div>
+      <div id="rows"><p class="empty">読み込み中…</p></div>
+    </aside>
+
+    <section class="detail" id="detail" aria-live="polite">
+      <p class="empty">左のリストから案件を選んでください。</p>
+    </section>
+  </div>
+
+  <!-- ===================== 設定 ===================== -->
+  <div id="settingsView" class="settings hidden">
+    <section>
+      <h2>概算見積の金額</h2>
+      <p class="help">依頼画面の概算見積に即時反映され、保存すると対応状況が「新規」「調査中」の案件の概算も計算し直します（正式見積提示済・受任・完了・失注は変更しません）。報酬は税抜（消費税10%は自動で加算）、実費は非課税です。適用条件の変更はシステム改修が必要です。</p>
+      <div class="list">
+        <table class="cases fees">
+          <thead><tr><th>項目名（見積に表示）</th><th class="num">金額（円）</th><th>適用条件</th></tr></thead>
+          <tbody id="feeRows"><tr><td colspan="3" class="empty">読み込み中…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="btns"><button type="button" class="primary" id="saveFees">金額を保存</button><span class="saved" id="feesMsg"></span></div>
+    </section>
+
+    <section>
+      <h2>管理者</h2>
+      <p class="help">この管理画面を利用できる方のメールアドレス（1行に1件）。ご自身は外せません。</p>
+      <textarea id="adminEmails" rows="4" spellcheck="false"></textarea>
+      <div class="btns"><button type="button" class="primary" id="saveAdmins">管理者を保存</button><span class="saved" id="adminsMsg"></span></div>
+    </section>
+
+    <section>
+      <h2>Google Chat 通知</h2>
+      <p class="help">通知先スペースの「アプリと統合 &gt; Webhook を追加」で発行した URL。空欄で通知停止。</p>
+      <input type="text" id="webhookUrl" spellcheck="false" placeholder="https://chat.googleapis.com/v1/spaces/…">
+      <div class="btns">
+        <button type="button" class="primary" id="saveWebhook">保存</button>
+        <button type="button" class="ghost" id="testWebhook">テスト送信</button>
+        <span class="saved" id="webhookMsg"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>その他</h2>
+      <p class="help">市区町村ごとの都市計画情報・農振図のリンクは、スプレッドシートの「マスタ」シートで編集します。</p>
+      <div class="btns" id="otherLinks"></div>
+    </section>
+  </div>
+</div>
+
+<dialog class="modal" id="pdfDialog" aria-labelledby="pdfTitle">
+  <h2 id="pdfTitle">PDF出力</h2>
+  <div class="field">
+    <label for="pdfKarte">案件カルテ番号（任意・PDFの見出しに表示）</label>
+    <input type="text" id="pdfKarte" maxlength="30" placeholder="例）260001" autocomplete="off">
+  </div>
+  <p id="pdfName" class="help" style="overflow-wrap:anywhere;margin-top:10px"></p>
+  <p class="saved err" id="pdfErr" role="alert"></p>
+  <div class="btns">
+    <button type="button" class="ghost" id="pdfCancel">キャンセル</button>
+    <button type="button" class="primary" id="pdfGo">出力</button>
+  </div>
+</dialog>
+
+<dialog class="modal lot-dlg" id="lotDialog" aria-labelledby="lotDlgTitle">
+  <form method="dialog" id="lotForm">
+    <div class="dlg-h"><h2 id="lotDlgTitle">調査結果の修正</h2><p id="lotDlgNote"></p></div>
+    <div class="dlg-b" id="lotDlgBody"></div>
+    <div class="dlg-f">
+      <span class="saved err" id="lotDlgErr" role="alert"></span>
+      <button type="button" class="ghost" id="lotDlgCancel">キャンセル</button>
+      <button type="button" class="primary" id="lotDlgSave">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  var state = { cases: [], lotsByCase: {}, statuses: [], filter: '', selectedId: Number('<?= initialId ?>') || 0 };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function el(tag, attrs, text) {
+    var e = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function yen(n) {
+    return n === '' || n === null || n === undefined ? '―' : '¥' + String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function boolText(v) { return v === true ? 'はい' : v === false ? 'いいえ' : (v || '―'); }
+
+  // ---------------------------------------------------------
+  // 読み込み
+  // ---------------------------------------------------------
+  var BOOT_DATA = <?!= bootData ?>; // 画面を開いたときにサーバーが埋め込んだ案件一覧（2回目以降の読み込みはサーバーへ）
+  function load() {
+    if (BOOT_DATA) { var boot = BOOT_DATA; BOOT_DATA = null; onLoaded(boot); return; }
+    google.script.run
+      .withSuccessHandler(onLoaded)
+      .withFailureHandler(function (err) {
+        $('rows').innerHTML = '';
+        $('rows').appendChild(el('p', { 'class': 'empty' }, '読み込みに失敗しました：' + err.message));
+      })
+      .getAdminData();
+  }
+
+  function onLoaded(data) {
+    if (!data) { // サーバー側で受け渡しに失敗した場合（日付などが混じると null が返る）
+      $('rows').innerHTML = '';
+      $('rows').appendChild(el('p', { 'class': 'empty' }, '読み込みに失敗しました（データの受け渡しエラー）。行政班の管理者に連絡してください。'));
+      return;
+    }
+    state.cases = data.cases;
+    state.statuses = data.statuses;
+    state.lotsByCase = data.lotsByCase || {};
+    state.nogyoIinkai = data.nogyoIinkai || {};
+    state.nogyoWardDesks = data.nogyoWardDesks || {};
+    state.yakuchoUrl = data.yakuchoUrl || '';
+    state.apptStatuses = data.appointmentStatuses || [];
+    state.lotEditFields = data.lotEditFields || [];
+    $('userInfo').textContent = data.userEmail;
+    renderChips();
+    renderRows();
+    if (state.selectedId) renderDetail(state.selectedId);
+  }
+
+  function renderChips() {
+    var box = $('statusChips');
+    box.innerHTML = '';
+    [''].concat(state.statuses).forEach(function (s) {
+      var count = state.cases.filter(function (c) { return !s || c.status === s; }).length;
+      var b = el('button', { type: 'button', 'class': 'chip', 'aria-pressed': String(state.filter === s) }, (s || 'すべて') + ' ' + count);
+      b.addEventListener('click', function () { state.filter = s; renderChips(); renderRows(); });
+      box.appendChild(b);
+    });
+  }
+
+  function visibleCases() {
+    var q = $('q').value.trim();
+    var reqOnly = $('requestOnly').checked;
+    return state.cases.filter(function (c) {
+      if (state.filter && c.status !== state.filter) return false;
+      if (reqOnly && c.requestFlag !== true) return false;
+      if (q) {
+        var hay = [c.requesterName, c.lotNumber, c.municipality, c.address, c.assignee, c.caseNo, c.id].join(' ');
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderRows() {
+    var box = $('rows');
+    box.innerHTML = '';
+    var list = visibleCases();
+    if (!list.length) { box.appendChild(el('p', { 'class': 'empty' }, '該当する案件はありません。')); return; }
+    list.forEach(function (c) {
+      var card = el('button', { type: 'button', 'class': 'case-card st-' + c.status + (c.id === state.selectedId ? ' sel' : '') });
+      var l1 = el('div', { 'class': 'l1' });
+      l1.appendChild(el('span', {}, (c.caseNo || '#' + c.id) + '　' + String(c.receivedAt || '').slice(5)));
+      l1.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―'));
+      card.appendChild(l1);
+      var l2 = el('div', { 'class': 'l2' }, c.requesterName || '（依頼者名なし）');
+      if (chimokuLots(state.lotsByCase[c.id] || []).length) l2.appendChild(el('span', { 'class': 'chimoku-badge' }, '地目変更'));
+      card.appendChild(l2);
+      card.appendChild(el('div', { 'class': 'l3' }, [c.address, c.lotNumber].filter(String).join(' ') || '―'));
+      var l4 = el('div', { 'class': 'l4' });
+      l4.appendChild(el('span', {}, [c.zone, c.assignee ? '担当 ' + c.assignee : '担当未定'].filter(String).join('・')));
+      l4.appendChild(el('span', {}, yen(c.formalEstimate !== '' && c.formalEstimate !== undefined ? c.formalEstimate : c.estimate)));
+      card.appendChild(l4);
+      card.addEventListener('click', function () { state.selectedId = c.id; renderRows(); renderDetail(c.id); });
+      box.appendChild(card);
+    });
+    var sel = box.querySelector('.sel');
+    if (sel && sel.scrollIntoViewIfNeeded) sel.scrollIntoViewIfNeeded(false);
+  }
+
+  // ---------------------------------------------------------
+  // 詳細・更新
+  // ---------------------------------------------------------
+  function has(v) { return v !== '' && v !== undefined && v !== null && v !== false; }
+
+  /** 文字列中の電話番号を tel: リンクにして要素に入れる（スマホはタップで発信、PCは電話アプリが設定されていれば発信） */
+  var TEL_RE = /0\d{1,4}[-－(（]\d{1,4}[-－)）]\d{3,4}|0\d{9,10}/g;
+  function telify(node, text) {
+    var s = String(text), last = 0, m;
+    TEL_RE.lastIndex = 0;
+    while ((m = TEL_RE.exec(s)) !== null) {
+      if (m.index > last) node.appendChild(document.createTextNode(s.slice(last, m.index)));
+      node.appendChild(el('a', { href: 'tel:' + m[0].replace(/[^\d]/g, ''), 'class': 'tel' }, m[0]));
+      last = m.index + m[0].length;
+    }
+    if (last < s.length) node.appendChild(document.createTextNode(s.slice(last)));
+    return node;
+  }
+
+  /** 見出し＋項目名/値の組（値が空の組は出さない）。組がすべて空なら null */
+  function kvList(pairs) {
+    var dl = el('dl');
+    var n = 0;
+    pairs.forEach(function (p) {
+      if (!has(p[1])) return;
+      dl.appendChild(el('dt', {}, p[0]));
+      dl.appendChild(telify(el('dd', p[2] ? { 'class': p[2] } : {}), p[1]));
+      n++;
+    });
+    return n ? dl : null;
+  }
+
+  /**
+   * ストリートビュー・Googleマップのボタン：役調ナビの現況確認と同じもの（役調ナビの画面を開く。社内LANから）。
+   * 所在・地番から筆の位置を出し、最寄りの撮影地点から土地の方を向いたストリートビュー（赤い印）＋航空写真。位置が分からなければ所在の文字で検索
+   */
+  function mapButtons(l) {
+    var box = el('span', { 'class': 'map-btns' });
+    if (!state.yakuchoUrl) return box;
+    box.appendChild(el('a', { 'class': 'map-btn', target: '_blank', rel: 'noopener', href: LotMap.yakuchoUrl(state.yakuchoUrl, '/sv', l),
+      title: '役調ナビの現況確認：土地の方を向いたストリートビュー（赤い印）と航空写真（社内LANから）' }, 'ストリートビュー'));
+    box.appendChild(el('a', { 'class': 'map-btn', target: '_blank', rel: 'noopener', href: LotMap.yakuchoUrl(state.yakuchoUrl, '/gmap', l),
+      title: '筆の位置でGoogleマップを開く（役調ナビ経由・社内LANから）' }, 'Googleマップ'));
+    return box;
+  }
+
+  /** 物件の位置図（全筆に番号のピン。LotMap.html） */
+  function buildLotMapPanel(lots) {
+    var p = panel('物件の位置図（' + lots.length + '筆）');
+    var box = el('div', { 'class': 'lotmap' });
+    var note = el('div', { 'class': 'lotmap-note' }, '位置を確認中…');
+    p.appendChild(box); p.appendChild(note);
+    setTimeout(function () { LotMap.create(box, note).update(lots); }, 0); // 画面に置いてから地図を作る
+    return p;
+  }
+
+  /** 物件の所在（都道府県は愛知県以外のときだけ付ける）＋地番 */
+  function lotPlace(l) {
+    var pref = l.prefecture && l.prefecture !== '愛知県' ? l.prefecture : '';
+    return (pref + [l.address, l.lotNumber].filter(has).join(' ')) || '（所在未入力）';
+  }
+
+  /** 農業委員会の窓口。名古屋市など区で分かれる市は所在の区の窓口（区が分からなければ市の窓口） */
+  function nogyoDeskOf(l) {
+    var desks = ((state.nogyoWardDesks || {})[l.prefecture] || {})[l.municipality];
+    if (desks) {
+      var t = String(l.address || '').replace(/\s/g, ''), hit = null, best = 0;
+      desks.forEach(function (d) { d.wards.forEach(function (w) { if (w.length > best && t.indexOf(w) >= 0) { hit = d; best = w.length; } }); });
+      if (hit) return hit;
+    }
+    return ((state.nogyoIinkai || {})[l.prefecture] || {})[l.municipality];
+  }
+
+  /** 物件の電話確認の結果を、確認する順（依頼画面のトーク例の順）に並べる */
+  function lotSteps(l) {
+    var bad = function (v) { return v === '難しい' ? 'bad' : ''; };
+    var steps = [
+      ['電話でお話しした方', [['農業委員会', l.nogyoTanto], ['土地改良区', l.kairyoTanto], ['排水の確認先', l.drainTanto]]],
+      ['非農地証明・是正', [
+        ['非農地証明', l.hinochi, l.hinochi === '不可' ? 'bad' : ''], ['利用年数', l.hinochiYears], ['証明資料', l.hinochiDocs], ['要件・備考', l.hinochiNote],
+        ['是正の許可申請', l.zeseiKyoka, l.zeseiKyoka === 'できない' ? 'bad' : ''], ['是正の備考', l.zeseiNote]]],
+      ['過去の転用履歴・始末書', [
+        ['転用履歴', l.tenyoRireki], ['受理・許可日', l.rirekiDate], ['番号', l.rirekiNo], ['内容', l.rirekiNote],
+        ['再申請の要否', l.saiShinsei], ['再申請の備考', l.saiShinseiNote],
+        ['始末書', l.shimatsusho], ['始末書の押印', l.shimatsuStamp], ['備考', l.shimatsuNote]]],
+      ['農振除外の見込み（青地）', [
+        ['除外の見込み', l.jogaiKanou, bad(l.jogaiKanou)], ['ほ場整備等', l.hojoKuiki], ['事業完了8年', l.hojo8nen],
+        ['近隣の除外実績', l.jogaiJisseki], ['除外の受付', l.jogaiUketsuke], ['指摘事項', l.jogaiNote]]],
+      ['転用の見込み', [
+        ['転用の見込み', l.tenyoKanou, bad(l.tenyoKanou)], ['農地区分', l.noutiKubun], ['指摘事項', l.kanouNote]]],
+      ['農地転用の受付', [['受付', l.tenyoUketsuke]]],
+      ['土地改良区', [
+        ['名称', l.kairyoName], ['電話', l.kairyoTel], ['受益地', l.kairyoBenefit], ['地区除外の手続き', l.kairyoProcedure],
+        ['決済金', [l.kairyoSettlement, l.kairyoSettlementNote].filter(has).join('／')], ['手数料等', l.kairyoFee], ['排水同意', l.kairyoDrain]]],
+      ['地元委員の押印', [['押印', l.iinStamp], ['委員', l.iinContacts]]],
+      ['地元関係者の同意（押印）', [['同意', l.localConsent], ['同意が必要な方', l.localContacts]]],
+      ['排水', [
+        ['隣接水路', l.drainAdjacent], ['排水承諾', l.drainConsent], ['用水・管理者', l.drainName], ['電話', l.drainTel],
+        ['手数料', l.drainFee], ['地元承諾', l.drainLocalConsent], ['承諾が必要な方', l.drainContacts]]]
+    ];
+    // 2つ目以降の土地改良区は「土地改良区」の次に並べる
+    var at = steps.map(function (x) { return x[0]; }).indexOf('土地改良区') + 1;
+    kairyoExtras(l).forEach(function (e, k) {
+      steps.splice(at + k, 0, ['土地改良区（' + (k + 2) + '）', [
+        ['名称', e.kairyoName], ['電話', e.kairyoTel], ['お話しした方', e.kairyoTanto], ['受益地', e.kairyoBenefit], ['地区除外の手続き', e.kairyoProcedure],
+        ['決済金', [e.kairyoSettlement, e.kairyoSettlementNote].filter(has).join('／')], ['手数料等', e.kairyoFee], ['排水同意', e.kairyoDrain],
+        ['地元の同意', e.localConsent], ['同意が必要な方', (e.localContacts || []).map(function (c) { return [c.name, c.address, c.tel].join('／'); }).join('\n')]]]);
+    });
+    return steps;
+  }
+
+  /**
+   * 調査結果の修正（小窓）。物件カードの見た目は変えず、項目は確認する順にまとめて出す
+   */
+  function editLot(l) {
+    var c = state.cases.filter(function (x) { return x.id === Number(l.caseId) || String(x.id) === String(l.caseId); })[0];
+    var d = $('lotDialog'), body = $('lotDlgBody');
+    var cur = function (f) {
+      var v = l[f.key];
+      if (f.key === 'isNoshin') return v === true ? 'はい' : v === false ? 'いいえ' : v === '不明' ? '分からない' : String(v || '');
+      return v === undefined || v === null ? '' : String(v);
+    };
+    $('lotDlgTitle').textContent = '調査結果の修正：物件' + l.no + '　' + [l.address, l.lotNumber].filter(has).join(' ');
+    $('lotDlgNote').textContent = c && (c.status === '新規' || c.status === '調査中')
+      ? '保存すると概算見積も計算し直します。' : '正式見積の提示後のため、概算見積は計算し直しません。';
+    $('lotDlgErr').textContent = '';
+    body.innerHTML = '';
+    var inputs = {}, grid = null, group = '';
+    state.lotEditFields.forEach(function (f) {
+      if (f.group !== group) {
+        group = f.group;
+        body.appendChild(el('h4', {}, group));
+        grid = el('div', { 'class': 'eg' });
+        body.appendChild(grid);
+      }
+      var wrap = el(f.type === 'multi' ? 'div' : 'label', f.type === 'textarea' || f.type === 'contacts' || f.type === 'multi' ? { 'class': 'wide' } : {});
+      wrap.appendChild(document.createTextNode(f.label + (f.type === 'contacts' ? '（1行に1人：氏名／住所／電話）' : '')));
+      var v = cur(f), input;
+      if (f.type === 'select') {
+        input = el('select');
+        input.appendChild(new Option('（未回答）', ''));
+        f.options.forEach(function (o) { input.appendChild(new Option(o, o)); });
+        if (v && f.options.indexOf(v) < 0) input.appendChild(new Option(v, v)); // 以前の値も残す
+        input.value = v;
+      } else if (f.type === 'multi') {
+        input = el('div', { 'class': 'multi' });
+        var on = v.split('・');
+        f.options.forEach(function (o) {
+          var lb = el('label');
+          var cb = el('input', { type: 'checkbox', value: o });
+          cb.checked = on.indexOf(o) >= 0;
+          lb.appendChild(cb); lb.appendChild(document.createTextNode(o));
+          input.appendChild(lb);
+        });
+      } else if (f.type === 'textarea' || f.type === 'contacts') {
+        input = el('textarea', { rows: f.type === 'contacts' ? '3' : '2' });
+        input.value = v;
+      } else {
+        input = el('input', { type: 'text' });
+        input.value = v;
+      }
+      if (f.ph) input.setAttribute('placeholder', f.ph);
+      input.setAttribute('data-k', f.key);
+      inputs[f.key] = { f: f, input: input, before: v };
+      wrap.appendChild(input);
+      grid.appendChild(wrap);
+    });
+    var read = function (x) {
+      return x.f.type === 'multi' ? qsaIn(x.input, 'input:checked').map(function (cb) { return cb.value; }).join('・') : x.input.value.trim();
+    };
+    $('lotDlgCancel').onclick = function () { d.close(); };
+    $('lotForm').onsubmit = function (e) { e.preventDefault(); }; // Enter で閉じない
+    var save = $('lotDlgSave');
+    save.disabled = false; save.textContent = '保存';
+    save.onclick = function () {
+      var patch = {};
+      Object.keys(inputs).forEach(function (k) { var nv = read(inputs[k]); if (nv !== inputs[k].before.trim()) patch[k] = nv; });
+      if (!Object.keys(patch).length) { d.close(); return; }
+      save.disabled = true; save.textContent = '保存中…';
+      google.script.run
+        .withSuccessHandler(function (r) {
+          if (!r || !r.case) { save.disabled = false; save.textContent = '保存'; $('lotDlgErr').textContent = '保存しましたが、画面の更新に失敗しました。再読み込みしてください。'; return; }
+          state.cases = state.cases.map(function (x) { return x.id === r.case.id ? r.case : x; });
+          state.lotsByCase[r.case.id] = r.lots;
+          d.close();
+          renderChips(); renderRows(); renderDetail(r.case.id);
+        })
+        .withFailureHandler(function (err) { save.disabled = false; save.textContent = '保存'; $('lotDlgErr').textContent = '保存できませんでした：' + err.message; })
+        .updateLotByAdmin(Number(l.caseId), Number(l.no), patch);
+    };
+    d.showModal();
+    body.scrollTop = 0;
+  }
+  function qsaIn(root, sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
+
+  /** 物件明細の「2つ目以降の土地改良区のデータ」（JSON）を読む */
+  function kairyoExtras(l) {
+    try { return JSON.parse(l.kairyoExtraData || '[]') || []; } catch (e) { return []; }
+  }
+
+  function buildLotCard(l) {
+    var card = el('article', { 'class': 'lot-card' });
+    var head = el('div', { 'class': 'lot-head' });
+    head.appendChild(el('span', { 'class': 'no' }, '物件' + l.no));
+    head.appendChild(el('span', { 'class': 'addr' }, [l.address, l.lotNumber].filter(has).join(' ') || '（所在未入力）'));
+    var tags = el('span', { 'class': 'tags' });
+    var tag = function (t, cls) { if (has(t)) tags.appendChild(el('span', { 'class': 'tag' + (cls ? ' ' + cls : '') }, t)); };
+    tag(l.chimoku);
+    tag(has(l.area) ? l.area + '㎡' : '');
+    tag(l.zone);
+    tag(has(l.isNoshin) ? '農振 ' + boolText(l.isNoshin) : '', l.isNoshin === true ? 'warn' : '');
+    tag(has(l.landUse) ? '現況 ' + l.landUse : '');
+    tag(l.isConverted === true ? '転用済み' : '', 'warn');
+    tag(has(l.landImprovement) ? '改良区 ' + l.landImprovement : '');
+    tag(has(l.purpose) ? l.purpose : '');
+    tag(has(l.chimokuHenko) ? '地目変更登記' : '', 'warn');
+    tag(l.readFromTohon === true ? '謄本読取' : '');
+    head.appendChild(tags);
+    if (state.lotEditFields && state.lotEditFields.length) {
+      head.appendChild(mapButtons(l));
+      var eb = el('button', { type: 'button', 'class': 'lot-edit' }, '修正');
+      eb.addEventListener('click', function () { editLot(l); });
+      head.appendChild(eb);
+    }
+    card.appendChild(head);
+
+    var steps = el('div', { 'class': 'steps' });
+    var n = 0;
+    lotSteps(l).forEach(function (s) {
+      var dl = kvList(s[1]);
+      if (!dl) return;
+      var box = el('div', { 'class': 'step' });
+      var h = el('h4');
+      h.appendChild(el('span', { 'class': 'n' }, ++n));
+      h.appendChild(document.createTextNode(s[0]));
+      box.appendChild(h);
+      box.appendChild(dl);
+      steps.appendChild(box);
+    });
+    card.appendChild(n ? steps : el('p', { 'class': 'nocall' }, '電話確認の記録はありません。'));
+    return card;
+  }
+
+  /**
+   * 見積内訳の文字（estimateToText_ の形式）を表にする。
+   * 【報酬】【実費】の見出し、「・項目：¥金額」、「報酬 ¥…＋消費税 ¥…＝¥…／実費 ¥…／合計 ¥…」、「※注記」
+   */
+  /**
+   * 連絡先・訪問先の一覧（外出先から電話・訪問するため）。物件をまたいで同じ相手はまとめる。
+   * @return {Array<{kind, name, tel, address, todo, lots}>} 確認の順（農業委員会 → 土地改良区 → 地元委員 → 地元関係者 → 用水 → 排水の地元）
+   */
+  var VISIT_KINDS = ['地元委員', '地元関係者', '排水の地元'];
+
+  function parseAppointments(c) {
+    try { return JSON.parse(c.appointments || '{}') || {}; } catch (e) { return {}; }
+  }
+
+  /** アポイントの日時「2026-10-03T14:00」→「10/3(土) 14:00」 */
+  function apptText(a) {
+    if (!a || !a.at) return '';
+    var m = String(a.at).match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2}))?$/);
+    if (!m) return a.at;
+    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return Number(m[2]) + '/' + Number(m[3]) + '(' + '日月火水木金土'.charAt(d.getDay()) + ')' + (m[4] ? ' ' + m[4] : '');
+  }
+
+  /** 地目変更登記が必要な物件（登記担当へ連絡） */
+  function chimokuLots(lots) { return (lots || []).filter(function (l) { return l.chimokuHenko === 'はい' || l.chimokuHenko === true; }); }
+
+  function buildContacts(lots) {
+    var list = [], byKey = {};
+    var add = function (kind, name, tel, address, todo, no) {
+      if (!has(name) && !has(tel)) return;
+      var key = kind + '|' + (name || '') + '|' + String(tel || '').replace(/\D/g, '');
+      var e = byKey[key];
+      if (!e) {
+        e = byKey[key] = { key: key, kind: kind, name: name || '', tel: tel || '', address: address || '', todo: [], lots: [],
+          visit: VISIT_KINDS.indexOf(kind) >= 0 }; // 押印・同意は伺うのでアポイントを取る
+        list.push(e);
+      }
+      if (!e.address && address) e.address = address;
+      todo.filter(has).forEach(function (t) { if (e.todo.indexOf(t) < 0) e.todo.push(t); });
+      if (e.lots.indexOf(no) < 0) e.lots.push(no);
+    };
+    var people = function (text) {
+      return String(text || '').split(/\r?\n/).filter(function (x) { return x.trim(); }).map(function (line) {
+        var f = line.split('／');
+        return { name: f[0] || '', address: f[1] || '', tel: f[2] || '' };
+      });
+    };
+    var ORDER = ['農業委員会', '土地改良区', '地元委員', '地元関係者', '用水（排水）', '排水の地元'];
+    lots.forEach(function (l) {
+      var iin = nogyoDeskOf(l);
+      var iinTodo = [
+        has(l.tenyoRireki) && '転用履歴 ' + l.tenyoRireki + (has(l.shimatsusho) ? '・始末書 ' + l.shimatsusho : ''),
+        has(l.jogaiKanou) && '農振除外 ' + l.jogaiKanou + (has(l.jogaiUketsuke) ? '（受付 ' + l.jogaiUketsuke + '）' : ''),
+        has(l.tenyoKanou) && '転用 ' + l.tenyoKanou + (has(l.noutiKubun) ? '（' + l.noutiKubun + '）' : ''),
+        has(l.tenyoUketsuke) && '農転受付 ' + l.tenyoUketsuke
+      ];
+      if (iin) add('農業委員会', String(iin.office).replace(/（.*$/, '') + (has(l.nogyoTanto) ? '（担当 ' + l.nogyoTanto + '）' : ''), iin.tel, '', iinTodo, l.no);
+      if (has(l.kairyoName) || has(l.kairyoTel)) {
+        add('土地改良区', l.kairyoName + (has(l.kairyoTanto) ? '（担当 ' + l.kairyoTanto + '）' : ''), l.kairyoTel, '', [
+          has(l.kairyoBenefit) && '受益地 ' + l.kairyoBenefit,
+          has(l.kairyoProcedure) && '地区除外 ' + l.kairyoProcedure,
+          has(l.kairyoSettlement) && '決済金 ' + [l.kairyoSettlement, l.kairyoSettlementNote].filter(has).join(' '),
+          has(l.kairyoFee) && '手数料 ' + l.kairyoFee
+        ], l.no);
+      }
+      people(l.iinContacts).forEach(function (pp) { add('地元委員', pp.name, pp.tel, pp.address, ['押印をお願いする'], l.no); });
+      people(l.localContacts).forEach(function (pp) { add('地元関係者', pp.name, pp.tel, pp.address, ['同意の押印をお願いする'], l.no); });
+      kairyoExtras(l).forEach(function (e) {
+        add('土地改良区', e.kairyoName, e.kairyoTel, '', [
+          has(e.kairyoBenefit) && '受益地 ' + e.kairyoBenefit, has(e.kairyoProcedure) && '地区除外 ' + e.kairyoProcedure,
+          has(e.kairyoSettlement) && '決済金 ' + [e.kairyoSettlement, e.kairyoSettlementNote].filter(has).join(' '), has(e.kairyoFee) && '手数料 ' + e.kairyoFee
+        ], l.no);
+        (e.localContacts || []).forEach(function (pp) { add('地元関係者', pp.name, pp.tel, pp.address, ['同意の押印をお願いする'], l.no); });
+      });
+      if (has(l.drainName) || has(l.drainTel)) {
+        add('用水（排水）', l.drainName, l.drainTel, '', [has(l.drainConsent) && '排水承諾 ' + l.drainConsent, has(l.drainFee) && '手数料 ' + l.drainFee], l.no);
+      }
+      people(l.drainContacts).forEach(function (pp) { add('排水の地元', pp.name, pp.tel, pp.address, ['排水の承諾（押印）をお願いする'], l.no); });
+    });
+    return list.sort(function (a, b) { return ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind); });
+  }
+
+  function buildContactPanel(c, lots) {
+    var p = panel('連絡先・訪問先');
+    var appts = parseAppointments(c);
+    var list = buildContacts(lots);
+    if (!list.length) { p.appendChild(el('p', { 'class': 'help', style: 'margin:0' }, '連絡先の記録はありません。')); return p; }
+    var t = el('table', { 'class': 'ct' });
+    list.forEach(function (e) {
+      var tr = el('tr');
+      var k = el('td', { 'class': 'ck' });
+      k.appendChild(el('span', { 'class': 'kind' }, e.kind));
+      k.appendChild(el('span', { 'class': 'lots' }, '物件' + e.lots.join('・')));
+      tr.appendChild(k);
+      var n = el('td', { 'class': 'cn' });
+      n.appendChild(el('b', {}, e.name || '（名称なし）'));
+      if (e.address) n.appendChild(el('span', { 'class': 'addr' }, e.address));
+      tr.appendChild(n);
+      tr.appendChild(telify(el('td', { 'class': 'ctel' }), e.tel || '―'));
+      tr.appendChild(el('td', { 'class': 'ctodo' }, e.todo.join('\n')));
+      t.appendChild(tr);
+      if (e.visit) t.appendChild(buildApptRow(c, e, appts[e.key] || {}));
+    });
+    p.appendChild(t);
+    return p;
+  }
+
+  /** アポイントの入力行（日時・状況・メモ）。変えたらその場で保存 */
+  function buildApptRow(c, e, a) {
+    var tr = el('tr', { 'class': 'appt' });
+    var td = el('td', { colspan: '4' });
+    var box = el('div', { 'class': 'appt-box' });
+    box.appendChild(el('span', { 'class': 'appt-l' }, 'アポイント'));
+    var at = el('input', { type: 'datetime-local', 'aria-label': e.name + ' のアポイント日時' });
+    at.value = a.at && a.at.length === 10 ? a.at + 'T00:00' : (a.at || '');
+    var st = el('select', { 'aria-label': e.name + ' のアポイント状況' });
+    state.apptStatuses.forEach(function (s) { var o = new Option(s, s); if (s === (a.status || '未連絡')) o.selected = true; st.appendChild(o); });
+    var memo = el('input', { type: 'text', maxlength: '300', placeholder: 'メモ（持参する物、印鑑、待合せ場所など）', 'aria-label': e.name + ' のアポイントメモ' });
+    memo.value = a.memo || '';
+    var msg = el('span', { 'class': 'saved' });
+    box.appendChild(at); box.appendChild(st); box.appendChild(memo); box.appendChild(msg);
+    var save = function () {
+      msg.textContent = '保存中…'; msg.classList.remove('err');
+      google.script.run
+        .withSuccessHandler(function (json) {
+          c.appointments = json;
+          state.cases = state.cases.map(function (x) { return x.id === c.id ? Object.assign(x, { appointments: json }) : x; });
+          msg.textContent = '保存しました';
+          setTimeout(function () { if (msg.textContent === '保存しました') msg.textContent = ''; }, 2500);
+        })
+        .withFailureHandler(function (err) { msg.textContent = '保存できませんでした：' + err.message; msg.classList.add('err'); })
+        .saveAppointment(c.id, e.key, { at: at.value, status: st.value, memo: memo.value });
+    };
+    [at, st, memo].forEach(function (x) { x.addEventListener('change', save); });
+    td.appendChild(box);
+    tr.appendChild(td);
+    return tr;
+  }
+
+  function parseEstimateText(text) {
+    var rows = [], notes = [];
+    String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); }).forEach(function (l) {
+      var m;
+      if (/^【.+】$/.test(l)) { rows.push(['grp', l.replace(/[【】]/g, ''), '']); return; }
+      if (l.charAt(0) === '※') { notes.push(l.slice(1)); return; }
+      if ((m = l.match(/^報酬 (¥[\d,]+)＋消費税 (¥[\d,]+)＝(¥[\d,]+)／実費 (¥[\d,]+)／合計 (¥[\d,]+)$/))) {
+        rows.push(['grp', '集計', ''], ['sub', '報酬（税抜）', m[1]], ['sub', '消費税', m[2]], ['sub', '報酬（税込）', m[3]],
+          ['sub', '実費', m[4]], ['sum', '合計', m[5]]);
+        return;
+      }
+      if ((m = l.match(/^・(.+)：(¥[\d,]+)$/))) { rows.push(['', m[1], m[2]]); return; }
+      notes.push(l);
+    });
+    return { rows: rows, notes: notes };
+  }
+
+  function buildEstimatePanel(text) {
+    var p = panel('概算見積の内訳（依頼時の自動計算）');
+    var est = parseEstimateText(text);
+    if (!est.rows.length && !est.notes.length) { p.appendChild(el('p', { 'class': 'help' }, '内訳はありません。')); return p; }
+    var t = el('table', { 'class': 'est-t' });
+    est.rows.forEach(function (r) {
+      var tr = el('tr', r[0] ? { 'class': r[0] } : {});
+      tr.appendChild(el('td', {}, r[1]));
+      tr.appendChild(el('td', { 'class': 'y' }, r[2]));
+      t.appendChild(tr);
+    });
+    var box = el('div', { 'class': 'est' });
+    box.appendChild(t);
+    if (est.notes.length) {
+      var ul = el('ul', { 'class': 'est-notes' });
+      est.notes.forEach(function (n) { ul.appendChild(el('li', {}, n)); });
+      box.appendChild(ul);
+    }
+    p.appendChild(box);
+    return p;
+  }
+
+  // ---------------------------------------------------------
+  // PDF出力：案件の全情報をA4の帳票（HTML）にし、サーバーでPDFに変換してダウンロード
+  // （変換は Apps Script の HTML→PDF。CSS の grid/flex は効かないため表で組む）
+  // ---------------------------------------------------------
+  function esc(v) {
+    return String(v === undefined || v === null ? '' : v).replace(/[&<>"]/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch];
+    }).replace(/\r?\n/g, '<br>');
+  }
+
+  /** 項目名/値の表（2組ずつ横に並べる。値が空の組は出さない。長い値は1行を使う）。縦の罫線は引かない */
+  function kvTable(pairs, limit, titleRow) {
+    var list = pairs.filter(function (p) { return has(p[1]); });
+    if (!list.length && !titleRow) return '';
+    var html = '<table class="kv"><colgroup><col class="k"><col class="v"><col class="k"><col class="v"></colgroup>' + (titleRow || ''), half = [];
+    var cell = function (p) { return '<th>' + esc(p[0]) + '</th><td' + (p[2] === 'bad' ? ' class="bad"' : '') + '>' + esc(p[1]) + '</td>'; };
+    var flush = function () {
+      if (!half.length) return;
+      html += '<tr>' + half.map(cell).join('') + (half.length === 1 ? '<th></th><td></td>' : '') + '</tr>';
+      half = [];
+    };
+    list.forEach(function (p) {
+      var v = String(p[1]);
+      if (p[2] === 'wide' || v.length > (limit || 22) || v.indexOf(String.fromCharCode(10)) >= 0) {
+        flush();
+        html += '<tr><th>' + esc(p[0]) + '</th><td colspan="3"' + (p[2] === 'bad' ? ' class="bad"' : '') + '>' + esc(p[1]) + '</td></tr>';
+        return;
+      }
+      half.push(p);
+      if (half.length === 2) flush();
+    });
+    flush();
+    return html + '</table>';
+  }
+
+  /** PDFのアポイント欄：入力があれば日時・状況・メモ、無ければ手書き用の欄 */
+  function apptPrint(a) {
+    if (a && (a.at || a.memo || (a.status && a.status !== '未連絡'))) {
+      return '<div class="appt"><b>アポ</b> ' + esc([apptText(a), a.status].filter(has).join('　')) + (a.memo ? '<br>' + esc(a.memo) : '') + '</div>';
+    }
+    return '<div class="appt blank"><b>アポ</b>　　月　　日（　）　　：　　</div>';
+  }
+
+  function buildPrintHtml(c, lots) {
+    var formal = has(c.formalEstimate);
+    var CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
+    // Apps Script の HTML→PDF 変換向け：表組みのみ、幅は table-layout:fixed で固定（右端のはみ出し防止）、
+    // 改ページ指定は行単位だけ（ブロック単位の指定は丸ごと次ページに送られて空白ができるため使わない）
+    var G = '#2f6b3f', G2 = '#e8f0e6', INK = '#1f2a22', MUTED = '#6b786d', LINE = '#dfe5dd';
+    var css = [
+      '@page { size: A4; margin: 12mm 12mm 14mm; }',
+      'body { font-family: "Noto Sans JP", "Noto Sans CJK JP", sans-serif; font-size: 9pt; color: ' + INK + '; line-height: 1.55; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }',
+      '.page { width: 98%; }',
+      'table { width: 100%; border-collapse: collapse; table-layout: fixed; }',
+      'tr { page-break-inside: avoid; }',
+      'td, th { overflow-wrap: break-word; word-break: break-all; }',
+      // 見出しの帯
+      'table.band td { background: ' + G + '; color: #fff; padding: 10px 14px; vertical-align: middle; }',
+      'table.band .kind { font-size: 8pt; letter-spacing: .15em; opacity: .85; }',
+      'table.band .name { font-size: 16pt; font-weight: bold; line-height: 1.3; }',
+      'table.band td.no { text-align: right; width: 34%; }',
+      'table.band .no b { font-size: 15pt; letter-spacing: .05em; }',
+      'table.band .no .sub { font-size: 8pt; opacity: .85; margin-top: 2px; }',
+      // 要点（4マス）
+      'table.where { margin-top: 6px; border-left: 5px solid ' + G + '; }',
+      'table.where th { text-align: left; font-size: 8pt; color: ' + G + '; padding: 5px 10px 2px; letter-spacing: .05em; }',
+      'table.where td { text-align: left; padding: 3px 10px; border-bottom: 1px solid ' + LINE + '; vertical-align: baseline; }',
+      'table.where td.no { width: 12%; font-size: 8.5pt; font-weight: bold; color: ' + G + '; white-space: nowrap; }',
+      'table.where td.addr { font-size: 11.5pt; font-weight: bold; }',
+      'table.where td.sub { width: 34%; font-size: 8.5pt; color: ' + MUTED + '; }',
+      'table.facts { margin-top: 6px; }',
+      'table.facts td { border: 1px solid ' + LINE + '; padding: 6px 10px; vertical-align: top; width: 25%; }',
+      'table.facts .l { font-size: 7.5pt; color: ' + MUTED + '; }',
+      'table.facts .v { font-size: 11pt; font-weight: bold; }',
+      'table.facts td.money { background: ' + G2 + '; }',
+      'table.facts td.money .v { font-size: 14pt; color: ' + G + '; }',
+      // 見出し
+      'h2 { font-size: 10.5pt; margin: 16px 0 6px; padding: 2px 0 2px 8px; border-left: 4px solid ' + G + '; page-break-after: avoid; }',
+      'h2 small { font-weight: normal; color: ' + MUTED + '; font-size: 8pt; margin-left: 6px; }',
+      // 項目と値
+      'table.kv col.k { width: 15%; } table.kv col.v { width: 35%; }',
+      'table.kv th, table.kv td { border-bottom: 1px solid ' + LINE + '; padding: 4px 6px; text-align: left; vertical-align: top; }',
+      'table.kv th { color: ' + MUTED + '; font-weight: normal; font-size: 8pt; }',
+      'td.bad { color: #b3261e; font-weight: bold; }',
+      // 連絡先
+      'table.ct td { border-bottom: 1px solid ' + LINE + '; padding: 6px 6px; vertical-align: top; }',
+      'table.ct tr:first-child td { border-top: 1.5px solid ' + G + '; }',
+      'table.ct .kind { color: #fff; background: ' + G + '; font-size: 7.5pt; font-weight: bold; padding: 1px 6px; display: inline-block; }',
+      'table.ct .lots { color: ' + MUTED + '; font-size: 7.5pt; margin-top: 2px; }',
+      'table.ct td.cn b { font-size: 10pt; }',
+      'table.ct .addr { color: ' + MUTED + '; font-size: 8pt; }',
+      'table.ct td.ctel { font-size: 12.5pt; font-weight: bold; letter-spacing: .02em; white-space: nowrap; }',
+      'table.ct td.ctodo { font-size: 8pt; color: #3d4a40; }',
+      '.appt { margin-top: 4px; padding: 3px 6px; background: #fff7e0; border-left: 3px solid #c99a00; color: ' + INK + '; font-size: 8.5pt; }',
+      '.appt b { color: #8a6a00; font-size: 7.5pt; }',
+      '.appt.blank { background: #fff; border: 1px dashed #c9c2a8; border-left: 3px solid #c9c2a8; color: #9aa39b; }',
+      // 改ページ：まとまり（物件の帯＋基本情報、確認結果1件、連絡先1件、見積の表）は途中で切らない
+      '.keep { page-break-inside: avoid; }',
+      '.memo { background: #f6f8f5; border-left: 3px solid ' + G + '; padding: 6px 10px; margin: 0; }',
+      // 見積
+      'table.est td { padding: 3px 8px; border-bottom: 1px solid ' + LINE + '; }',
+      'table.est td.y { text-align: right; width: 24%; }',
+      'table.est tr.grp td { color: ' + G + '; font-weight: bold; font-size: 8pt; border-bottom: 1.5px solid ' + G + '; padding-top: 8px; }',
+      'table.est tr.sub td { color: ' + MUTED + '; }',
+      'table.est tr.sum td { background: ' + G2 + '; font-weight: bold; font-size: 11pt; border-bottom: none; padding: 6px 8px; }',
+      '.notes { margin: 6px 0 0; padding: 0; font-size: 8pt; color: ' + MUTED + '; }',
+      '.notes div { padding-left: 1em; text-indent: -1em; }',
+      // 物件
+      'table.kv tr.lot td { background: ' + G2 + '; padding: 5px 10px; font-weight: bold; font-size: 10pt; border-bottom: none; }',
+      'table.kv tr.lot td.tag { text-align: right; font-weight: normal; font-size: 8pt; color: ' + G + '; }',
+      'tr.lot { page-break-after: avoid; }',
+      'table.step { margin-top: 2px; }',
+      'table.step td.sn { width: 21%; vertical-align: top; padding: 5px 6px; color: ' + G + '; font-weight: bold; font-size: 8.5pt; border-bottom: 1px solid ' + LINE + '; }',
+      'table.step td.sv { vertical-align: top; padding: 0; border-bottom: 1px solid ' + LINE + '; }',
+      'table.step table.kv th, table.step table.kv td { border-bottom: none; padding: 3px 6px; }',
+      'table.step table.kv col.k { width: 20%; } table.step table.kv col.v { width: 30%; }',
+      '.none { color: ' + MUTED + '; font-size: 8pt; padding: 4px 6px; }',
+      '.gap { height: 10px; }',
+      '.foot { margin-top: 18px; border-top: 1px solid ' + LINE + '; padding-top: 4px; color: ' + MUTED + '; font-size: 7.5pt; }',
+      '.foot td.r { text-align: right; }',
+      'table.chimoku { margin-top: 6px; } table.chimoku td { background: #fff1e0; border: 1px solid #f0b46e; padding: 6px 10px; vertical-align: middle; }',
+      'table.chimoku td.t { width: 34%; border-left: 6px solid #d9822b; color: #7a3d00; font-weight: bold; font-size: 10.5pt; }',
+      'table.chimoku td.t span { display: inline-block; margin-left: 6px; background: #d9822b; color: #fff; font-size: 7.5pt; padding: 1px 8px; }'
+    ].join('\n');
+
+    var h = ['<div class="page">'];
+    // ---- 見出しの帯 ----
+    h.push('<table class="band"><tr><td><div class="kind">農地転用 案件詳細</div><div class="name">' + esc(c.requesterName || '（依頼者名なし）') + ' 様</div></td>' +
+      '<td class="no">' + (has(c.karteNo) && String(c.karteNo).trim()
+        ? '<div class="kind">案件カルテ番号</div><b>' + esc(String(c.karteNo).trim()) + '</b><div class="sub">受付番号 ' + esc(c.caseNo || c.id) + '</div>'
+        : '<div class="kind">受付番号</div><b>' + esc(c.caseNo || c.id) + '</b>') + '</td></tr></table>');
+    // ---- 転用物件の所在（いちばん大事な情報なので帯のすぐ下） ----
+    h.push('<table class="where"><colgroup><col style="width:12%"><col><col style="width:34%"></colgroup><tr><th colspan="3">転用物件の所在（' + lots.length + '筆）</th></tr>' +
+      (lots.length ? lots.map(function (l) {
+        return '<tr><td class="no">物件' + esc(l.no) + '</td><td class="addr">' + esc(lotPlace(l)) + '</td><td class="sub">' +
+          esc([l.chimoku, has(l.area) ? l.area + '㎡' : '', l.zone, l.purpose].filter(has).join('　')) + '</td></tr>';
+      }).join('') : '<tr><td colspan="3">物件明細がありません。</td></tr>') + '</table>');
+    // ---- 要点 ----
+    h.push('<table class="facts"><tr>' +
+      '<td><div class="l">対応状況</div><div class="v">' + esc(c.status || '―') + '</div></td>' +
+      '<td><div class="l">担当者</div><div class="v">' + esc(c.assignee || '未定') + '</div></td>' +
+      '<td><div class="l">受付日時</div><div class="v" style="font-size:9.5pt">' + esc(c.receivedAt || '―') + '</div><div class="l">' +
+        esc(c.requestFlag === true ? '見積調査依頼' : '保存のみ') + '</div></td>' +
+      '<td class="money"><div class="l">' + (formal ? '正式見積' : '概算見積') + '</div><div class="v">' + esc(yen(formal ? c.formalEstimate : c.estimate)) + '</div>' +
+        (formal ? '<div class="l">概算 ' + esc(yen(c.estimate)) + '</div>' : '') + '</td>' +
+      '</tr></table>');
+
+    // ---- 地目変更登記（登記担当へ連絡）：要点のすぐ下に目立たせる ----
+    var cl = chimokuLots(lots);
+    if (cl.length) {
+      h.push('<table class="chimoku"><tr><td class="t">地目変更登記あり（' + cl.length + '筆）<span>登記担当へ連絡</span></td><td>' +
+        esc(cl.map(function (l) { return '物件' + l.no + ' ' + [l.address, l.lotNumber].filter(has).join(' ') + (l.chimoku ? '（登記地目：' + l.chimoku + '）' : ''); }).join(String.fromCharCode(10))) + '</td></tr></table>');
+    }
+
+    // ---- 連絡先・訪問先（外出先で一目で分かるように最初に置く） ----
+    var contacts = buildContacts(lots);
+    if (contacts.length) {
+      h.push('<h2>連絡先・訪問先<small>電話・訪問する相手と用件（確認する順）</small></h2>');
+      var appts = parseAppointments(c);
+      h.push('<table class="ct"><colgroup><col style="width:15%"><col style="width:33%"><col style="width:22%"><col style="width:30%"></colgroup>' +
+        contacts.map(function (e) {
+          return '<tr><td class="ck"><div class="kind">' + esc(e.kind) + '</div><div class="lots">物件' + esc(e.lots.join('・')) + '</div></td>' +
+            '<td class="cn"><b>' + esc(e.name || '（名称なし）') + '</b>' + (e.address ? '<div class="addr">' + esc(e.address) + '</div>' : '') + '</td>' +
+            '<td class="ctel">' + esc(e.tel || '―') + '</td>' +
+            '<td class="ctodo">' + esc(e.todo.join('\n')) + (e.visit ? apptPrint(appts[e.key]) : '') + '</td></tr>';
+        }).join('') + '</table>');
+    }
+
+    if (has(c.adminMemo)) h.push('<h2>対応メモ</h2><p class="memo">' + esc(c.adminMemo) + '</p>');
+
+    h.push('<h2>依頼の概要</h2>');
+    h.push(kvTable([
+      ['物件', lots.length ? lots.length + '筆（' + (c.prefecture || '―') + '）' : ''], ['面積合計', has(c.area) ? c.area + ' ㎡' : ''],
+      ['区域区分', c.zone], ['転用目的', c.purpose],
+      ['信託手続き', c.trust === true ? '付随する' : ''], ['筆数加算', c.extraLotFee], ['資料', c.documents],
+      ['地元協力金等', has(c.localFee) ? yen(c.localFee) + (c.localFeeNote ? '（' + c.localFeeNote + '）' : '') : ''],
+      ['入力者', c.submittedBy], ['最終更新', c.updatedAt],
+      ['今後の転用計画', c.plan, 'wide'],
+      ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(has).join('\n'), 'wide']
+    ]));
+
+    var est = parseEstimateText(c.estimateDetail);
+    if (est.rows.length || est.notes.length) {
+      h.push('<h2>概算見積の内訳<small>依頼時の自動計算</small></h2>');
+      if (est.rows.length) {
+        h.push('<div class="keep"><table class="est">' + est.rows.map(function (r) {
+          return '<tr' + (r[0] ? ' class="' + r[0] + '"' : '') + '><td>' + esc(r[1]) + '</td><td class="y">' + esc(r[2]) + '</td></tr>';
+        }).join('') + '</table></div>');
+      }
+      if (est.notes.length) h.push('<div class="notes">' + est.notes.map(function (n) { return '<div>※ ' + esc(n) + '</div>'; }).join('') + '</div>');
+    }
+
+    h.push('<h2>物件と電話確認の結果<small>' + lots.length + '筆</small></h2>');
+    if (!lots.length) h.push('<div class="none">物件明細がありません。</div>');
+    lots.forEach(function (l, li) {
+      if (li) h.push('<div class="gap"></div>');
+      var tags = [l.chimoku, has(l.area) ? l.area + '㎡' : '', l.zone].filter(has).join('　');
+      // 物件名の帯は表の1行目にする（帯だけがページ末尾に残らないように）
+      var title = '<tr class="lot"><td colspan="2">物件' + esc(l.no) + '　' + esc([l.address, l.lotNumber].filter(has).join(' ') || '（所在未入力）') +
+        '</td><td colspan="2" class="tag">' + esc(tags) + '</td></tr>';
+      h.push('<div class="keep">' + kvTable([
+        ['都道府県', l.prefecture], ['市区町村', l.municipality],
+        ['登記地目', l.chimoku], ['面積', has(l.area) ? l.area + ' ㎡（登記地積）' : ''],
+        ['区域区分', l.zone], ['農振農用地', has(l.isNoshin) ? boolText(l.isNoshin) : ''],
+        ['現況利用', l.landUse], ['既に転用済み', has(l.isConverted) ? boolText(l.isConverted) : ''],
+        ['転用目的', l.purpose], ['土地改良区', l.landImprovement],
+        ['地目変更登記', has(l.chimokuHenko) ? '必要' + (has(l.chimokuDate) ? '（原因日付 ' + l.chimokuDate + '）' : '') : ''], ['入力方法', l.readFromTohon === true || l.readFromTohon === '謄本から読取' ? '謄本から読取' : '']
+      ], 22, title) + '</div>');
+      var rows = [];
+      lotSteps(l).forEach(function (st) {
+        var t = kvTable(st[1], 13);
+        if (!t) return;
+        rows.push('<div class="keep"><table class="step"><tr><td class="sn">' + CIRCLED.charAt(rows.length) + ' ' + esc(st[0]) + '</td><td class="sv">' + t + '</td></tr></table></div>');
+      });
+      h.push(rows.length ? rows.join('') : '<div class="none">電話確認の記録はありません。</div>');
+    });
+
+    h.push('<h2>記録</h2>');
+    h.push(kvTable([
+      ['Chat通知', c.notifyResult], ['資料', c.folderUrl ? 'アップロード資料 ' + (c.fileCount || 0) + '件' : ''],
+      ['正式見積の提示', c.estimatePdfAt], ['正式見積の報告', c.reportResult],
+      ['資料フォルダ', c.folderUrl, 'wide'], ['正式見積PDF', c.estimatePdfUrl, 'wide']
+    ]));
+
+    var now = new Date();
+    var pad = function (x) { return ('0' + x).slice(-2); };
+    h.push('<table class="foot"><tr><td>農地転用 見積・調査支援システム</td><td class="r">出力 ' + now.getFullYear() + '/' + pad(now.getMonth() + 1) + '/' +
+      pad(now.getDate()) + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + '　' + esc($('userInfo').textContent) + '</td></tr></table>');
+    h.push('</div>');
+
+    return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><style>' + css + '</style></head><body>' + h.join('\n') + '</body></html>';
+  }
+
+  /**
+   * PDF出力：小窓（ファイル名と［出力］［キャンセル］）を出し、［出力］でPDFを作って保存し、小窓を閉じる。
+   */
+  function exportPdf(c) {
+    c = state.cases.filter(function (x) { return x.id === c.id; })[0] || c; // 保存したカルテ番号を反映した最新の案件
+    var d = $('pdfDialog');
+    var lots = state.lotsByCase[c.id] || [];
+    var name = '農地転用_案件詳細_' + (c.caseNo || c.id) + '_' + String(c.requesterName || '').replace(/[\\\/:*?"<>|\s]/g, '') + '.pdf';
+    $('pdfName').textContent = name;
+    $('pdfErr').textContent = '';
+    var karte = $('pdfKarte');
+    karte.value = has(c.karteNo) ? String(c.karteNo).trim() : '';
+    var go = $('pdfGo'), cancel = $('pdfCancel');
+    go.disabled = false; go.textContent = '出力';
+    cancel.onclick = function () { d.close(); };
+    go.onclick = function () {
+      go.disabled = true; go.textContent = '作成中…';
+      var k = karte.value.trim();
+      // 入力したカルテ番号は案件に保存し、次回の出力でも出す
+      if (k !== (has(c.karteNo) ? String(c.karteNo).trim() : '')) {
+        google.script.run
+          .withSuccessHandler(function (updated) {
+            state.cases = state.cases.map(function (x) { return x.id === updated.id ? updated : x; });
+          })
+          .withFailureHandler(function (err) { alert('案件カルテ番号の保存に失敗しました：' + err.message); })
+          .updateCaseByAdmin(c.id, { karteNo: k });
+      }
+      var pc = {};
+      Object.keys(c).forEach(function (key) { pc[key] = c[key]; });
+      pc.karteNo = k;
+      google.script.run
+        .withSuccessHandler(function (r) {
+          var bin = atob(r.data), bytes = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+          var a = el('a', { href: url, download: r.name });
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+          d.close();
+        })
+        .withFailureHandler(function (err) { go.disabled = false; go.textContent = '出力'; $('pdfErr').textContent = 'PDFの作成に失敗しました：' + err.message; })
+        .exportCasePdf(buildPrintHtml(pc, lots), name);
+    };
+    d.showModal();
+    karte.focus();
+    karte.onkeydown = function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go.click(); } };
+  }
+
+  /** 正式見積の提示：見積書PDFをドラッグ → 金額を確認 → 提示 */
+  function buildFormalPanel(c) {
+    var p = panel('正式見積の提示');
+    if (c.estimatePdfUrl) {
+      var done = el('div', { 'class': 'pdf-done' });
+      done.appendChild(el('span', {}, '提示済み：' + (c.estimatePdfAt || '')));
+      if (has(c.formalEstimate)) done.appendChild(el('span', {}, '正式見積 ' + yen(c.formalEstimate)));
+      done.appendChild(el('a', { href: c.estimatePdfUrl, target: '_blank', rel: 'noopener' }, '見積書PDFを開く'));
+      if (c.reportResult) done.appendChild(el('span', { 'class': 'help' }, '報告：' + c.reportResult));
+      p.appendChild(done);
+    }
+    var input = el('input', { type: 'file', accept: 'application/pdf', 'class': 'hidden' });
+    var drop = el('div', { 'class': 'pdf-drop', role: 'button', tabindex: '0' });
+    drop.appendChild(el('b', {}, c.estimatePdfUrl ? '差し替える見積書PDFをドラッグ' : '見積書PDFをここにドラッグ'));
+    drop.appendChild(document.createTextNode('またはクリックして選択'));
+    var confirmBox = el('div', { 'class': 'pdf-confirm hidden' });
+    p.appendChild(drop); p.appendChild(input); p.appendChild(confirmBox);
+
+    var pick = function (file) {
+      if (!file) return;
+      if (file.type !== 'application/pdf') { alert('PDFを選んでください。'); return; }
+      confirmBox.innerHTML = '';
+      confirmBox.appendChild(el('span', { 'class': 'fname' }, '📄 ' + file.name));
+      var amt = el('input', { type: 'text', id: 'fAmount', inputmode: 'numeric', placeholder: '概算 ' + yen(c.estimate) });
+      amt.value = has(c.formalEstimate) ? c.formalEstimate : '';
+      confirmBox.appendChild(field('正式見積金額（円・任意）', amt));
+      confirmBox.appendChild(el('p', { 'class': 'help', style: 'margin:0' }, '提示すると、PDFを案件フォルダに保存し、対応状況を「正式見積提示済」にして、行政班の Chat スペースに通知します。'));
+      var btns = el('div', { 'class': 'btns', style: 'align-items:center' });
+      var go = el('button', { type: 'button', 'class': 'primary' }, '正式見積を提示する');
+      var cancel = el('button', { type: 'button', 'class': 'ghost' }, 'やめる');
+      btns.appendChild(go); btns.appendChild(cancel);
+      confirmBox.appendChild(btns);
+      confirmBox.classList.remove('hidden');
+      drop.classList.add('hidden');
+      cancel.addEventListener('click', function () { confirmBox.classList.add('hidden'); drop.classList.remove('hidden'); });
+      go.addEventListener('click', function () {
+        go.disabled = true; cancel.disabled = true; go.textContent = '送信中…';
+        var reader = new FileReader();
+        reader.onload = function () {
+          google.script.run
+            .withSuccessHandler(function (updated) {
+              state.cases = state.cases.map(function (x) { return x.id === updated.id ? updated : x; });
+              renderChips(); renderRows(); renderDetail(updated.id);
+            })
+            .withFailureHandler(function (err) { go.disabled = false; cancel.disabled = false; go.textContent = '正式見積を提示する'; alert('提示に失敗しました：' + err.message); })
+            .submitFormalEstimate(c.id, { name: file.name, mimeType: file.type, data: String(reader.result).split(',')[1] || '' },
+              { amount: amt.value });
+        };
+        reader.readAsDataURL(file);
+      });
+    };
+    drop.addEventListener('click', function () { input.click(); });
+    drop.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+    input.addEventListener('change', function () { pick(input.files[0]); input.value = ''; });
+    ['dragenter', 'dragover'].forEach(function (t) { drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+    ['dragleave', 'drop'].forEach(function (t) { drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+    drop.addEventListener('drop', function (e) { pick(e.dataTransfer.files[0]); });
+    return p;
+  }
+
+  function panel(title) {
+    var p = el('section', { 'class': 'panel' });
+    if (title) p.appendChild(el('h3', {}, title));
+    return p;
+  }
+
+  function field(labelText, input) {
+    var f = el('div', { 'class': 'field' });
+    f.appendChild(el('label', { 'for': input.id }, labelText));
+    f.appendChild(input);
+    return f;
+  }
+
+  function renderDetail(id) {
+    var c = state.cases.filter(function (x) { return x.id === id; })[0];
+    var box = $('detail');
+    box.innerHTML = '';
+    if (!c) { box.appendChild(el('p', { 'class': 'empty' }, '案件ID ' + id + ' が見つかりません。')); return; }
+    var lots = state.lotsByCase[c.id] || [];
+
+    // ---- 見出し：依頼者・受付・金額 ＋ 対応の流れ ----
+    var head = el('div', { 'class': 'dhead' });
+    var top = el('div', { 'class': 'dhead-top' });
+    top.appendChild(el('h2', {}, c.requesterName || '（依頼者名なし）'));
+    top.appendChild(el('span', { 'class': 'pill st-' + c.status }, c.status || '―'));
+    var pdfBtn = el('button', { type: 'button', 'class': 'ghost pdf-btn' }, 'PDF出力');
+    pdfBtn.addEventListener('click', function () { exportPdf(c); });
+    top.appendChild(pdfBtn);
+    top.appendChild(el('span', { 'class': 'meta' }, '受付番号 ' + (c.caseNo || c.id) + '　受付 ' + (c.receivedAt || '―') + '　入力者 ' + (c.submittedBy || '―') +
+      '　' + (c.requestFlag === true ? '見積調査依頼' : '保存のみ')));
+    var amt = el('div', { 'class': 'amt' });
+    var formal = has(c.formalEstimate);
+    amt.appendChild(document.createTextNode(formal ? '正式見積' : '概算見積'));
+    amt.appendChild(el('b', {}, yen(formal ? c.formalEstimate : c.estimate)));
+    if (formal) amt.appendChild(document.createTextNode('概算 ' + yen(c.estimate)));
+    head.appendChild(top);
+    head.appendChild(amt);
+    // ---- 転用物件の所在（全筆） ----
+    var where = el('div', { 'class': 'where', 'aria-label': '転用物件の所在' });
+    where.appendChild(el('div', { 'class': 'where-h' }, '転用物件の所在（' + lots.length + '筆）'));
+    lots.forEach(function (l) {
+      var r = el('div', { 'class': 'where-row' });
+      r.appendChild(el('span', { 'class': 'no' }, '物件' + l.no));
+      r.appendChild(el('span', { 'class': 'addr' }, lotPlace(l)));
+      r.appendChild(mapButtons(l));
+      var sub = [l.chimoku, has(l.area) ? l.area + '㎡' : '', l.zone, l.purpose].filter(has).join('　');
+      if (sub) r.appendChild(el('span', { 'class': 'sub' }, sub));
+      where.appendChild(r);
+    });
+    if (!lots.length) where.appendChild(el('div', { 'class': 'where-row' }, '物件明細がありません。'));
+    head.appendChild(where);
+
+    var flowSteps = ['新規', '調査中', '正式見積提示済', '受任', '完了'];
+    var cur = flowSteps.indexOf(c.status);
+    var flow = el('ol', { 'class': 'flow' + (c.status === '失注・取下げ' ? ' lost' : ''), 'aria-label': '対応の流れ' });
+    flowSteps.forEach(function (s, i) {
+      flow.appendChild(el('li', { 'class': i < cur ? 'done' : i === cur ? 'done now' : '' }, s === '新規' ? '受付' : s));
+    });
+    head.appendChild(flow);
+    var cl = chimokuLots(lots);
+    if (cl.length) {
+      var alertBox = el('div', { 'class': 'chimoku-alert', role: 'note' });
+      alertBox.appendChild(el('b', {}, '地目変更登記あり（' + cl.length + '筆）'));
+      alertBox.appendChild(el('span', { 'class': 'to' }, '登記担当へ連絡'));
+      alertBox.appendChild(el('span', { 'class': 'cl-list' }, cl.map(function (l) { return '物件' + l.no + ' ' + [l.address, l.lotNumber].filter(has).join(' '); }).join('、')));
+      head.appendChild(alertBox);
+    }
+    box.appendChild(head);
+
+    var body = el('div', { 'class': 'dbody' });
+    var main = el('div', { 'class': 'main' });
+    var side = el('div', { 'class': 'side' });
+
+    // ---- 物件の位置図：全筆に番号のピンを立て、相互の位置関係を見る ----
+    if (lots.length) main.appendChild(buildLotMapPanel(lots));
+
+    // ---- 依頼の概要 ----
+    var ov = panel('依頼の概要');
+    var g = el('dl', { 'class': 'kvg' });
+    [
+      ['物件', lots.length ? lots.length + '筆（' + (c.prefecture || '―') + '）' : '―'],
+      ['面積合計', has(c.area) ? c.area + ' ㎡' : ''],
+      ['区域区分', c.zone],
+      ['転用目的', c.purpose],
+      ['信託手続きに付随', c.trust === true ? 'はい' : ''],
+      ['筆数加算', c.extraLotFee],
+      ['地元協力金等', has(c.localFee) ? yen(c.localFee) + (c.localFeeNote ? '（' + c.localFeeNote + '）' : '') : ''],
+      ['資料', c.documents],
+      ['今後の転用計画', c.plan, 'wide'],
+      ['地元の同意（押印）', [c.waterAssociation, c.localConsentNote].filter(has).join('\n'), 'wide']
+    ].forEach(function (kv) {
+      if (!has(kv[1])) return;
+      var d = el('div', kv[2] ? { 'class': kv[2] } : {});
+      d.appendChild(el('dt', {}, kv[0]));
+      d.appendChild(telify(el('dd'), kv[1]));
+      g.appendChild(d);
+    });
+    ov.appendChild(g);
+    main.appendChild(ov);
+
+    main.appendChild(buildContactPanel(c, lots));
+    main.appendChild(buildEstimatePanel(c.estimateDetail));
+
+    // ---- 物件ごと：基本情報 → 電話確認の結果（確認した順） ----
+    lots.forEach(function (l) { main.appendChild(buildLotCard(l)); });
+    if (!lots.length) main.appendChild(el('p', { 'class': 'empty' }, '物件明細がありません。'));
+
+    side.appendChild(buildFormalPanel(c));
+
+    // ---- 右：対応（編集） ----
+    var act = panel('行政班の対応');
+    var sel = el('select', { id: 'aStatus' });
+    state.statuses.forEach(function (s) { var o = new Option(s, s); if (s === c.status) o.selected = true; sel.appendChild(o); });
+    var assignee = el('input', { type: 'text', id: 'aAssignee', maxlength: '50' }); assignee.value = c.assignee || '';
+    var r1 = el('div', { 'class': 'row' });
+    r1.appendChild(field('対応状況', sel));
+    r1.appendChild(field('担当者', assignee));
+    act.appendChild(r1);
+    var est = el('input', { type: 'text', id: 'aEstimate', inputmode: 'numeric', placeholder: '概算 ' + yen(c.estimate) });
+    est.value = c.formalEstimate === '' ? '' : c.formalEstimate;
+    act.appendChild(field('正式見積金額（円）', est));
+    // 地元協力金等（地域によってかかる。実費として概算に入る）
+    var lf = el('input', { type: 'text', id: 'aLocalFee', inputmode: 'numeric', placeholder: '例）30000' });
+    lf.value = has(c.localFee) ? c.localFee : '';
+    var lfn = el('input', { type: 'text', id: 'aLocalFeeNote', maxlength: '100', placeholder: '内容（例：○○区 協力金）' });
+    lfn.value = c.localFeeNote || '';
+    var lfr = el('div', { 'class': 'row' });
+    lfr.appendChild(field('地元協力金等（円）', lf));
+    lfr.appendChild(field('内容', lfn));
+    act.appendChild(lfr);
+    var memo = el('textarea', { id: 'aMemo', rows: '5', maxlength: '2000', placeholder: '調査結果、依頼者への連絡内容など' });
+    memo.value = c.adminMemo || '';
+    act.appendChild(field('対応メモ', memo));
+    var actions = el('div', { 'class': 'btns', style: 'align-items:center' });
+    var save = el('button', { type: 'button', 'class': 'primary' }, '更新する');
+    var msg = el('span', { 'class': 'saved' });
+    save.addEventListener('click', function () {
+      save.disabled = true; msg.textContent = '保存中…';
+      google.script.run
+        .withSuccessHandler(function (updated) {
+          state.cases = state.cases.map(function (x) { return x.id === updated.id ? updated : x; });
+          renderChips(); renderRows(); renderDetail(updated.id);
+          var m = document.querySelector('#detail .side .saved');
+          if (m) m.textContent = '更新しました（' + updated.updatedAt + '）';
+        })
+        .withFailureHandler(function (err) { save.disabled = false; msg.textContent = ''; alert('更新に失敗しました：' + err.message); })
+        .updateCaseByAdmin(c.id, { status: sel.value, assignee: assignee.value, formalEstimate: est.value, adminMemo: memo.value,
+          localFee: lf.value, localFeeNote: lfn.value });
+    });
+    actions.appendChild(save); actions.appendChild(msg);
+    act.appendChild(actions);
+    side.appendChild(act);
+
+    // ---- 右：資料・見積内訳・通知 ----
+    var links = panel('資料');
+    var ll = el('div', { 'class': 'side-links' });
+    if (c.folderUrl) ll.appendChild(el('a', { href: c.folderUrl, target: '_blank', rel: 'noopener' }, 'アップロード資料（' + (c.fileCount || 0) + '件）を開く'));
+    else ll.appendChild(el('span', { 'class': 'help' }, 'アップロード資料はありません。'));
+    links.appendChild(ll);
+    side.appendChild(links);
+
+
+    var del = el('button', { type: 'button', 'class': 'danger-link' }, 'この案件を削除');
+    del.addEventListener('click', function () {
+      var label = '受付番号 ' + (c.caseNo || c.id) + '（' + (c.requesterName || '依頼者名なし') + '）';
+      if (!confirm(label + ' を削除します。\n\n案件一覧・物件明細から消え、スプレッドシートの「削除した案件」シートに控えが残ります。資料フォルダは残ります。\nよろしいですか？')) return;
+      del.disabled = true; del.textContent = '削除中…';
+      google.script.run
+        .withSuccessHandler(function () {
+          state.cases = state.cases.filter(function (x) { return x.id !== c.id; });
+          delete state.lotsByCase[c.id];
+          state.selectedId = 0;
+          renderChips(); renderRows();
+          $('detail').innerHTML = '';
+          $('detail').appendChild(el('p', { 'class': 'empty' }, label + ' を削除しました（控えは「削除した案件」シート）。'));
+        })
+        .withFailureHandler(function (err) { del.disabled = false; del.textContent = 'この案件を削除'; alert('削除に失敗しました：' + err.message); })
+        .deleteCaseByAdmin(c.id);
+    });
+
+    var info = panel('記録');
+    var kv = kvList([['Chat通知', c.notifyResult], ['最終更新', c.updatedAt]]);
+    if (kv) { kv.className = 'breakdown-text'; kv.style.display = 'grid'; kv.style.gridTemplateColumns = '6em 1fr'; kv.style.gap = '2px 8px'; kv.style.margin = '0'; info.appendChild(kv); }
+    info.appendChild(del);
+    side.appendChild(info);
+
+    body.appendChild(main);
+    body.appendChild(side);
+    box.appendChild(body);
+  }
+
+  // ---------------------------------------------------------
+  // 設定タブ
+  // ---------------------------------------------------------
+  var settingsLoaded = false;
+
+  function showTab(name) {
+    $('tabCases').setAttribute('aria-selected', String(name === 'cases'));
+    $('tabSettings').setAttribute('aria-selected', String(name === 'settings'));
+    $('casesView').classList.toggle('hidden', name !== 'cases');
+    $('settingsView').classList.toggle('hidden', name !== 'settings');
+    if (name === 'settings' && !settingsLoaded) loadSettings();
+  }
+
+  function flash(id, text, isErr) {
+    var m = $(id); m.textContent = text; m.classList.toggle('err', !!isErr);
+  }
+
+  /** 設定の保存（ボタンを押せなくして、結果をメッセージ欄に出す） */
+  function callSettings(btn, msgId, fn, arg) {
+    btn.disabled = true; flash(msgId, '保存中…');
+    google.script.run
+      .withSuccessHandler(function (data) { btn.disabled = false; renderSettings(data); flash(msgId, '保存しました'); })
+      .withFailureHandler(function (err) { btn.disabled = false; flash(msgId, err.message, true); })[fn](arg);
+  }
+
+  function loadSettings() {
+    google.script.run
+      .withSuccessHandler(function (data) { settingsLoaded = true; renderSettings(data); })
+      .withFailureHandler(function (err) {
+        $('feeRows').innerHTML = '';
+        var tr = el('tr'); tr.appendChild(el('td', { colspan: '3', 'class': 'empty' }, '読み込みに失敗しました：' + err.message));
+        $('feeRows').appendChild(tr);
+      })
+      .getAdminSettings();
+  }
+
+  function renderSettings(d) {
+    var tb = $('feeRows');
+    tb.innerHTML = '';
+    d.fees.forEach(function (f) {
+      var tr = el('tr', { 'data-key': f.key });
+      var tdL = el('td', { 'class': 'lbl-cell' }); var label = el('input', { type: 'text', maxlength: '100', 'data-f': 'label' }); label.value = f.label; tdL.appendChild(label);
+      var tdA = el('td', { 'class': 'amt' }); var amt = el('input', { type: 'text', inputmode: 'numeric', 'data-f': 'amount' });
+      amt.value = String(f.amount).replace(/\B(?=(\d{3})+(?!\d))/g, ','); tdA.appendChild(amt);
+      tr.appendChild(tdL); tr.appendChild(tdA); tr.appendChild(el('td', { 'class': 'cond' }, f.note));
+      tb.appendChild(tr);
+    });
+    $('adminEmails').value = d.adminEmails.join('\n');
+    $('webhookUrl').value = d.webhookUrl;
+    var links = $('otherLinks'); links.innerHTML = '';
+    links.appendChild(el('a', { href: d.spreadsheetUrl, target: '_blank', rel: 'noopener' }, 'スプレッドシートを開く'));
+    links.appendChild(el('a', { href: d.folderUrl, target: '_blank', rel: 'noopener' }, '資料フォルダを開く'));
+  }
+
+  $('tabCases').addEventListener('click', function () { showTab('cases'); });
+  $('tabSettings').addEventListener('click', function () { showTab('settings'); });
+  $('saveFees').addEventListener('click', function () {
+    var btn = this;
+    var rows = Array.prototype.map.call(document.querySelectorAll('#feeRows tr[data-key]'), function (tr) {
+      return { key: tr.getAttribute('data-key'),
+        label: tr.querySelector('[data-f=label]').value, amount: tr.querySelector('[data-f=amount]').value };
+    });
+    btn.disabled = true; flash('feesMsg', '保存中…');
+    google.script.run
+      .withSuccessHandler(function (data) {
+        btn.disabled = false; renderSettings(data);
+        flash('feesMsg', '保存しました（新規・調査中の案件の概算を ' + (data.recalculated || 0) + '件 計算し直しました）');
+        load(); // 案件一覧の金額も新しくする
+      })
+      .withFailureHandler(function (err) { btn.disabled = false; flash('feesMsg', err.message, true); })
+      .saveFeeSettings(rows);
+  });
+  $('saveAdmins').addEventListener('click', function () {
+    callSettings(this, 'adminsMsg', 'saveAdminEmails', $('adminEmails').value);
+  });
+  $('saveWebhook').addEventListener('click', function () {
+    callSettings(this, 'webhookMsg', 'saveWebhookUrl', $('webhookUrl').value);
+  });
+  $('testWebhook').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; flash('webhookMsg', '送信中…');
+    google.script.run
+      .withSuccessHandler(function (r) { btn.disabled = false; flash('webhookMsg', r.ok ? 'テスト通知を送信しました' : '送信に失敗しました：' + r.message, !r.ok); })
+      .withFailureHandler(function (err) { btn.disabled = false; flash('webhookMsg', err.message, true); })
+      .sendTestNotification();
+  });
+
+  ['dragover', 'drop'].forEach(function (t) { window.addEventListener(t, function (e) { e.preventDefault(); }); });
+  $('q').addEventListener('input', renderRows);
+  $('requestOnly').addEventListener('change', function () { renderChips(); renderRows(); });
+  $('reload').addEventListener('click', load);
+  load();
+</script>
+</body>
+</html>

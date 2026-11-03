@@ -1,0 +1,3539 @@
+// このファイルは tools/build_dist.py で src/ から自動生成しています。修正は src/ で行ってください。
+
+// ===== Config.gs =====
+/**
+ * ============================================================
+ *  農地転用見積・調査支援システム ― 設定ファイル
+ * ============================================================
+ *  シート名・通知先・選択肢など「運用で変わりうる値」はここに集約します。
+ *  ※見積金額はスプレッドシートの「見積設定」シートで変更できます（コード修正不要）。
+ *    ここにある金額は、そのシートが無い／読めないときの予備（初期値）です。
+ */
+
+// ------------------------------------------------------------
+// スプレッドシート
+// ------------------------------------------------------------
+
+/**
+ * 保存先スプレッドシートのID。
+ * ・スプレッドシートに紐づいたスクリプト（拡張機能 > Apps Script から作成）の場合は空文字のままでOK。
+ * ・スタンドアロンのスクリプトで使う場合は、URLの /d/ と /edit の間の文字列を設定してください。
+ */
+const SPREADSHEET_ID = '';
+
+/** シート名（変更する場合は、実際のシート名も合わせて変更してください） */
+const SHEET_NAMES = {
+  CASES: '案件一覧',
+  LOTS: '物件明細',
+  MASTER: 'マスタ',
+  FEES: '見積設定',
+  ERRORS: 'エラーログ', // 謄本読取・アップロードの失敗内容（原因調査用。初回のエラー時に自動作成）
+  DELETED_CASES: '削除した案件',     // 管理画面で削除した案件の控え（初回の削除時に自動作成。戻すときはここから行をコピー）
+  DELETED_LOTS: '削除した物件明細',
+};
+
+// ------------------------------------------------------------
+// Google Chat 通知
+// ------------------------------------------------------------
+
+/**
+ * Google Chat の Incoming Webhook URL。
+ * Chat のスペース > アプリと統合 > Webhook を追加 で発行したURLを貼り付けてください。
+ * ※スクリプト プロパティ「CHAT_WEBHOOK_URL」に登録した場合はそちらが優先されます。
+ */
+const CHAT_WEBHOOK_URL = '';
+
+// ------------------------------------------------------------
+// Google ドライブ（添付資料の保存先）
+// ------------------------------------------------------------
+
+/**
+ * 添付資料を保存するフォルダのID（URLの /folders/ の後ろの文字列）。
+ * 空の場合は「初期セットアップ」実行時に「農地転用_案件資料」フォルダを自動作成し、
+ * そのIDをスクリプト プロパティ「DRIVE_ROOT_FOLDER_ID」に保存します。
+ * 行政班のメンバーには、このフォルダを共有しておいてください。
+ */
+const DRIVE_ROOT_FOLDER_ID = '';
+
+/** 送信前にアップロードされたファイルを一時的に置くサブフォルダ名 */
+const DRIVE_PENDING_FOLDER_NAME = '_受付中（未送信）';
+
+/** 1ファイルあたりの上限（MB） */
+const MAX_UPLOAD_MB = 10;
+
+/** アップロードを許可するファイル形式 */
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif', 'image/tiff',
+];
+
+// ------------------------------------------------------------
+// 行政班（受任側）の管理画面
+// ------------------------------------------------------------
+
+/**
+ * 管理画面（Webアプリの URL に ?page=admin を付けたもの）を使えるメールアドレス。
+ * スクリプト プロパティ「ADMIN_EMAILS」にカンマ区切りで登録した場合はそちらが優先されます。
+ */
+const ADMIN_EMAILS = [
+  'sokuryo@touki.bz',
+];
+
+/** 案件の対応状況（管理画面のプルダウン）。先頭が新規受付時の初期値 */
+const CASE_STATUSES = ['新規', '調査中', '正式見積提示済', '受任', '完了', '失注・取下げ'];
+
+// ------------------------------------------------------------
+// 概算見積のルール（予備の初期値。実際の金額は「見積設定」シートで管理）
+// ------------------------------------------------------------
+
+/**
+ * 見積の項目。key は「見積設定」シートのキー列と対応します（key は変更しないでください）。
+ * zone を持つ項目は基本報酬、それ以外は加算です。
+ */
+const DEFAULT_FEES = [
+  // 金額（税抜）は「2026基本料金改定案」行政書士シートに合わせています（備考欄に値があればそれを最新として採用、なければ報酬欄）
+  { key: 'BASE_SHIGAIKA', zone: '市街化区域', label: '農地転用 第4条/第5条届出（市街化区域）', amount: 58000,
+    note: '市街化区域、または区域が「分からない」場合に適用（料金表 4101/4102）' },
+  { key: 'BASE_CHOSEI', zone: '市街化調整区域', label: '農地法第5条許可申請（市街化調整区域）', amount: 235000,
+    note: '市街化調整区域の場合に適用（料金表 4103）' },
+  { key: 'BASE_HISENBIKI', zone: '非線引き区域', label: '農地法第5条許可申請（非線引き区域）', amount: 120000,
+    note: '非線引き区域の場合に適用（料金表 4103 非線引き）' },
+  { key: 'BASE_KUIKIGAI', zone: '都市計画区域外', label: '農地法第5条許可申請（都市計画区域外）', amount: 150000,
+    note: '都市計画区域外の場合に適用（料金表 4103 都市計画区域外）' },
+  // 調査実費（区域区分ごとに1回。surveyZone で区域と対応）
+  { key: 'SURVEY_SHIGAIKA', surveyZone: '市街化区域', label: '調査実費（市街化区域）', amount: 2000,
+    note: '市街化区域、または区域が「分からない」場合に加算' },
+  { key: 'SURVEY_CHOSEI', surveyZone: '市街化調整区域', label: '調査実費（市街化調整区域）', amount: 25000,
+    note: '市街化調整区域の場合に加算' },
+  { key: 'SURVEY_HISENBIKI', surveyZone: '非線引き区域', label: '調査実費（非線引き区域）', amount: 15000,
+    note: '非線引き区域の場合に加算' },
+  { key: 'SURVEY_KUIKIGAI', surveyZone: '都市計画区域外', label: '調査実費（都市計画区域外）', amount: 15000,
+    note: '都市計画区域外の場合に加算（金額は仮に非線引き区域と同額）' },
+  { key: 'ADD_NOSHIN', label: '農振除外申出', amount: 300000,
+    note: '農振農用地「はい」の場合に加算（料金表 4006）' },
+  { key: 'ADD_LAND_IMPROVEMENT', label: '土地改良区除外申請', amount: 40000,
+    note: '土地改良区「はい」または「分からない」の物件がある場合に加算。受益地に該当しない、または地区除外の手続きが不要と確認できた物件は除く（料金表 4201）' },
+  { key: 'ADD_WATER_ASSOCIATION', label: '地元承諾書（区長・水利組合等）（1人あたり）', amount: 20000,
+    note: '同意（押印）が必要な人数分を加算（土地改良区で確認した地元関係者＋排水の地元承諾者。同じ人は1人）。人数が未確認（「未確認」「分からない」）の場合は1人分で仮計上' },
+  { key: 'ADD_JIZEN_BUNKE', label: '事前相談等（分家住宅）', amount: 40000,
+    note: '転用目的が「分家住宅」の物件がある場合に、報酬の最初に1回加算' },
+  { key: 'ADD_JIZEN_KYOKA', label: '事前相談等（農地転用許可）', amount: 25000,
+    note: '農地転用の許可（市街化調整区域・非線引き・都市計画区域外）がある場合に、報酬の最初に1回加算（分家住宅のときは「事前相談等（分家住宅）」）' },
+  { key: 'COST_KENCHIKU', label: '建築許可 実費（分家住宅）', amount: 7300,
+    note: '転用目的が「分家住宅」の場合に実費として加算。計画により開発行為を伴う場合は別途見積' },
+  { key: 'ADD_BUNKE', label: '分家建築許可申請（都市計画法43条）', amount: 300000,
+    note: '転用目的が「分家住宅」で、市街化調整区域の物件がある場合に加算（料金表 4001。開発許可（29条）となる場合は 4002）' },
+  { key: 'ADD_DRAINAGE', label: '排水同意手続（同意書）', amount: 40000,
+    note: '土地改良区ごとに、排水同意（同意書の発行）が「必要」と回答があった改良区の数だけ加算。分家住宅は未確認の改良区も仮に加算。土地改良区にかからない分家住宅は排水承諾が「必要」「未確認」なら1件（料金表 4203）' },
+  { key: 'ADD_GENKYO', label: '現況証明（非農地証明）願出', amount: 120000,
+    note: '農業委員会に確認し、非農地証明（現況証明）で対応できると回答があった物件がある場合に加算（その物件は許可申請を計上しない。料金表 4100）' },
+  { key: 'ADD_CHIMOKU', label: '地目変更登記', amount: 48000,
+    note: '「地目変更登記が必要」にチェックした物件がある場合に申請1件ごと（料金表 3201。2筆までこの金額のみ）。登記所または原因日付が異なる物件は別申請とし、2件目以降はこの金額の50%' },
+  { key: 'ADD_CHIMOKU_EXTRA', label: '地目変更登記 筆数加算（3筆目から1筆あたり）', amount: 5000,
+    note: '地目変更登記が3筆以上の場合、3筆目から1筆ごとに加算' },
+  { key: 'ADD_PER_EXTRA_LOT', label: '筆数加算・許可（1筆あたり）', amount: 10000,
+    note: '「筆数加算をする」にチェックした場合だけ、許可（市街化調整区域・非線引き・都市計画区域外）の同じ申請の2筆目以降1筆ごとに加算' },
+  { key: 'ADD_PER_EXTRA_LOT_TODOKE', label: '筆数加算・届出（1筆あたり）', amount: 10000,
+    note: '「筆数加算をする」にチェックした場合だけ、届出（市街化区域。区域不明の仮計算を含む）の同じ申請の2筆目以降1筆ごとに加算（金額は仮。設定で変更）' },
+];
+
+/**
+ * 区域が「分からない」場合に仮で使う区域区分。
+ * 原則として届出（市街化区域）前提で計算し、区域の確認は行政班が行います。
+ */
+const FALLBACK_ZONE_FOR_UNKNOWN = '市街化区域';
+
+/** 農地転用が「許可」となる区域区分（事後手続き加算の対象。市街化区域は届出のため対象外） */
+const PERMIT_ZONES = ['市街化調整区域', '非線引き区域', '都市計画区域外'];
+
+/**
+ * 料金表の改定。FEE_TABLE_VERSION を変えてデプロイすると、次に画面が開かれたとき
+ * 「見積設定」シートの項目名・金額を DEFAULT_FEES の値で1回だけ上書きします（それ以降はシートでの変更が優先）。
+ */
+const FEE_TABLE_VERSION = '2026-01';
+
+/** 社内ポータル（依頼画面・管理画面・送信後の画面からのリンク先） */
+const PORTAL_URL = 'http://192.168.24.54:8000/';
+
+/** 役調ナビ（社内LAN）。管理画面の「ストリートビュー」「Googleマップ」は役調ナビの現況確認を開く（所在・地番から筆の位置を出し、赤い印・土地の方向つき） */
+const YAKUCHO_NAVI_URL = 'http://192.168.24.54:8070';
+
+/**
+ * 料金の個別修正。キーに版を付け、未適用の版だけ「見積設定」シートの該当項目を DEFAULT_FEES の値で上書きする
+ * （ほかの項目のシート上の変更は残す）。
+ */
+const FEE_PATCHES = {
+  '2026-02': ['ADD_LAND_IMPROVEMENT'], // 土地改良区除外申請 35,000 → 40,000
+  '2026-03': ['ADD_NOSHIN', 'ADD_WATER_ASSOCIATION', 'ADD_BUNKE', 'ADD_DRAINAGE'], // 料金表の備考（最新）を採用
+  '2026-04': ['ADD_PER_EXTRA_LOT:label'], // 筆数加算を許可・届出で分けたため名称と条件だけ更新（金額はそのまま）
+  '2026-05': ['ADD_CHIMOKU:label'],
+  '2026-08': ['ADD_CHIMOKU:label'],
+  '2026-09': ['ADD_DRAINAGE:label'],       // 排水同意は土地改良区ごと（事前相談等・建築許可の実費は新しい行として追加される）       // 地目変更登記の別申請（登記所・原因日付が異なる場合は2件目以降50%）の説明を更新       // 地目変更登記は2筆まで加算なし・3筆目から筆数加算（条件の説明だけ更新）
+  '2026-06': ['ADD_WATER_ASSOCIATION:label'], // 地元承諾書は人数分（名称と条件だけ更新、金額はそのまま）
+  '2026-07': ['ADD_GENKYO:label'],            // 現況証明は「非農地証明で対応できる」と回答があった場合だけ（条件の説明だけ更新）
+};
+
+/** 報酬にかける消費税率（実費にはかけない） */
+const TAX_RATE = 0.10;
+
+/**
+ * 所在・地番欄の末尾から地番を切り出す正規表現（1=町名・字、2=地番）。
+ * 例：「○○町字△△123番1」「○○町5丁目12番3」「○○町123-1」「○○町123」
+ */
+const LOT_NUMBER_TAIL_RE = /^(.*?)\s*([0-9０-９]+(?:番地?[0-9０-９]*)?(?:[-－‐ー][0-9０-９]+)*)$/;
+
+/** 「既に転用済み」とみなす現況利用（事後手続き加算の対象） */
+const CONVERTED_LAND_USES = ['駐車場', '宅地', '資材置場'];
+
+/** 「現況が農地」とみなす現況利用（この場合「今後の転用計画」が必須） */
+const FARMLAND_LAND_USES = ['耕作中', '休耕・荒地'];
+
+/** 1件の依頼で入力できる物件（筆）の上限 */
+const MAX_LOTS = 30;
+
+// ------------------------------------------------------------
+// フォームの選択肢（ここを編集すると画面の選択肢が変わります）
+// ------------------------------------------------------------
+
+/** 物件所在地の都道府県の初期値（プルダウンの先頭に表示） */
+const DEFAULT_PREFECTURE = '愛知県';
+
+/**
+ * 都市計画税を課していない市町村（区域区分の目安「課税明細書の都市計画税」が使えない）。公的資料で確認したもののみ。
+ * 出典：総務省 令和6年度市町村別決算状況調（都市計画税収入なし）、岐阜県 令和6年度税率採用状況、
+ *       三重県 令和7年度市町村税の概要（税率一覧）、各市の例規集・公式ページ（2026年9月確認）。
+ * 蟹江町は令和7年度から課税のため対象外。年度が変わったら見直すこと。
+ * { 都道府県: { 市区町村: 補足（空文字可） } }
+ */
+const NO_CITY_PLANNING_TAX = {
+  '愛知県': {
+    '弥富市': '', '愛西市': '', '大口町': '（税率0%）', '大治町': '', '飛島村': '', '南知多町': '',
+    '設楽町': '', '東栄町': '', '豊根村': '',
+    'あま市': '（令和8年度までは課税なし。令和9年度から課税）',
+  },
+  '岐阜県': {
+    '瑞穂市': '', '岐南町': '', '笠松町': '', '北方町': '', '垂井町': '', '神戸町': '', '安八町': '',
+    '山県市': '', '飛騨市': '', '本巣市': '', '郡上市': '', '下呂市': '', '海津市': '', '養老町': '', '関ケ原町': '',
+    '輪之内町': '', '揖斐川町': '', '大野町': '', '池田町': '', '坂祝町': '', '富加町': '', '川辺町': '', '七宗町': '',
+    '八百津町': '', '白川町': '', '東白川村': '', '御嵩町': '', '白川村': '',
+  },
+  '三重県': {
+    'いなべ市': '', '木曽岬町': '', '東員町': '', '菰野町': '', '朝日町': '', '川越町': '',
+    '名張市': '', '熊野市': '', '志摩市': '', '伊賀市': '', '多気町': '', '明和町': '', '大台町': '', '玉城町': '',
+    '度会町': '', '大紀町': '', '南伊勢町': '', '紀北町': '', '御浜町': '', '紀宝町': '',
+  },
+};
+
+/** 信託手続きに付随する場合、農地転用の基本報酬（届出・許可）に掛ける倍率 */
+const TRUST_MULTIPLIER = 1.5;
+
+/** 同じ区域区分でも転用目的が異なれば別申請。2件目以降は基本報酬（信託付随の倍率を含む）にこの割合を掛けて加算する（概算） */
+const SEPARATE_APPLICATION_RATE = 0.5;
+
+/**
+ * 不動産登記の管轄（登記所 → 市区町村・郡・名古屋市の区）。地目変更登記の申請件数の判定に使う。
+ * 同じ登記所で、登記原因とその日付が同じなら1件の申請にまとめられる（不動産登記令4条ただし書）。違えば別申請。
+ * 出典：名古屋法務局 管轄区域一覧 https://houmukyoku.moj.go.jp/nagoya/table/shikyokutou/all.html
+ * 載っていない県は市区町村ごとに別の登記所として扱う（管轄を確認して必要なら追加）。
+ */
+const TOUKI_OFFICES = {
+  '愛知県': {
+    '名古屋法務局（本局）': ['中区', '東区', '北区', '中村区', '西区', '千種区', '昭和区', '清須市', '北名古屋市', '豊山町', '西春日井郡'],
+    '熱田出張所': ['熱田区', '南区', '中川区', '港区', '瑞穂区', '緑区', '豊明市'],
+    '名東出張所': ['名東区', '守山区', '天白区', '日進市', '長久手市', '東郷町', '愛知郡'],
+    '春日井支局': ['春日井市', '瀬戸市', '犬山市', '小牧市', '尾張旭市', '大口町', '扶桑町', '丹羽郡'],
+    '津島支局': ['津島市', '愛西市', '弥富市', 'あま市', '蟹江町', '飛島村', '大治町', '海部郡'],
+    '一宮支局': ['一宮市', '稲沢市', '江南市', '岩倉市'],
+    '半田支局': ['半田市', '常滑市', '大府市', '東海市', '知多市', '阿久比町', '武豊町', '南知多町', '美浜町', '東浦町', '知多郡'],
+    '岡崎支局': ['岡崎市', '幸田町', '額田郡'],
+    '刈谷支局': ['刈谷市', '知立市', '安城市', '碧南市', '高浜市'],
+    '豊田支局': ['豊田市', 'みよし市'],
+    '西尾支局': ['西尾市'],
+    '豊橋支局': ['豊橋市', '田原市'],
+    '豊川出張所': ['豊川市', '蒲郡市'],
+    '新城支局': ['新城市', '設楽町', '東栄町', '豊根村', '北設楽郡'],
+  },
+};
+
+/** 委員・地元関係者の連絡先を1物件あたり何人まで入力できるか */
+const MAX_KAIRYO_EXTRA = 3; // 1つの物件で追加できる土地改良区（2つ目以降）の数
+const MAX_CONTACTS = 5;
+
+/**
+ * 農業委員会の問い合わせ先（土地改良区の確認電話用）。各市町村の公式サイトで確認した番号。
+ * 「マスタ」シートの「農業委員会 電話番号」列に入力した番号があれば、そちらを優先します。
+ * { 都道府県: { 市区町村: { office: 窓口名, tel: 電話番号, url: 確認したページ } } }
+ */
+/**
+ * 申請地の区で農地転用の窓口が分かれる市（所在に区が入っていれば、その区の窓口と電話番号だけを出す）。
+ * 名古屋市：出典 https://www.city.nagoya.jp/kurashi/nougyou/1015576/index.html （農地転用相談・受付窓口）
+ */
+const NOGYO_WARD_DESKS = {
+  '愛知県': {
+    '名古屋市': [
+      { office: '緑区役所 東部・緑農政課', tel: '052-625-3932', wards: ['千種区', '昭和区', '瑞穂区', '南区', '緑区', '名東区', '天白区'] },
+      { office: '守山区役所 西部・守山農政課', tel: '052-796-4551', wards: ['東区', '北区', '西区', '中村区', '中区', '守山区'] },
+      { office: '中川区役所 中川農政課', tel: '052-363-4360', wards: ['熱田区', '中川区'] },
+      { office: '港区役所南陽支所 港農政課', tel: '052-301-8209', wards: ['港区'] },
+    ],
+  },
+};
+
+const NOGYO_IINKAI = {
+  '愛知県': {
+    '名古屋市': { office: '名古屋市農業委員会事務局 農政課（転用は区担当の農政課へ：東部・緑 052-625-3932／西部・守山 052-796-4551／中川 052-363-4360／港 052-301-8209）', tel: '052-972-2469', url: 'https://www.city.nagoya.jp/nogyou/soshiki_list.html' },
+    '豊橋市': { office: '豊橋市農業委員会事務局', tel: '0532-51-2950', url: 'https://www.city.toyohashi.lg.jp/2914.htm' },
+    '岡崎市': { office: '岡崎市農業委員会事務局 総務係', tel: '0564-23-6196', url: 'https://www.city.okazaki.lg.jp/1400/1404/1414/p004117.html' },
+    '一宮市': { office: '一宮市 農業振興課 農業委員会グループ', tel: '0586-28-9137', url: 'https://www.city.ichinomiya.aichi.jp/shisei/shingikai/1009967/1000219/1005461.html' },
+    '瀬戸市': { office: '瀬戸市 農林課（農業委員会事務局）', tel: '0561-88-2654', url: 'https://www.city.seto.aichi.jp/docs/2016/06/17/00061/' },
+    '半田市': { office: '半田市 農政課', tel: '0569-84-0636', url: 'https://www.city.handa.lg.jp/jigyosha/norin/1003586/1003592.html' },
+    '春日井市': { office: '春日井市農業委員会', tel: '0568-85-6239', url: 'https://www.city.kasugai.lg.jp/business/1009248/nougyo/1009326/1009327.html' },
+    '豊川市': { office: '豊川市 農務課 農業委員会・農地担当', tel: '0533-95-0262', url: 'https://www.city.toyokawa.lg.jp/shigoto_sangyo/norinchikusangyo/2/7/15899.html' },
+    '津島市': { office: '津島市農業委員会事務局（代表から呼出）', tel: '0567-24-1111', url: 'https://www.city.tsushima.lg.jp/shisei/shigotokanren/nougyou/nougyouiinkai.html' },
+    '碧南市': { office: '碧南市農業委員会事務局', tel: '0566-95-9898', url: 'https://www.city.hekinan.lg.jp/soshiki/keizai_kankyo/nogyo_suisan/2/4971.html' },
+    '刈谷市': { office: '刈谷市 農政課（農業委員会事務局）', tel: '0566-62-1015', url: 'https://www.city.kariya.lg.jp/sangyo/nougyo/nouchi/1006308.html' },
+    '豊田市': { office: '豊田市農業委員会事務局', tel: '0565-34-6639', url: 'https://www.city.toyota.aichi.jp/kurashi/nougyou/seido/1003891.html' },
+    '安城市': { office: '安城市 農務課 農地係（農業委員会事務局）', tel: '0566-71-2234', url: 'https://www.city.anjo.aichi.jp/zigyo/nogyo/nochitenyo/nochitenyo.html' },
+    '西尾市': { office: '西尾市 農水振興課（農業委員会）', tel: '0563-65-2134', url: 'https://www.city.nishio.aichi.jp/sangyo/norinsuisan/1005703/1003058.html' },
+    '蒲郡市': { office: '蒲郡市 農林水産課 農地・農業委員会担当', tel: '0533-66-1127', url: 'https://www.city.gamagori.lg.jp/unit/digital/sosiki.html' },
+    '犬山市': { office: '犬山市 産業課 農政担当（農業委員会事務局）', tel: '0568-44-0341', url: 'https://www.city.inuyama.aichi.jp/kurashi/nogyo/1004302.html' },
+    '常滑市': { office: '常滑市 農業水産課（農業委員会）', tel: '0569-47-6118', url: 'https://www.city.tokoname.aichi.jp/jigyosha/nogyo/1005063/1001231.html' },
+    '江南市': { office: '江南市農業委員会（農政課内）', tel: '0587-50-0195', url: 'https://www.city.konan.lg.jp/kurashi/nougyou/1005755/1003119/1003123.html' },
+    '小牧市': { office: '小牧市 農政課 農地係', tel: '0568-76-1132', url: 'https://www.city.komaki.aichi.jp/admin/soshiki/chiikikassei/nousei/2/1/5397.html' },
+    '稲沢市': { office: '稲沢市農業委員会事務局 農地グループ', tel: '0587-32-1483', url: 'https://www.city.inazawa.aichi.jp/soshiki/15-1-0-0-0_1.html' },
+    '新城市': { office: '新城市 農業課（農業委員会事務局）', tel: '0536-23-7632', url: 'https://www.city.shinshiro.lg.jp/faq/noringyo/nochitenyo.html' },
+    '東海市': { office: '東海市農業委員会事務局', tel: '052-613-7848', url: 'https://www.city.tokai.aichi.jp/shisei/1003386/1004053/1004054.html' },
+    '大府市': { office: '大府市農業委員会事務局', tel: '0562-45-6246', url: 'https://www.city.obu.aichi.jp/shisei/information/soshiki/1002393/1002394.html' },
+    '知多市': { office: '知多市農業委員会事務局', tel: '0562-36-2683', url: 'https://www.city.chita.lg.jp/soshiki/nogyoiinkai/nougyouiinkaijimukyoku/' },
+    '知立市': { office: '知立市 産業振興課 農業振興係（農業委員会兼務）', tel: '0566-95-0153', url: 'https://www.city.chiryu.aichi.jp/soshiki/1450690105894.html' },
+    '尾張旭市': { office: '尾張旭市 公園農政課 農政係（農業委員会）', tel: '0561-76-8133', url: 'https://www.city.owariasahi.lg.jp/page/3085.html' },
+    '高浜市': { office: '高浜市 経済環境グループ 農務', tel: '0566-95-9521', url: 'https://www.city.takahama.lg.jp/soshiki/keizai/951.html' },
+    '岩倉市': { office: '岩倉市 商工農政課（農業委員会）', tel: '0587-38-5812', url: 'https://www.city.iwakura.aichi.jp/soshiki/5-8-0-0-0_8.html' },
+    '豊明市': { office: '豊明市農業委員会事務局', tel: '0562-92-8312', url: 'https://www.city.toyoake.lg.jp/1014.htm' },
+    '日進市': { office: '日進市 農政課（農業委員会事務局）', tel: '0561-73-2197', url: 'https://www.city.nisshin.lg.jp/department/toshisangyo/nousei/kurashi/nougyou/nougyouiinkai/3276.html' },
+    '田原市': { office: '田原市農業委員会事務局', tel: '0531-23-3519', url: 'https://www.city.tahara.aichi.jp/kankou/nogyou/1001917/1001922.html' },
+    '愛西市': { office: '愛西市 産業振興課（農業委員会）', tel: '0567-55-7128', url: 'https://www.city.aisai.lg.jp/soshiki/1-7-1-0-0_6.html' },
+    '清須市': { office: '清須市 産業課（農地の窓口）', tel: '052-400-2959', url: 'https://www.city.kiyosu.aichi.jp/kurashi_joho/seikatsu_kankyo/nogyo/nochi_baibai_chimoku.html' },
+    '北名古屋市': { office: '北名古屋市 商工農政課 農業委員会担当', tel: '0568-48-0210', url: 'https://www.city.kitanagoya.lg.jp/sangyo/nogyo/1004173/1004174.html' },
+    '弥富市': { office: '弥富市 産業振興課 農地グループ（代表から呼出）', tel: '0567-65-1111', url: 'https://www.city.yatomi.lg.jp/jigyo/1000838/1006178/1000839.html' },
+    'みよし市': { office: 'みよし市農業委員会事務局', tel: '0561-32-8015', url: 'https://www.city.aichi-miyoshi.lg.jp/soshiki/shiminkeizai/sangyo/nougyouiinnkai/index.html' },
+    'あま市': { office: 'あま市 農政課 農政係（農業委員会）', tel: '052-441-7114', url: 'https://www.city.ama.aichi.jp/soshiki/kensetu/1004522.html' },
+    '長久手市': { office: '長久手市 みどりの推進課 農政係（農業委員会事務局）', tel: '0561-56-0620', url: 'https://www.city.nagakute.lg.jp/soshiki/kensetsubu/suishinka/nougyou_iinkai/2201.html' },
+    '東郷町': { office: '東郷町 産業振興課（農業委員会事務局）', tel: '0561-56-0740', url: 'https://www.town.aichi-togo.lg.jp/soshikikarasagasu/sangyoshinkoka/gyomuannai/6/1_1/3/2608.html' },
+    '豊山町': { office: '豊山町 建設課 土木・農政グループ（農業委員会）', tel: '0568-28-0380', url: 'https://www.town.toyoyama.lg.jp/sangyo/1001037/1001041/1001042.html' },
+    '大口町': { office: '大口町 まちづくり推進課（農業委員会事務局）', tel: '0587-95-1614', url: 'https://www.town.oguchi.lg.jp/2174.htm' },
+    '扶桑町': { office: '扶桑町 土木農政課 農政グループ（農業委員会）', tel: '0587-92-4124', url: 'https://www.town.fuso.lg.jp/sangyo/1002317/1002147/1002162.html' },
+    '大治町': { office: '大治町 産業環境課（農業委員会）', tel: '052-444-2711', url: 'https://www.town.oharu.aichi.jp/1390.htm' },
+    '蟹江町': { office: '蟹江町 土木農政課 農政係（代表から呼出）', tel: '0567-95-1111', url: 'https://www.town.kanie.aichi.jp/soshiki/13/nouchi-kenriidou.html' },
+    '飛島村': { office: '飛島村 経済課 農業委員会事務局', tel: '0567-97-3469', url: 'https://www.vill.tobishima.aichi.jp/shigotosngyo/nougyou/1002110.html' },
+    '阿久比町': { office: '阿久比町農業委員会事務局（産業観光課 農業振興係）', tel: '0569-84-3808', url: 'https://www.town.agui.lg.jp/0000003710.html' },
+    '東浦町': { office: '東浦町農業委員会事務局（商工農政課内・役場代表）', tel: '0562-83-3111', url: 'https://www.town.aichi-higashiura.lg.jp/soshiki/nougyou/jimukyoku/gyomu/1478672994910.html' },
+    '南知多町': { office: '南知多町 産業振興課（農業委員会窓口）', tel: '0569-65-0711', url: 'https://www.town.minamichita.lg.jp/kankosangyou/nougyou/1003435/1001444.html' },
+    '美浜町': { office: '美浜町 産業課 農業振興係（代表・内線265）', tel: '0569-82-1111', url: 'https://www.town.aichi-mihama.lg.jp/soshiki/sangyo/nogyoshinko/1/3/2/3/555.html' },
+    '武豊町': { office: '武豊町農業委員会事務局（産業課・役場代表）', tel: '0569-72-1111', url: 'https://www.town.taketoyo.lg.jp/kurashi/1001508/1001590/1001801.html' },
+    '幸田町': { office: '幸田町 産業振興課 農業委員会（代表・内線263）', tel: '0564-62-1111', url: 'https://www.town.kota.lg.jp/soshiki/13/771.html' },
+    '設楽町': { office: '設楽町 産業課（農業委員会担当）', tel: '0536-62-0527', url: 'https://www.town.shitara.lg.jp/soshiki/7/1332.html' },
+    '東栄町': { office: '東栄町 経済課（農業委員会担当）', tel: '0536-76-1812', url: 'http://www.town.toei.aichi.jp/1413.htm' },
+    '豊根村': { office: '豊根村農業委員会事務局（産業課）', tel: '0536-85-1314', url: 'https://www.vill.toyone.aichi.jp/soshiki/sangyo/84.html' },
+  },
+  '岐阜県': {
+    '岐阜市': { office: '岐阜市農業委員会事務局 農業振興係', tel: '058-214-2074', url: 'https://www.city.gifu.lg.jp/info/soshiki/1010589.html' },
+    '大垣市': { office: '大垣市農業委員会事務局（市役所代表）', tel: '0584-81-4111', url: 'https://www.city.ogaki.lg.jp/0000002112.html' },
+    '高山市': { office: '高山市農業委員会事務局', tel: '0577-35-3141', url: 'https://www.city.takayama.lg.jp/soshiki/1005520.html' },
+    '多治見市': { office: '多治見市農業委員会事務局', tel: '0572-22-1258', url: 'https://www.city.tajimi.lg.jp/shisei/soshiki_gyomuannai/1007086/1007087/1007092.html' },
+    '関市': { office: '関市農業委員会', tel: '0575-23-6765', url: 'https://www.city.seki.lg.jp/0000000046.html' },
+    '中津川市': { office: '中津川市農業委員会事務局（代表・内線4029）', tel: '0573-66-1111', url: 'https://www.city.nakatsugawa.lg.jp/soshikikarasagasu/nogyoiinkaijimukyoku/2/1/2076.html' },
+    '美濃市': { office: '美濃市 農林振興課 農業委員会（代表・内線265）', tel: '0575-33-1122', url: 'https://www.city.mino.gifu.jp/docs/1314.html' },
+    '瑞浪市': { office: '瑞浪市農業委員会事務局', tel: '0572-68-9800', url: 'https://www.city.mizunami.lg.jp/shisei/soshikiannai/1004225/1003254.html' },
+    '羽島市': { office: '羽島市農業委員会事務局', tel: '058-392-9963', url: 'https://www.city.hashima.lg.jp/2756.html' },
+    '恵那市': { office: '恵那市農業委員会事務局', tel: '0573-26-6854', url: 'https://www.city.ena.lg.jp/soshikiichiran/nogyoiinkaijimukyoku/index.html' },
+    '美濃加茂市': { office: '美濃加茂市農業委員会事務局', tel: '0574-28-1133', url: 'https://www.city.minokamo.lg.jp/soshiki/14/1644.html' },
+    '土岐市': { office: '土岐市農業委員会', tel: '0572-54-1214', url: 'https://www.city.toki.lg.jp/shisei/soshiki/1008512/1006322.html' },
+    '各務原市': { office: '各務原市 農政課 農政係（農業委員会）', tel: '058-383-1129', url: 'https://www.city.kakamigahara.lg.jp/shisei/soshiki/1006489/1006499.html' },
+    '可児市': { office: '可児市農業委員会事務局（市役所代表）', tel: '0574-62-1111', url: 'https://www.city.kani.lg.jp/13108.htm' },
+    '山県市': { office: '山県市農業委員会事務局（農林商工課内）', tel: '0581-22-6830', url: 'https://www.city.yamagata.gifu.jp/soshiki/nougyou/1753.html' },
+    '瑞穂市': { office: '瑞穂市 商工農政観光課（農業委員会）', tel: '058-327-2103', url: 'https://www.city.mizuho.lg.jp/1239.htm' },
+    '飛騨市': { office: '飛騨市農業委員会事務局', tel: '0577-62-9393', url: 'https://www.city.hida.gifu.jp/soshiki/7.html' },
+    '本巣市': { office: '本巣市 農政課（農業委員会）', tel: '058-323-7755', url: 'https://www.city.motosu.lg.jp/soshiki/1-7-1-0-0_4.html' },
+    '郡上市': { office: '郡上市 農務水産課（農地法の窓口）', tel: '0575-67-1835', url: 'https://www.city.gujo.gifu.jp/business/detail/post-72.html' },
+    '下呂市': { office: '下呂市農業委員会事務局（農務課）', tel: '0576-53-2010', url: 'https://www.city.gero.lg.jp/soshiki/14/1130.html' },
+    '海津市': { office: '海津市農業委員会事務局', tel: '0584-53-3429', url: 'https://www.city.kaizu.lg.jp/soshiki/13-0-0-0-0_16.html' },
+    '岐南町': { office: '岐南町 建設課（農地の申請・届出窓口）', tel: '058-247-1332', url: 'https://www.town.ginan.lg.jp/6034.htm' },
+    '笠松町': { office: '笠松町農業委員会事務局（環境経済課内）', tel: '058-388-1114', url: 'https://www.town.kasamatsu.gifu.jp/docs/2025091700026/' },
+    '養老町': { office: '養老町 産業観光課', tel: '0584-32-1108', url: 'https://www.town.yoro.gifu.jp/business/agriculture/1002136/1002604.html' },
+    '垂井町': { office: '垂井町農業委員会事務局（産業課内）', tel: '0584-22-7516', url: 'https://www.town.tarui.lg.jp/page/5594.html' },
+    '関ケ原町': { office: '関ケ原町 産業建設課 農業委員会事務局', tel: '0584-43-3054', url: 'https://www.town.sekigahara.gifu.jp/4133.htm' },
+    '神戸町': { office: '神戸町 産業環境課 産業振興係', tel: '0584-27-0178', url: 'https://www.town.godo.gifu.jp/life/other/other32.html' },
+    '輪之内町': { office: '輪之内町 農業振興課（農業委員会）', tel: '0584-69-3138', url: 'https://town.wanouchi.gifu.jp/portal/town/government-office-information/post0025867/' },
+    '安八町': { office: '安八町 農業委員会（農政課）', tel: '0584-64-7113', url: 'https://www.town.anpachi.lg.jp/0000000435.html' },
+    '揖斐川町': { office: '揖斐川町 農林振興課', tel: '0585-22-2809', url: 'https://www.town.ibigawa.lg.jp/page/1056.html' },
+    '大野町': { office: '大野町 農林課', tel: '0585-35-5373', url: 'https://www.town-ono.jp/0000000017.html' },
+    '池田町': { office: '池田町 農業委員会事務局（産業課・役場代表）', tel: '0585-45-3111', url: 'https://www.town.gifu-ikeda.lg.jp/soshiki_list.html' },
+    '北方町': { office: '北方町 農業委員会事務局（都市環境課）', tel: '058-323-1114', url: 'https://www.town.kitagata.gifu.jp/soshiki/somukikikanri/1/20/372.html' },
+    '坂祝町': { office: '坂祝町 産業環境課（農業委員会）', tel: '0574-66-2408', url: 'https://www.town.sakahogi.gifu.jp/administration/administration04.html' },
+    '富加町': { office: '富加町農業委員会（産業環境課内）', tel: '0574-54-2113', url: 'https://www.town.tomika.gifu.jp/docs/354.html' },
+    '川辺町': { office: '川辺町農業委員会（産業環境課）', tel: '0574-53-7212', url: 'https://www.kawabe-gifu.jp/?page_id=8269' },
+    '七宗町': { office: '七宗町農業委員会事務局', tel: '0574-48-1101', url: 'https://www.hichiso.jp/top/sangyo/commission/' },
+    '八百津町': { office: '八百津町 農林課 農業振興係（役場代表）', tel: '0574-43-2111', url: 'https://www.town.yaotsu.lg.jp/4439.htm' },
+    '白川町': { office: '白川町農業委員会（農林課 農務係）', tel: '0574-70-1317', url: 'https://www.town.shirakawa.lg.jp/kankou/nougyou/1002628/index.html' },
+    '東白川村': { office: '東白川村農業委員会事務局（役場代表）', tel: '0574-78-3111', url: 'https://www.vill.higashishirakawa.gifu.jp/kurashi/sangyou/nougyou/iinkai/' },
+    '御嵩町': { office: '御嵩町 農林課（代表・内線2142）', tel: '0574-67-2111', url: 'https://www.town.mitake.lg.jp/business/business/agriculture/post0008502/' },
+    '白川村': { office: '白川村 産業課', tel: '05769-6-1311', url: 'https://www.vill.shirakawa.lg.jp/2093.htm' },
+  },
+  '三重県': {
+    '津市': { office: '津市農業委員会事務局 農地・農業振興担当', tel: '059-229-3176', url: 'https://www.info.city.tsu.mie.jp/www/contents/1554895460381/index.html' },
+    '四日市市': { office: '四日市市農業委員会事務局', tel: '059-354-8271', url: 'https://www.city.yokkaichi.lg.jp/www/contents/1001000001404/index.html' },
+    '伊勢市': { office: '伊勢市農業委員会事務局', tel: '0596-21-5652', url: 'https://www.city.ise.mie.jp/shisei/information/soshiki/1005696.html' },
+    '松阪市': { office: '松阪市農業委員会事務局', tel: '0598-53-4137', url: 'https://www.city.matsusaka.mie.jp/site/nougyou/tenyou.html' },
+    '桑名市': { office: '桑名市農業委員会事務局', tel: '0594-24-1206', url: 'https://www.city.kuwana.lg.jp/nogyo/shigoto/sangyou/20250313.html' },
+    '鈴鹿市': { office: '鈴鹿市農業委員会事務局', tel: '059-382-9018', url: 'https://www.city.suzuka.lg.jp/sangyo/nousui/1003361/1003373/1003375.html' },
+    '名張市': { office: '名張市農業委員会事務局', tel: '0595-63-7665', url: 'https://www.city.nabari.lg.jp/s066/100/020/040/201502053888.html' },
+    '尾鷲市': { office: '尾鷲市 水産農林事業推進課 農林振興係（農業委員会）', tel: '0597-23-8224', url: 'https://www.city.owase.lg.jp/0000020386.html' },
+    '亀山市': { office: '亀山市農業委員会事務局', tel: '0595-84-5048', url: 'https://www.city.kameyama.mie.jp/soshiki/sankan/nougyou_iinkai/' },
+    '鳥羽市': { office: '鳥羽市農業委員会事務局（農林水産課 農林係）', tel: '0599-25-1231', url: 'https://www.city.toba.mie.jp/soshiki/norin/gyomu/nogyo_ringyo_suisan/nogyo/3024.html' },
+    '熊野市': { office: '熊野市農業委員会事務局（代表・内線471）', tel: '0597-89-4111', url: 'https://www.city.kumano.lg.jp/life/?content=288' },
+    'いなべ市': { office: 'いなべ市農業委員会事務局', tel: '0594-86-7834', url: 'https://www.city.inabe.mie.jp/sangyo/kaihatsu/nochi/1012261.html' },
+    '志摩市': { office: '志摩市農業委員会事務局', tel: '0599-44-0288', url: 'https://www.city.shima.mie.jp/kakuka/nogyoiinkaijimukyoku/noutihousinsei.html' },
+    '伊賀市': { office: '伊賀市農業委員会事務局', tel: '0595-22-9720', url: 'https://www.city.iga.lg.jp/soshiki/33-0-0-0-0_14.html' },
+    '木曽岬町': { office: '木曽岬町 産業課（農業委員会）', tel: '0567-68-6105', url: 'https://www.town.kisosaki.lg.jp/0000001060.html' },
+    '東員町': { office: '東員町農業委員会（産業課内）', tel: '0594-86-2808', url: 'https://www.town.toin.lg.jp/soshiki/1012/4/818.html' },
+    '菰野町': { office: '菰野町 観光産業課 農地調整係（農業委員会事務局）', tel: '059-391-1145', url: 'https://www2.town.komono.mie.jp/soshiki/11/' },
+    '朝日町': { office: '朝日町農業委員会（産業建設課内）', tel: '059-377-5658', url: 'https://www2.town.asahi.mie.jp/www/contents/1756348734727/index.html' },
+    '川越町': { office: '川越町 産業建設課（農業委員会）', tel: '059-366-7117', url: 'https://www.town.kawagoe.mie.jp/sangyo_business/nouringyo/1002751/index.html' },
+    '多気町': { office: '多気町農業委員会事務局', tel: '0598-38-1117', url: 'https://www.town.taki.mie.jp/life/soshiki/nogyo_iinkai_jimukyoku/981.html' },
+    '明和町': { office: '明和町農業委員会事務局 農地係', tel: '0596-52-7149', url: 'https://www.town.meiwa.mie.jp/shinsei_dl/1812.html' },
+    '大台町': { office: '大台町 産業課（農業委員会）', tel: '0598-82-3786', url: 'https://www.odaitown.jp/soshiki/yakuba/7/2/3/810.html' },
+    '玉城町': { office: '玉城町 産業振興課（農業委員会）', tel: '0596-58-8204', url: 'https://kizuna.town.tamaki.mie.jp/sangyobusiness/noringyo/nouchihoutetsuduki.html' },
+    '度会町': { office: '度会町農業委員会（産業振興課内）', tel: '0596-62-2416', url: 'https://www.town.watarai.lg.jp/contents_detail.php?co=kak&frmId=2642' },
+    '大紀町': { office: '大紀町 産業振興課（農業委員会）', tel: '0598-86-2243', url: 'https://www.town.taiki.mie.jp/soshiki/norin/gyomu/norinsui/nogyo/nogyoiin/564.html' },
+    '南伊勢町': { office: '南伊勢町農業委員会（南島庁舎）', tel: '0596-77-0007', url: 'https://www.town.minamiise.lg.jp/admin/shoshiki/suisannourin/nougyouiinkai/2040.html' },
+    '紀北町': { office: '紀北町 農林水産課（農業委員会）', tel: '0597-46-3116', url: 'https://www.town.mie-kihoku.lg.jp/2025/02/25/1188/' },
+    '御浜町': { office: '御浜町 農林水産課 農業振興係（農業委員会）', tel: '05979-3-0517', url: 'https://www.town.mihama.mie.jp/soshikikarasagasu/norinsuisanka/shigoto_sangyo/1/noutinituite/258.html' },
+    '紀宝町': { office: '紀宝町農業委員会（産業振興課内）', tel: '0735-33-0336', url: 'https://www.town.kiho.lg.jp/life/infra/agriculture/rights_movement/' },
+  },
+};
+
+/**
+ * 市区町村の一覧（市区町村欄の入力候補、謄本の所在を「市区町村／町名・字」に分けるのに使用）。
+ * 町村は謄本の所在に合わせて郡名付きで記載（画面の市区町村欄には郡名を除いた名前が入る）。
+ * 「マスタ」シートに行を追加した市区町村も候補に加わります。
+ */
+const MUNICIPALITIES = {
+  '愛知県': [
+    '名古屋市', '豊橋市', '岡崎市', '一宮市', '瀬戸市', '半田市', '春日井市', '豊川市', '津島市', '碧南市',
+    '刈谷市', '豊田市', '安城市', '西尾市', '蒲郡市', '犬山市', '常滑市', '江南市', '小牧市', '稲沢市',
+    '新城市', '東海市', '大府市', '知多市', '知立市', '尾張旭市', '高浜市', '岩倉市', '豊明市', '日進市',
+    '田原市', '愛西市', '清須市', '北名古屋市', '弥富市', 'みよし市', 'あま市', '長久手市',
+    '愛知郡東郷町', '西春日井郡豊山町', '丹羽郡大口町', '丹羽郡扶桑町', '海部郡大治町', '海部郡蟹江町', '海部郡飛島村',
+    '知多郡阿久比町', '知多郡東浦町', '知多郡南知多町', '知多郡美浜町', '知多郡武豊町', '額田郡幸田町',
+    '北設楽郡設楽町', '北設楽郡東栄町', '北設楽郡豊根村',
+  ],
+  '岐阜県': [
+    '岐阜市', '大垣市', '高山市', '多治見市', '関市', '中津川市', '美濃市', '瑞浪市', '羽島市', '恵那市',
+    '美濃加茂市', '土岐市', '各務原市', '可児市', '山県市', '瑞穂市', '飛騨市', '本巣市', '郡上市', '下呂市', '海津市',
+    '羽島郡岐南町', '羽島郡笠松町', '養老郡養老町', '不破郡垂井町', '不破郡関ケ原町', '安八郡神戸町', '安八郡輪之内町',
+    '安八郡安八町', '揖斐郡揖斐川町', '揖斐郡大野町', '揖斐郡池田町', '本巣郡北方町', '加茂郡坂祝町', '加茂郡富加町',
+    '加茂郡川辺町', '加茂郡七宗町', '加茂郡八百津町', '加茂郡白川町', '加茂郡東白川村', '可児郡御嵩町', '大野郡白川村',
+  ],
+  '三重県': [
+    '津市', '四日市市', '伊勢市', '松阪市', '桑名市', '鈴鹿市', '名張市', '尾鷲市', '亀山市', '鳥羽市',
+    '熊野市', 'いなべ市', '志摩市', '伊賀市',
+    '桑名郡木曽岬町', '員弁郡東員町', '三重郡菰野町', '三重郡朝日町', '三重郡川越町', '多気郡多気町', '多気郡明和町',
+    '多気郡大台町', '度会郡玉城町', '度会郡度会町', '度会郡大紀町', '度会郡南伊勢町', '北牟婁郡紀北町',
+    '南牟婁郡御浜町', '南牟婁郡紀宝町',
+  ],
+};
+
+const FORM_OPTIONS = {
+  zones: ['市街化区域', '市街化調整区域', '非線引き区域', '都市計画区域外', '分からない'],
+  yesNoUnknown: ['はい', 'いいえ', '分からない'],
+  yesNo: ['はい', 'いいえ'],
+  kairyoBenefit: ['該当する', '該当しない', '未確認'],     // 土地改良区の受益地に該当するか（土地改良区へ電話確認）
+  kairyoSettlement: ['必要', '不要', '未確認'],           // 地区除外の決済金
+  settlementUnits: ['総額', '㎡あたり', 'haあたり'],        // 決済金の単位（多くは㎡単価・ha単価）
+  kairyoFeeUnits: ['1申請あたり', '1筆あたり'],             // 土地改良区の手数料等：1申請につき／1筆ごと
+  tenyoRireki: ['あり', 'なし', '未確認'],
+  shimatsusho: ['必要', '不要', '未確認'],                  // 無断転用の始末書（顛末書）の提出（農業委員会に確認）
+  hinochi: ['可能', '不可', '未確認'],                     // 無断転用の物件：非農地証明（現況証明）で対応できるか（農業委員会に確認）
+  hinochiDocs: ['航空写真', '固定資産税の課税地目（評価証明）', '建物の登記・家屋の課税', '公共料金の領収書など', '近隣・地元の証明', '現地確認'],
+  zeseiKyoka: ['できる', 'できない', '要相談・未確認'],      // 非農地証明が不可の場合：是正のための許可（届出）申請ができるか
+  saiShinsei: ['必要', '不要', '未確認'],                   // 許可・届出済み（履歴あり）の場合、再申請（改めての許可・届出）が必要か（農業委員会に確認）
+  kairyoProcedure: ['必要', '不要', '未確認'],            // 地区除外の手続き（決済金がなくても手続きが必要な改良区がある）
+  iinStamp: ['必要', '不要', '未確認'],                   // 地元の農業委員・農地利用最適化推進委員の押印（意見書等）
+  localConsent: ['必要', '不要', '未確認'],               // 地元関係者（自治会長・水利組合・地元委員・理事等）の同意（押印）。土地改良区へ確認
+  purposes: ['分家住宅', '駐車場', '資材置場', 'その他'],  // 転用目的（市街化調整区域の物件のみ。分家住宅は排水先の確認を行う）
+  tenyoUkeModes: ['毎月の期間', '毎月の締切日', '毎月第○週', '月ごとに異なる（年間計画）', '締切日を指定'], // 農地転用の受付・締切の決め方
+  tenyoUkeWeeks: ['第1週', '第2週', '第3週', '第4週', '最終週'],
+  weekdays: ['月曜', '火曜', '水曜', '木曜', '金曜', '曜日指定なし'],
+  tenyoUkeHolidays: ['前の営業日', '次の営業日', 'その他（備考に記入）', '未確認'], // 締切が土日祝と重なる場合
+  tenyoKanou: ['見込みあり', '難しい', '要相談・未確認'],  // 許可区域で、農業委員会に聞いた転用の見込み
+  noutiKubun: ['甲種', '第1種', '第2種', '第3種', '未確認'], // 農地区分（甲種・第1種は原則転用不可）
+  hojoKuiki: ['区域内', '区域外', '未確認'],               // ほ場整備などの土地改良事業の区域か
+  hojo8nen: ['経過', '未経過', '未確認'],                  // 事業完了から8年経過したか（未経過は除外の要件を満たさない）
+  jogaiJisseki: ['あり', 'なし', '未確認'],                // 近隣の除外実績
+  drainAdjacent: ['ある', 'ない', '未確認'],               // 隣接に水路があるか（ない場合は側溝へ）
+  drainConsent: ['必要', '不要', '未確認'],                // 排水承諾の要否（農業用水などへの排水）
+  chimoku: ['田', '畑', '宅地', '雑種地', '山林', '原野', 'その他'],
+  landUses: ['耕作中', '休耕・荒地', '駐車場', '宅地', '資材置場', 'その他'],
+  documents: ['謄本', '公図', '住宅地図', '課税明細', 'その他'],
+};
+
+// ------------------------------------------------------------
+// 案件一覧シートの列定義
+// ------------------------------------------------------------
+
+/**
+ * 案件一覧シートの列。上から順に A列, B列, ... となります。
+ * 列を追加したい場合は、この配列の「末尾」に追加し、
+ * メニュー「初期セットアップ」を再実行すると見出しが追記されます。
+ */
+const CASE_COLUMNS = [
+  { key: 'id', header: 'ID' },
+  { key: 'receivedAt', header: '受付日時' },
+  { key: 'requesterName', header: '依頼者名' },
+  // 物件ごとの詳細は「物件明細」シート。ここは全物件のまとめ（一覧で見やすくするため）
+  { key: 'address', header: '物件所在地（1件目）' },
+  { key: 'lotNumber', header: '地番（全物件）' },
+  { key: 'chimoku', header: '地目（全物件）' },
+  { key: 'area', header: '面積合計（登記地積㎡）' },
+  { key: 'zone', header: '区域区分（全物件）' },
+  { key: 'isNoshin', header: '農振農用地（いずれか）' },
+  { key: 'landUse', header: '現況利用（全物件）' },
+  { key: 'isConverted', header: '既に転用済み（いずれか）' },
+  { key: 'plan', header: '今後の転用計画' },
+  { key: 'landImprovement', header: '土地改良区の有無（全物件）' },
+  { key: 'documents', header: '添付資料の有無' },
+  { key: 'estimate', header: '概算見積金額' },
+  { key: 'requestFlag', header: '見積調査依頼フラグ' },
+  // ---- 補助列 ----
+  { key: 'prefecture', header: '都道府県' },
+  { key: 'municipality', header: '市区町村' },
+  { key: 'waterAssociation', header: '地元関係者の同意（押印）' },
+  { key: 'estimateDetail', header: '見積内訳' },
+  { key: 'submittedBy', header: '入力者（Googleアカウント）' },
+  { key: 'notifyResult', header: 'Chat通知結果' },
+  // ---- 添付資料・行政班の対応管理 ----
+  { key: 'folderUrl', header: '資料フォルダURL' },
+  { key: 'fileCount', header: 'アップロード件数' },
+  { key: 'status', header: '対応状況' },
+  { key: 'assignee', header: '担当者' },
+  { key: 'formalEstimate', header: '正式見積金額' },
+  { key: 'adminMemo', header: '対応メモ' },
+  { key: 'updatedAt', header: '最終更新' },
+  { key: 'lotCount', header: '物件数（筆）' },
+  { key: 'localConsentNote', header: '同意が必要な方（氏名／住所／電話）' },
+  { key: 'purpose', header: '転用目的' },
+  { key: 'trust', header: '信託手続きに付随' },
+  { key: 'caseNo', header: '受付番号' },                 // 受付日（yyMMdd）-その日の連番。例）260930-01
+  { key: 'estimatePdfUrl', header: '正式見積PDF' },
+  { key: 'estimatePdfAt', header: '正式見積の提示日時' },
+  { key: 'reportResult', header: '正式見積の報告結果' },
+  { key: 'appointments', header: '訪問のアポイント（管理画面で入力）' },
+  { key: 'extraLotFee', header: '筆数加算' },
+  { key: 'chimokuHenkoSummary', header: '地目変更登記（登記担当へ連絡）' },
+  { key: 'localFee', header: '地元協力金等（円・管理画面で入力）' },
+  { key: 'localFeeNote', header: '地元協力金等の内容' },
+  { key: 'formData', header: '（自動）入力内容・保存した案件の再編集用・変更しない' }, // JSON：{ 連絡先キー: { at, status, memo } }
+  { key: 'karteNo', header: '案件カルテ番号' },          // PDF出力の小窓で任意に入力。例）260001
+];
+
+/**
+ * 物件明細シートの列（1物件＝1行）。案件IDで案件一覧とつながります。
+ * 列を追加する場合は末尾に追加してください。
+ */
+const LOT_COLUMNS = [
+  { key: 'caseId', header: '案件ID' },
+  { key: 'no', header: '物件No' },
+  { key: 'address', header: '所在' },
+  { key: 'lotNumber', header: '地番' },
+  { key: 'chimoku', header: '地目' },
+  { key: 'area', header: '面積（登記地積㎡）' },
+  { key: 'zone', header: '区域区分' },
+  { key: 'isNoshin', header: '農振農用地' },
+  { key: 'landUse', header: '現況利用' },
+  { key: 'isConverted', header: '既に転用済み' },
+  { key: 'landImprovement', header: '土地改良区' },
+  { key: 'municipality', header: '市区町村' },
+  { key: 'readFromTohon', header: '謄本から読取' },
+  { key: 'kairyoName', header: '土地改良区名' },
+  { key: 'kairyoTel', header: '土地改良区 電話' },
+  { key: 'kairyoBenefit', header: '受益地該当' },
+  { key: 'kairyoProcedure', header: '地区除外の手続き' },
+  { key: 'kairyoSettlement', header: '地区除外決済金' },
+  { key: 'kairyoSettlementNote', header: '決済金（金額）' },
+  { key: 'kairyoFee', header: '土地改良区 手数料等（決済金以外）' },
+  { key: 'iinStamp', header: '農業委員・推進委員の押印' },
+  { key: 'iinContacts', header: '委員（氏名／住所／電話）' },
+  { key: 'localConsent', header: '地元関係者の同意（押印）' },
+  { key: 'localContacts', header: '同意が必要な方（氏名／住所／電話）' },
+  { key: 'purpose', header: '転用目的（調整区域）' },
+  { key: 'tenyoKanou', header: '転用の見込み（農業委員会）' },
+  { key: 'noutiKubun', header: '農地区分（農業委員会）' },
+  { key: 'kanouNote', header: '転用が難しい理由・指摘事項' },
+  { key: 'jogaiKanou', header: '農振除外の見込み' },
+  { key: 'hojoKuiki', header: 'ほ場整備等の事業区域' },
+  { key: 'hojo8nen', header: '事業完了から8年' },
+  { key: 'jogaiJisseki', header: '近隣の除外実績' },
+  { key: 'jogaiUketsuke', header: '除外の受付（年何回・時期）' },
+  { key: 'tenyoUketsuke', header: '農地転用の受付期間' },
+  { key: 'jogaiNote', header: '除外の指摘事項' },
+  { key: 'drainAdjacent', header: '隣接の水路' },
+  { key: 'drainConsent', header: '排水承諾' },
+  { key: 'drainName', header: '用水（管理者）名' },
+  { key: 'drainTel', header: '用水 電話' },
+  { key: 'drainFee', header: '用水 手数料（金額・備考）' },
+  { key: 'drainLocalConsent', header: '排水の地元承諾' },
+  { key: 'drainContacts', header: '排水の地元承諾が必要な方（氏名／住所／電話）' },
+  { key: 'prefecture', header: '都道府県' },
+  { key: 'tenyoRireki', header: '過去の転用届出・許可の履歴' },
+  { key: 'rirekiDate', header: '受理・許可年月日' },
+  { key: 'rirekiNo', header: '受理・許可番号' },
+  { key: 'rirekiNote', header: '履歴の内容（転用目的など）' },
+  { key: 'shimatsusho', header: '始末書の提出' },
+  { key: 'shimatsuStamp', header: '始末書の押印' },
+  { key: 'shimatsuNote', header: '始末書の備考（押印者・印の種類など）' },
+  { key: 'chimokuHenko', header: '地目変更登記が必要' },
+  { key: 'saiShinsei', header: '再度の許可・届出（許可・届出済みで未転用）' },
+  { key: 'saiShinseiNote', header: '再度の許可・届出の備考' },
+  { key: 'hinochi', header: '非農地証明（現況証明）で対応できるか' },
+  { key: 'hinochiYears', header: '非農地証明の要件：農地以外の利用年数' },
+  { key: 'hinochiDocs', header: '非農地証明の要件：証明資料' },
+  { key: 'hinochiNote', header: '非農地証明の要件・備考（現地確認・受付・手数料など）' },
+  { key: 'zeseiKyoka', header: '是正のための許可申請ができるか' },
+  { key: 'zeseiNote', header: '是正の許可申請の備考' },
+  { key: 'kairyoExtra', header: '2つ目以降の土地改良区' },
+  { key: 'kairyoExtraData', header: '（自動）2つ目以降の土地改良区のデータ・変更しない' },
+  { key: 'chimokuDate', header: '地目変更の原因日付（既に転用済みの物件・転用した時期）' },
+  { key: 'nogyoTanto', header: '農業委員会でお話しした方（担当者名）' },
+  { key: 'kairyoTanto', header: '土地改良区でお話しした方（担当者名）' },
+  { key: 'kairyoDrain', header: '土地改良区 排水同意（同意書の発行）' },
+  { key: 'drainTanto', header: '排水の確認でお話しした方（担当課・担当者名）' },
+];
+
+/**
+ * 管理画面の「修正」で直せる物件の調査結果（物件明細の列）。並びと見出しは管理画面の表示（確認する順）と同じ。
+ * opt：選択肢（FORM_OPTIONS のキー）、type：select / multi（複数選択・「・」区切り）/ text / textarea / contacts（1行に「氏名／住所／電話」）
+ */
+const LOT_EDIT_FIELDS = [
+  { group: '電話でお話しした方', key: 'nogyoTanto', label: '農業委員会', type: 'text', ph: '例）農政課 山田様' },
+  { group: '電話でお話しした方', key: 'kairyoTanto', label: '土地改良区', type: 'text', ph: '例）鈴木様' },
+  { group: '電話でお話しした方', key: 'drainTanto', label: '排水の確認先', type: 'text', ph: '例）下水道課 佐藤様' },
+  { group: '過去の転用履歴・始末書', key: 'tenyoRireki', label: '転用履歴', type: 'select', opt: 'tenyoRireki' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiDate', label: '受理・許可日', type: 'text', ph: '例）2015/04/10' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiNo', label: '番号', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'rirekiNote', label: '内容', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'saiShinsei', label: '再申請の要否', type: 'select', opt: 'saiShinsei' },
+  { group: '過去の転用履歴・始末書', key: 'saiShinseiNote', label: '再申請の備考', type: 'text' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsusho', label: '始末書', type: 'select', opt: 'shimatsusho' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsuStamp', label: '始末書の押印', type: 'select', opt: 'shimatsusho' },
+  { group: '過去の転用履歴・始末書', key: 'shimatsuNote', label: '始末書の備考', type: 'text' },
+  { group: '非農地証明・是正', key: 'hinochi', label: '非農地証明', type: 'select', opt: 'hinochi' },
+  { group: '非農地証明・是正', key: 'hinochiYears', label: '利用年数', type: 'text' },
+  { group: '非農地証明・是正', key: 'hinochiDocs', label: '証明資料', type: 'multi', opt: 'hinochiDocs' },
+  { group: '非農地証明・是正', key: 'hinochiNote', label: '要件・備考', type: 'textarea' },
+  { group: '非農地証明・是正', key: 'zeseiKyoka', label: '是正の許可申請', type: 'select', opt: 'zeseiKyoka' },
+  { group: '非農地証明・是正', key: 'zeseiNote', label: '是正の備考', type: 'text' },
+  { group: '農振（青地）・除外の見込み', key: 'isNoshin', label: '農振農用地', type: 'select', opt: 'yesNoUnknown' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiKanou', label: '除外の見込み', type: 'select', opt: 'tenyoKanou' },
+  { group: '農振（青地）・除外の見込み', key: 'hojoKuiki', label: 'ほ場整備等', type: 'select', opt: 'hojoKuiki' },
+  { group: '農振（青地）・除外の見込み', key: 'hojo8nen', label: '事業完了8年', type: 'select', opt: 'hojo8nen' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiJisseki', label: '近隣の除外実績', type: 'select', opt: 'jogaiJisseki' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiUketsuke', label: '除外の受付', type: 'text' },
+  { group: '農振（青地）・除外の見込み', key: 'jogaiNote', label: '指摘事項', type: 'textarea' },
+  { group: '地目変更登記', key: 'chimokuDate', label: '原因日付（既に転用済み・転用した時期）', type: 'text', ph: '例）2015/04 または 平成27年頃' },
+  { group: '転用の見込み', key: 'tenyoKanou', label: '転用の見込み', type: 'select', opt: 'tenyoKanou' },
+  { group: '転用の見込み', key: 'noutiKubun', label: '農地区分', type: 'multi', opt: 'noutiKubun' },
+  { group: '転用の見込み', key: 'kanouNote', label: '指摘事項', type: 'textarea' },
+  { group: '農地転用の受付', key: 'tenyoUketsuke', label: '受付', type: 'text', ph: '例）毎月1日～10日／土日祝は前の営業日' },
+  { group: '土地改良区', key: 'landImprovement', label: 'かかっているか', type: 'select', opt: 'yesNoUnknown' },
+  { group: '土地改良区', key: 'kairyoName', label: '名称', type: 'text' },
+  { group: '土地改良区', key: 'kairyoTel', label: '電話', type: 'text' },
+  { group: '土地改良区', key: 'kairyoBenefit', label: '受益地', type: 'select', opt: 'kairyoBenefit' },
+  { group: '土地改良区', key: 'kairyoProcedure', label: '地区除外の手続き', type: 'select', opt: 'kairyoProcedure' },
+  { group: '土地改良区', key: 'kairyoSettlement', label: '決済金', type: 'select', opt: 'kairyoSettlement' },
+  { group: '土地改良区', key: 'kairyoSettlementNote', label: '決済金の金額', type: 'text', ph: '例）1㎡あたり 300円（または 150,000円）' },
+  { group: '土地改良区', key: 'kairyoFee', label: '手数料等', type: 'text', ph: '例）1申請あたり 5,000円／事務手数料' },
+  { group: '土地改良区', key: 'kairyoDrain', label: '排水同意（同意書の発行）', type: 'select', opt: 'drainConsent' },
+  { group: '地元委員の押印', key: 'iinStamp', label: '押印', type: 'select', opt: 'iinStamp' },
+  { group: '地元委員の押印', key: 'iinContacts', label: '委員', type: 'contacts' },
+  { group: '地元関係者の同意（押印）', key: 'localConsent', label: '同意', type: 'select', opt: 'localConsent' },
+  { group: '地元関係者の同意（押印）', key: 'localContacts', label: '同意が必要な方', type: 'contacts' },
+  { group: '排水', key: 'drainAdjacent', label: '隣接水路', type: 'select', opt: 'drainAdjacent' },
+  { group: '排水', key: 'drainConsent', label: '排水承諾', type: 'select', opt: 'drainConsent' },
+  { group: '排水', key: 'drainFee', label: '手数料', type: 'text', ph: '例）30,000円／排水負担金' },
+  { group: '排水', key: 'drainLocalConsent', label: '地元承諾', type: 'select', opt: 'localConsent' },
+  { group: '排水', key: 'drainContacts', label: '承諾が必要な方', type: 'contacts' },
+];
+
+/** 管理画面から編集できる列（これ以外は管理画面から書き換えない） */
+const ADMIN_EDITABLE_KEYS = ['status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote', 'karteNo'];
+
+/** 見積の金額設定を変えたときに概算を計算し直す案件（正式見積を提示する前の案件だけ） */
+const RECALC_STATUSES = ['新規', '調査中'];
+
+/** 訪問のアポイントの状況 */
+const APPOINTMENT_STATUSES = ['未連絡', '調整中', '確定', '訪問済み'];
+
+/** マスタシートの列（見出し） */
+const MASTER_HEADERS = ['都道府県', '市区町村', '都市計画情報URL', '農振図URL', '備考', '農業委員会 電話番号'];
+
+/** 見積設定シートの列（見出し） */
+const FEE_HEADERS = ['キー（変更しない）', '項目名（見積に表示）', '金額（円・報酬は税抜）', '適用条件（説明）'];
+
+
+// ===== Setup.gs =====
+/**
+ * ============================================================
+ *  初期セットアップ・スプレッドシートのメニュー
+ * ============================================================
+ *  setupSpreadsheet() は何度実行しても安全です（既存データは消しません）。
+ *  ・シートが無ければ作成
+ *  ・見出しが無い／足りなければ追記
+ *  ・マスタ／見積設定が空のときだけ初期値を投入
+ *  ・資料保存用のドライブフォルダが未設定なら作成
+ */
+
+/** スプレッドシートを開いたときにメニューを追加する */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('農地転用システム')
+    .addItem('初期セットアップ（シート・フォルダ作成）', 'setupSpreadsheet')
+    .addItem('Google Chat 通知テスト', 'testChatNotification')
+    .addItem('未送信の一時ファイルを削除（7日以上前）', 'cleanupPendingUploads')
+    .addToUi();
+}
+
+/** 各シートとドライブフォルダを作成／整備する */
+function setupSpreadsheet() {
+  const ss = getSpreadsheet_();
+
+  // --- 案件一覧 ---
+  const caseSheet = getOrCreateSheet_(ss, SHEET_NAMES.CASES);
+  ensureHeaders_(caseSheet, CASE_COLUMNS.map(function (c) { return c.header; }));
+  formatCaseSheet_(caseSheet);
+
+  // --- 物件明細 ---
+  const lotSheet = getOrCreateSheet_(ss, SHEET_NAMES.LOTS);
+  ensureHeaders_(lotSheet, LOT_COLUMNS.map(function (c) { return c.header; }));
+  lotSheet.getRange(2, 6, Math.max(lotSheet.getMaxRows() - 1, 1), 1).setNumberFormat('#,##0.00');
+
+  // --- マスタ ---
+  const masterSheet = getOrCreateSheet_(ss, SHEET_NAMES.MASTER);
+  ensureHeaders_(masterSheet, MASTER_HEADERS);
+  if (masterSheet.getLastRow() <= 1) {
+    const rows = getSampleMasterRows_();
+    masterSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+  }
+  masterSheet.setColumnWidth(2, 140);
+  masterSheet.setColumnWidths(3, 2, 320);
+
+  // --- 見積設定 ---
+  const feeSheet = getOrCreateSheet_(ss, SHEET_NAMES.FEES);
+  ensureHeaders_(feeSheet, FEE_HEADERS);
+  addMissingFeeRows_(feeSheet);
+
+  // --- ドライブフォルダ ---
+  const root = getRootFolder_();
+
+  notifyUser_('初期セットアップが完了しました。\n資料フォルダ：' + root.getUrl() +
+    '\n※行政班のメンバーにこのフォルダを共有してください。');
+}
+
+/**
+ * 見積設定シートに、まだ無い項目だけを追記する（既存の金額・項目名は上書きしない）。
+ * 「適用条件」列は計算ルール（Estimate.gs）の説明なので、既存の行も最新の文言に更新する。
+ */
+function addMissingFeeRows_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const existing = lastRow >= 2
+    ? sheet.getRange(2, 1, lastRow - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); })
+    : [];
+  existing.forEach(function (key, i) {
+    const d = DEFAULT_FEES.filter(function (f) { return f.key === key; })[0];
+    if (d) sheet.getRange(i + 2, 4).setValue(d.note);
+  });
+  const rows = DEFAULT_FEES
+    .filter(function (d) { return existing.indexOf(d.key) < 0; })
+    .map(function (d) { return [d.key, d.label, d.amount, d.note]; });
+  if (rows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  }
+  sheet.getRange(2, 3, Math.max(sheet.getLastRow() - 1, 1), 1).setNumberFormat('#,##0');
+  sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), 1).setBackground('#eeeeee'); // キー列はグレー
+  sheet.setColumnWidth(1, 200);
+  sheet.setColumnWidth(2, 380);
+  sheet.setColumnWidth(4, 420);
+}
+
+/** シートを取得し、無ければ作成する */
+function getOrCreateSheet_(ss, name) {
+  return ss.getSheetByName(name) || ss.insertSheet(name);
+}
+
+/**
+ * 1行目の見出しを整える。
+ * 既存の見出しは上書きせず、足りない列だけ右側に追記する（列追加に対応）。
+ */
+function ensureHeaders_(sheet, headers) {
+  const lastCol = sheet.getLastColumn();
+  const current = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+  if (current.length < headers.length) {
+    const missing = headers.slice(current.length);
+    sheet.getRange(1, current.length + 1, 1, missing.length).setValues([missing]);
+  }
+  sheet.getRange(1, 1, 1, headers.length)
+    .setFontWeight('bold')
+    .setBackground('#e8f0e3');
+  sheet.setFrozenRows(1);
+}
+
+/** 案件一覧の表示形式（日時・金額）を設定する */
+function formatCaseSheet_(sheet) {
+  const maxRows = sheet.getMaxRows();
+  if (maxRows < 2) return;
+  const n = maxRows - 1;
+  sheet.getRange(2, colIndexOf_('receivedAt'), n, 1).setNumberFormat('yyyy/mm/dd hh:mm');
+  sheet.getRange(2, colIndexOf_('updatedAt'), n, 1).setNumberFormat('yyyy/mm/dd hh:mm');
+  sheet.getRange(2, colIndexOf_('area'), n, 1).setNumberFormat('#,##0.00');
+  sheet.getRange(2, colIndexOf_('estimate'), n, 1).setNumberFormat('¥#,##0');
+  sheet.getRange(2, colIndexOf_('formalEstimate'), n, 1).setNumberFormat('¥#,##0');
+  sheet.setColumnWidth(colIndexOf_('estimateDetail'), 320);
+  sheet.setColumnWidth(colIndexOf_('plan'), 240);
+  sheet.setColumnWidth(colIndexOf_('adminMemo'), 280);
+}
+
+/**
+ * マスタのサンプル行（愛知・岐阜・三重）。
+ * URLは各自治体のページを確認のうえ、シート上で直接入力してください（参照用リンクとして表示するだけです）。
+ */
+function getSampleMasterRows_() {
+  const list = {
+    '愛知県': ['名古屋市', '豊橋市', '岡崎市', '一宮市', '春日井市', '豊田市', '安城市', '西尾市', '小牧市', '稲沢市'],
+    '岐阜県': ['岐阜市', '大垣市', '各務原市', '多治見市', '可児市', '関市'],
+    '三重県': ['津市', '四日市市', '鈴鹿市', '桑名市', '松阪市', '伊勢市'],
+  };
+  const rows = [];
+  Object.keys(list).forEach(function (pref) {
+    list[pref].forEach(function (city) {
+      rows.push([pref, city, '', '', 'URL未設定']);
+    });
+  });
+  return rows;
+}
+
+/** Chat 通知の疎通確認用（メニューから実行） */
+function testChatNotification() {
+  const result = postToChat_('【テスト】農地転用見積システムからの通知テストです。');
+  notifyUser_(result.ok ? 'Chat への通知に成功しました。' : 'Chat への通知に失敗しました：' + result.message);
+}
+
+/** スプレッドシート上ならダイアログ、そうでなければログに出す */
+function notifyUser_(message) {
+  try {
+    SpreadsheetApp.getUi().alert(message);
+  } catch (e) {
+    Logger.log(message); // エディタから直接実行した場合など
+  }
+}
+
+
+// ===== WebApp.gs =====
+/**
+ * ============================================================
+ *  Webアプリ（画面表示と、依頼画面から呼ばれるAPI）
+ * ============================================================
+ *  URL                → 依頼画面（Index.html）
+ *  URL?page=admin     → 行政班の管理画面（Admin.html、ADMIN_EMAILS のみ）
+ *
+ *  依頼画面からは google.script.run で以下の関数だけを呼びます。
+ *    - getInitialData()          : プルダウン用のマスタ・選択肢
+ *    - previewEstimate(form)     : 概算見積の再計算（保存しない）
+ *    - uploadAttachment(file)    : 資料ファイルを一時フォルダへ保存
+ *    - removeAttachment(fileId)  : アップロードの取り消し
+ *    - submitCase(form, request) : 保存（＋ request=true なら Chat 通知）
+ *  関数名の末尾が「_」の関数は、画面から直接呼べない内部用関数です。
+ */
+
+/** Webアプリの入口 */
+function doGet(e) {
+  ensureSetup_();
+  runMigrations_();
+  const params = (e && e.parameter) || {};
+  if (params.page === 'admin') {
+    if (!isAdmin_()) {
+      return HtmlService.createHtmlOutput(
+        '<p style="font-family:sans-serif;padding:24px">管理画面を表示する権限がありません。' +
+        '行政班の担当者にお問い合わせください。</p>').setTitle('権限がありません');
+    }
+    const t = HtmlService.createTemplateFromFile('Admin');
+    t.initialId = String(params.id || '').replace(/\D/g, ''); // 通知のリンクから開いた案件
+    t.portalUrl = PORTAL_URL;
+    // 案件一覧を画面に埋め込んで返す（開いた後にもう一度サーバーへ取りに行く往復を省く。失敗したら画面から取りに行く）
+    t.bootData = bootJson_(getAdminData);
+    return t.evaluate()
+      .setTitle('農地転用 案件管理（行政班）')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+  const index = HtmlService.createTemplateFromFile('Index');
+  index.portalUrl = PORTAL_URL;
+  index.bootData = bootJson_(getInitialData); // 初期データを画面に埋め込む（開いた後にもう一度取りに行く往復を省く）
+  return index.evaluate()
+    .setTitle('農地転用 見積・調査依頼フォーム')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    // 社内ポータル（Google サイト等）のページに埋め込めるようにする。
+    // アクセスできる人は Webアプリのデプロイ設定（組織内のみ）で制限されている。管理画面は埋め込み不可のまま。
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * 画面に埋め込むデータ（JSON）。失敗したら 'null'（画面がサーバーへ取りに行く）。
+ * 画面のスクリプトの中に置くので、文中の < は u003c 形式にしてスクリプトが途切れないようにする
+ */
+function bootJson_(fn) {
+  try {
+    const bs = String.fromCharCode(92); // バックスラッシュ
+    return JSON.stringify(fn()).replace(/</g, bs + 'u003c').replace(/\u2028/g, bs + 'u2028').replace(/\u2029/g, bs + 'u2029');
+  } catch (err) {
+    logError_('doGet（画面への埋め込み）', err && err.message || err, '');
+    return 'null';
+  }
+}
+
+/**
+ * 初回アクセス時に、シートやフォルダが無ければ自動で初期セットアップする。
+ * （エディタで setupSpreadsheet を実行する手順を省くため。2回目以降はシートの有無を見るだけ）
+ */
+function ensureSetup_() {
+  if (getSpreadsheet_().getSheetByName(SHEET_NAMES.CASES)) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30 * 1000);
+  try {
+    if (!getSpreadsheet_().getSheetByName(SHEET_NAMES.CASES)) setupSpreadsheet();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * デプロイ後に1回だけ行う更新（画面が開かれたときに実行）。
+ *  ・料金表の改定：FEE_TABLE_VERSION が変わったら「見積設定」シートを DEFAULT_FEES の値で上書き
+ */
+function runMigrations_() {
+  const props = PropertiesService.getScriptProperties();
+  runFeePatches_(props);
+  // 個別のデータ修正（1回だけ・この受付番号の案件だけ）：再申請の要否を「不要」にして概算を再計算（地目変更が0円になっていた不具合の後始末）
+  if (props.getProperty('FIX_261001_02') !== '1') {
+    const lock0 = LockService.getScriptLock();
+    lock0.waitLock(30 * 1000);
+    try {
+      if (props.getProperty('FIX_261001_02') !== '1') {
+        props.setProperty('FIX_261001_02_RESULT', fixCaseSaiShinseiAndRecalc_('261001-02'));
+        props.setProperty('FIX_261001_02', '1');
+      }
+    } catch (e) {
+      logError_('FIX_261001_02', e && e.message || e, '');
+    } finally {
+      lock0.releaseLock();
+    }
+  }
+  // 地目変更登記の計算を変えたため（3筆目から筆数加算）、提示前の案件の概算を1回計算し直す
+  if (props.getProperty('RECALC_2026_07') !== '1') {
+    const lock1 = LockService.getScriptLock();
+    lock1.waitLock(30 * 1000);
+    try {
+      if (props.getProperty('RECALC_2026_07') !== '1') {
+        props.setProperty('RECALC_2026_07_RESULT', String(recalcOpenEstimates_()));
+        props.setProperty('RECALC_2026_07', '1');
+      }
+    } catch (e) {
+      logError_('RECALC_2026_07', e && e.message || e, '');
+    } finally {
+      lock1.releaseLock();
+    }
+  }
+  if (props.getProperty('CASE_NO_DONE') !== '1') {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30 * 1000);
+    try {
+      if (props.getProperty('CASE_NO_DONE') !== '1') { fillCaseNos_(); props.setProperty('CASE_NO_DONE', '1'); }
+    } finally {
+      lock.releaseLock();
+    }
+  }
+  if (props.getProperty('FEE_TABLE_VERSION') === FEE_TABLE_VERSION) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30 * 1000);
+  try {
+    if (props.getProperty('FEE_TABLE_VERSION') !== FEE_TABLE_VERSION) { // 他の人が先に実行していないか再確認
+      const sheet = getOrCreateSheet_(getSpreadsheet_(), SHEET_NAMES.FEES);
+      ensureHeaders_(sheet, FEE_HEADERS);
+      addMissingFeeRows_(sheet);
+      const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
+      DEFAULT_FEES.forEach(function (d) {
+        const i = keys.indexOf(d.key);
+        if (i >= 0) sheet.getRange(i + 2, 2, 1, 3).setValues([[d.label, d.amount, d.note]]);
+      });
+      props.setProperty('FEE_TABLE_VERSION', FEE_TABLE_VERSION);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 料金の個別修正（FEE_PATCHES）のうち、まだ適用していない版を適用する */
+function runFeePatches_(props) {
+  const done = String(props.getProperty('FEE_PATCHES_DONE') || '').split(',').filter(String);
+  const todo = Object.keys(FEE_PATCHES).filter(function (v) { return done.indexOf(v) < 0; });
+  if (!todo.length) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30 * 1000);
+  try {
+    const sheet = getOrCreateSheet_(getSpreadsheet_(), SHEET_NAMES.FEES);
+    ensureHeaders_(sheet, FEE_HEADERS);
+    addMissingFeeRows_(sheet);
+    const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
+    todo.forEach(function (v) {
+      FEE_PATCHES[v].forEach(function (entry) {
+        const labelOnly = /:label$/.test(entry); // 「キー:label」は名称と適用条件だけ更新し、金額（設定で変えたもの）は残す
+        const key = entry.replace(/:label$/, '');
+        const d = DEFAULT_FEES.filter(function (f) { return f.key === key; })[0];
+        const i = keys.indexOf(key);
+        if (d && i >= 0) {
+          sheet.getRange(i + 2, 2).setValue(d.label);
+          sheet.getRange(i + 2, 4).setValue(d.note);
+          if (!labelOnly) sheet.getRange(i + 2, 3).setValue(d.amount);
+        }
+      });
+      done.push(v);
+    });
+    sheet.getRange(1, 3).setValue(FEE_HEADERS[2]); // 見出し（報酬は税抜）を最新に
+    props.setProperty('FEE_PATCHES_DONE', done.join(','));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** HTMLテンプレートから別ファイル（CSS/JS）を読み込む */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+/** 画面の初期表示に必要なデータを返す */
+function getInitialData() {
+  return {
+    options: FORM_OPTIONS,
+    farmlandUses: FARMLAND_LAND_USES,
+    defaultPrefecture: DEFAULT_PREFECTURE,
+    maxLots: MAX_LOTS,
+    master: getMasterList_(),
+    municipalities: MUNICIPALITIES,
+    nogyoIinkai: NOGYO_IINKAI,
+    nogyoWardDesks: NOGYO_WARD_DESKS,
+    noCityPlanningTax: NO_CITY_PLANNING_TAX,
+    fees: getFeeSettings_(), // 画面で概算見積を即時計算するための料金（見積設定シート）
+    userEmail: getUserEmail_(),
+    upload: { maxMb: MAX_UPLOAD_MB, mimeTypes: ALLOWED_MIME_TYPES },
+  };
+}
+
+/** 入力途中の内容で概算見積を計算して返す（保存はしない） */
+function previewEstimate(form) {
+  return calculateEstimate_(normalizeInput_(form));
+}
+
+/** 資料ファイルを一時フォルダへ保存する（ドラッグ直後に呼ばれる） */
+function uploadAttachment(file) {
+  try {
+    return saveUploadedFile_(file);
+  } catch (e) {
+    logError_('uploadAttachment', e, file && file.name);
+    throw e;
+  }
+}
+
+/** アップロードを取り消す（一時フォルダ内のファイルのみ削除可能） */
+function removeAttachment(fileId) {
+  return trashPendingFile_(fileId);
+}
+
+/**
+ * アップロード済みの謄本を読み取り、物件の候補を返す。
+ * 読み取りに失敗しても例外にはせず、メッセージを返す（手入力で続けられるように）。
+ */
+function readTohon(fileId) {
+  try {
+    return readTohonFile_(fileId);
+  } catch (e) {
+    logError_('readTohon', e, 'fileId=' + fileId);
+    return { lots: [], message: '謄本を読み取れませんでした（' + (e && e.message || e) + '）。手入力してください。' };
+  }
+}
+
+/**
+ * 案件を保存し、依頼の場合は Chat に通知する。
+ * @param {Object} form 画面の入力値
+ * @param {boolean} requestInvestigation true=見積調査依頼（通知あり） / false=保存のみ
+ */
+function submitCase(form, requestInvestigation, editId) {
+  // 保存した案件の続き（上書き）：本人が保存し、まだ見積調査依頼していない案件だけ
+  const editing = editId ? getEditableSavedCase_(editId) : null;
+  const input = normalizeInput_(form);
+  const errors = validateInput_(input);
+  if (errors.length) {
+    throw new Error(errors.join('\n'));
+  }
+
+  const estimate = calculateEstimate_(input);
+  const isRequest = requestInvestigation === true;
+  const summary = summarizeLots_(input.lots);
+
+  // 1) 保存（通知より先に保存し、以降が失敗しても記録が残るようにする）
+  const record = Object.assign({}, summary, {
+    receivedAt: new Date(),
+    requesterName: input.requesterName,
+    plan: input.plan,
+    documents: input.documents.join(','),
+    estimate: estimate.ok ? estimate.total : '',
+    requestFlag: isRequest,
+    prefecture: input.prefecture,
+    waterAssociation: summary.localConsent,
+    purpose: input.purpose,
+    trust: input.trust,
+    extraLotFee: input.lots.length > 1 ? (input.extraLotFee ? 'あり' : 'なし') : '',
+    localConsentNote: summary.localContacts,
+    estimateDetail: estimateToText_(estimate),
+    submittedBy: input.submittedBy,
+    notifyResult: isRequest ? '送信中' : '通知なし（保存のみ）',
+    status: CASE_STATUSES[0],
+    updatedAt: new Date(),
+    lotCount: input.lots.length,
+    formData: savedFormJson_(form),
+  });
+  if (editing) record.documents = mergeList_(editing.documents, input.documents).join(',');
+  const lotRows = input.lots.map(function (l) {
+    return {
+      address: l.address, lotNumber: l.lotNumber, chimoku: l.chimoku, area: l.area === null ? '' : l.area,
+      zone: l.zone, isNoshin: toSheetBool_(l.isNoshin), landUse: l.landUseText,
+      isConverted: toSheetBool_(l.isConverted), landImprovement: l.landImprovement,
+      kairyoName: l.kairyoName, kairyoTel: l.kairyoTel, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure, kairyoDrain: l.kairyoDrain,
+      kairyoSettlement: l.kairyoSettlement, kairyoSettlementNote: l.kairyoSettlementNote, kairyoFee: l.kairyoFee,
+      iinStamp: l.iinStamp, iinContacts: contactsToText_(l.iinContacts),
+      localConsent: l.localConsent, localContacts: contactsToText_(l.localContacts),
+      prefecture: l.prefecture, purpose: l.purpose,
+      tenyoRireki: l.tenyoRireki, rirekiDate: l.rirekiDate, rirekiNo: l.rirekiNo, rirekiNote: l.rirekiNote,
+      shimatsusho: l.shimatsusho, shimatsuStamp: l.shimatsuStamp, shimatsuNote: l.shimatsuNote,
+      saiShinsei: l.saiShinsei, saiShinseiNote: l.saiShinseiNote,
+      hinochi: l.hinochi, hinochiYears: l.hinochiYears, hinochiDocs: l.hinochiDocs, hinochiNote: l.hinochiNote,
+      zeseiKyoka: l.zeseiKyoka, zeseiNote: l.zeseiNote,
+      kairyoExtra: kairyoExtraText_(l.kairyoExtra),
+      kairyoExtraData: l.kairyoExtra && l.kairyoExtra.length ? JSON.stringify(l.kairyoExtra) : '',
+      chimokuHenko: l.chimokuHenko ? 'はい' : '',
+      chimokuDate: l.chimokuDate,
+      tenyoKanou: l.tenyoKanou, noutiKubun: l.noutiKubun, kanouNote: l.kanouNote,
+      jogaiKanou: l.jogaiKanou, hojoKuiki: l.hojoKuiki, hojo8nen: l.hojo8nen, jogaiJisseki: l.jogaiJisseki,
+      jogaiUketsuke: l.jogaiUketsuke, tenyoUketsuke: l.tenyoUketsuke, jogaiNote: l.jogaiNote,
+      drainAdjacent: l.drainAdjacent, drainConsent: l.drainConsent,
+      drainName: l.drainName, drainTel: l.drainTel, drainFee: l.drainFee,
+      drainLocalConsent: l.drainLocalConsent, drainContacts: contactsToText_(l.drainContacts),
+      nogyoTanto: l.nogyoTanto, kairyoTanto: l.kairyoTanto, drainTanto: l.drainTanto,
+      municipality: l.municipality, readFromTohon: l.readFromTohon ? '謄本から読取' : '',
+    };
+  });
+  let saved;
+  if (editing) {
+    saved = replaceCase_(editing.id, record, lotRows);
+  } else {
+    saved = appendCase_(record);
+    appendLots_(saved.id, lotRows);
+  }
+
+  // 2) 資料フォルダの作成とファイル移動（失敗しても案件は残す）
+  let attach = { folderUrl: '', count: 0, errors: [] };
+  try {
+    if (!input.attachments.length) {
+      // 資料なし：フォルダは作らない（ドライブの操作は時間がかかるため。正式見積の提示など必要になった時に作る）。保存し直しはこれまでのフォルダのまま
+      attach = { folderUrl: editing ? editing.folderUrl || '' : '', count: 0, errors: [] };
+    } else {
+      attach = attachFilesToCase_(saved.caseNo, input, editing ? editing.folderUrl : '');
+      updateCaseCells_(saved.row, { folderUrl: attach.folderUrl, fileCount: (editing ? Number(editing.fileCount) || 0 : 0) + attach.count });
+    }
+  } catch (e) {
+    attach.errors.push('資料フォルダの作成に失敗：' + (e && e.message || e));
+  }
+
+  // 3) 通知（依頼の場合のみ）→ 結果をシートに書き戻す
+  let notify = { ok: false, message: '通知なし（保存のみ）' };
+  if (isRequest) {
+    notify = postToChat_(buildRequestMessage_(saved.id, input, estimate, saved.url, attach, saved.caseNo));
+    updateCaseCell_(saved.row, 'notifyResult', notify.ok ? '送信済み' : '失敗：' + notify.message);
+  }
+
+  return {
+    id: saved.id,
+    caseNo: saved.caseNo,
+    edited: !!editing,
+    estimate: estimate,
+    notified: notify.ok,
+    notifyMessage: notify.message,
+    fileCount: attach.count,
+    attachErrors: attach.errors,
+  };
+}
+
+/** 保存用の入力内容（資料のファイルIDは除く。再編集で画面に戻すため） */
+function savedFormJson_(form) {
+  const f = Object.assign({}, form || {});
+  delete f.attachments;
+  return JSON.stringify(f);
+}
+
+function mergeList_(csv, list) {
+  const out = String(csv || '').split(',').filter(String);
+  (list || []).forEach(function (x) { if (out.indexOf(x) < 0) out.push(x); });
+  return out;
+}
+
+/** 呼び出せる保存案件か確認して返す（本人が保存し、まだ依頼していない。管理者は全員分） */
+function getEditableSavedCase_(caseId) {
+  const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+  if (!c) throw new Error('保存した案件が見つかりません（削除された可能性があります）。');
+  if (c.requestFlag === true) throw new Error('受付番号 ' + c.caseNo + ' はすでに見積調査依頼済みのため、ここからは変更できません（行政班へご連絡ください）。');
+  const me = getUserEmail_().toLowerCase();
+  if (String(c.submittedBy || '').toLowerCase() !== me && !isAdmin_()) throw new Error('ご自身が保存した案件だけ呼び出せます。');
+  return c;
+}
+
+/** 保存した案件（まだ見積調査依頼していないもの）の一覧。本人の分（管理者は全員分）、新しい順 */
+function listSavedCases() {
+  const me = getUserEmail_().toLowerCase();
+  const admin = isAdmin_();
+  let lotsBy = null;
+  return getAllCases_().filter(function (c) {
+    return c.requestFlag !== true && (admin || String(c.submittedBy || '').toLowerCase() === me);
+  }).map(function (c) {
+    if (!c.formData && !lotsBy) lotsBy = getLotsByCase_(); // 保存時の入力が無い古い案件だけ物件明細から組み立てる
+    return { id: c.id, caseNo: c.caseNo, requesterName: c.requesterName, address: c.address, lotNumber: c.lotNumber,
+      updatedAt: c.updatedAt, submittedBy: c.submittedBy, mine: String(c.submittedBy || '').toLowerCase() === me,
+      saved: savedCasePayload_(c, lotsBy) }; // 選んだらすぐ開けるよう、入力内容も一緒に返す（往復を1回減らす）
+  });
+}
+
+/** 保存した案件を画面に戻すための入力内容。保存時の入力が無い（この機能より前の）案件はシートから組み立てる */
+function getSavedCase(caseId) {
+  return savedCasePayload_(getEditableSavedCase_(caseId));
+}
+
+/** 保存した案件を画面に戻すための内容（一覧からそのまま開けるよう、一覧にも載せる） */
+function savedCasePayload_(c, lotsBy) {
+  let form = null;
+  try { form = c.formData ? JSON.parse(c.formData) : null; } catch (e) { form = null; }
+  const rebuilt = !form;
+  if (!form) {
+    const lots = ((lotsBy || getLotsByCase_())[c.id] || []).map(lotRowToFormLot_);
+    form = { requesterName: c.requesterName, trust: c.trust === true, extraLotFee: c.extraLotFee === 'あり', plan: c.plan, lots: lots,
+      prefecture: lots.length ? lots[0].prefecture : c.prefecture };
+  }
+  return { id: c.id, caseNo: c.caseNo, form: form, rebuilt: rebuilt, fileCount: Number(c.fileCount) || 0, folderUrl: c.folderUrl || '', documents: c.documents || '' };
+}
+
+/** 物件明細シートの1行 → 依頼画面の入力の形（保存時の入力が無い案件用。受付期間などは文字のまま備考に入れる） */
+function lotRowToFormLot_(r) {
+  const s = function (v) { return v === undefined || v === null ? '' : String(v); };
+  const bool = function (v) { return v === true ? 'はい' : v === false ? 'いいえ' : v === '不明' ? '分からない' : s(v); };
+  const yen = function (t) { const m = s(t).match(/([\d,]+)円/); return m ? m[1].replace(/,/g, '') : ''; };
+  const after = function (t) { const i = s(t).indexOf('／'); return i >= 0 ? s(t).slice(i + 1) : ''; };
+  const city = s(r.municipality);
+  const place = s(r.address).indexOf(city) === 0 ? s(r.address).slice(city.length) : s(r.address);
+  const use = s(r.landUse), base = use.replace(/（.*$/, ''), other = (use.match(/（(.*)）$/) || [])[1] || '';
+  const st = s(r.kairyoSettlementNote), fee = s(r.kairyoFee);
+  const date = s(r.rirekiDate).replace(/\//g, '-');
+  let extra = [];
+  try { extra = JSON.parse(r.kairyoExtraData || '[]'); } catch (e) { extra = []; }
+  const lot = {
+    prefecture: s(r.prefecture), municipality: city, address: [place, s(r.lotNumber)].filter(String).join(' '),
+    chimoku: s(r.chimoku), area: s(r.area), isNoshin: bool(r.isNoshin), isConverted: bool(r.isConverted),
+    landUse: FORM_OPTIONS.landUses.indexOf(base) >= 0 ? base : '', landUseOther: FORM_OPTIONS.landUses.indexOf(base) >= 0 ? other : use,
+    chimokuHenko: r.chimokuHenko === 'はい' || r.chimokuHenko === true,
+    kairyoSettlementNote: yen(st), kairyoSettlementUnit: /^1㎡あたり/.test(st) ? '㎡あたり' : /^1haあたり/.test(st) ? 'haあたり' : '総額',
+    kairyoFeeAmount: yen(fee), kairyoFeeUnit: /^1筆あたり/.test(fee) ? '1筆あたり' : '1申請あたり', kairyoFeeNote: after(fee),
+    iinContacts: contactLines_(r.iinContacts), localContacts: contactLines_(r.localContacts), drainContacts: contactLines_(r.drainContacts),
+    rirekiDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '',
+    hinochiDocs: s(r.hinochiDocs).split('・').filter(String),
+    drainFeeAmount: yen(r.drainFee), drainFeeNote: after(r.drainFee),
+    tenyoUkeNote: s(r.tenyoUketsuke), jogaiJiki: s(r.jogaiUketsuke), chimokuDate: s(r.chimokuDate),
+    readFromTohon: s(r.readFromTohon) === '謄本から読取',
+    kairyoExtra: extra.map(function (e) {
+      return { kairyoName: e.kairyoName, kairyoTel: e.kairyoTel, kairyoTanto: e.kairyoTanto || '', kairyoDrain: e.kairyoDrain || '', kairyoBenefit: e.kairyoBenefit, kairyoProcedure: e.kairyoProcedure,
+        kairyoSettlement: e.kairyoSettlement, kairyoSettlementNote: e.settlementAmount ? String(e.settlementAmount) : '', kairyoSettlementUnit: e.settlementUnit,
+        kairyoFeeAmount: e.kairyoFeeAmount ? String(e.kairyoFeeAmount) : '', kairyoFeeUnit: e.kairyoFeeUnit, kairyoFeeNote: after(e.kairyoFee),
+        localConsent: e.localConsent, localContacts: e.localContacts || [] };
+    }),
+  };
+  ['zone', 'landImprovement', 'kairyoName', 'kairyoTel', 'kairyoBenefit', 'kairyoProcedure', 'kairyoSettlement', 'iinStamp', 'localConsent', 'purpose',
+    'tenyoRireki', 'rirekiNo', 'rirekiNote', 'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'saiShinsei', 'saiShinseiNote',
+    'hinochi', 'hinochiYears', 'hinochiNote', 'zeseiKyoka', 'zeseiNote', 'tenyoKanou', 'noutiKubun', 'kanouNote', 'jogaiKanou',
+    'hojoKuiki', 'hojo8nen', 'jogaiJisseki', 'jogaiNote', 'drainAdjacent', 'drainConsent', 'drainName', 'drainTel', 'drainLocalConsent',
+    'nogyoTanto', 'kairyoTanto', 'drainTanto', 'kairyoDrain']
+    .forEach(function (k) { lot[k] = s(r[k]); });
+  return lot;
+}
+
+/**
+ * 複数物件を、案件一覧の1行に載せるための「まとめ」にする。
+ * 物件ごとの正確な値は物件明細シートにある。
+ */
+function summarizeLots_(lots) {
+  const uniq = function (key) {
+    return lots.map(function (l) { return l[key]; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('・');
+  };
+  const any = function (key, value) { return lots.some(function (l) { return l[key] === value; }); };
+  const areas = lots.map(function (l) { return l.area; }).filter(function (a) { return a !== null; });
+  const triState = function (key) {
+    if (any(key, 'はい')) return true;
+    if (any(key, '分からない')) return '不明';
+    if (lots.length && lots.every(function (l) { return l[key] === 'いいえ'; })) return false;
+    return '';
+  };
+  return {
+    address: lots.length ? lots[0].address + (lots.length > 1 ? ' 他' + (lots.length - 1) + '件' : '') : '',
+    lotNumber: lots.map(function (l) { return l.lotNumber; }).join('、'),
+    chimoku: uniq('chimoku'),
+    area: areas.length ? Math.round(areas.reduce(function (s, a) { return s + a; }, 0) * 100) / 100 : '',
+    zone: uniq('zone'),
+    isNoshin: triState('isNoshin'),
+    landUse: uniq('landUseText'),
+    isConverted: triState('isConverted'),
+    landImprovement: any('landImprovement', 'はい') ? 'はい' : any('landImprovement', '分からない') ? '分からない' : uniq('landImprovement'),
+    municipality: uniq('municipality'),
+    // 地元関係者の同意（土地改良区に確認）：必要 ＞ 未確認 ＞ 不要
+    localConsent: any('localConsent', '必要') ? '必要' : any('localConsent', '未確認') ? '未確認' : uniq('localConsent'),
+    localContacts: lots.map(function (l) { return contactsToText_(l.localContacts); })
+      .filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('\n'),
+    // 地目変更登記が必要な物件（登記担当へ連絡するため、案件一覧の1列で分かるように）
+    chimokuHenkoSummary: chimokuHenkoText_(lots),
+  };
+}
+
+/** 金額の数値（数字以外・負数は0） */
+function numOrZero_(v) {
+  const n = Number(String(v === undefined || v === null ? '' : v).replace(/[,，円¥\s]/g, ''));
+  return isNaN(n) || n < 0 ? 0 : n;
+}
+
+/** 金額 → 「300,000円」（数字以外は空文字） */
+function yenText_(v) {
+  const s = String(v === undefined || v === null ? '' : v).replace(/[,，円¥\s]/g, '');
+  const n = Number(s);
+  return s !== '' && !isNaN(n) && n >= 0 ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円' : '';
+}
+
+/**
+ * 決済金の表示。単価（㎡・ha）の場合は物件の面積から概算の総額も添える。
+ * 例：「1㎡あたり 300円（496㎡ → 約148,800円）」「300,000円」
+ */
+function settlementText_(amount, unit, area) {
+  const yen = yenText_(amount);
+  if (!yen) return '';
+  if (unit !== '㎡あたり' && unit !== 'haあたり') return yen;
+  const n = Number(String(amount).replace(/[,，円¥\s]/g, ''));
+  const total = area > 0 ? (unit === '㎡あたり' ? n * area : n * area / 10000) : null;
+  return (unit === '㎡あたり' ? '1㎡あたり ' : '1haあたり ') + yen +
+    (total !== null ? '（' + area + '㎡ → 約' + yenText_(Math.round(total)) + '）' : '');
+}
+
+/** 'YYYY-MM-DD' → 'YYYY/MM/DD'（それ以外は空文字） */
+function dateText_(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[1] + '/' + m[2] + '/' + m[3] : '';
+}
+
+/** 期間の表示「A～B」（片方だけなら「A～」「～B」） */
+function rangeText_(a, b) {
+  return a || b ? (a || '') + '～' + (b || '') : '';
+}
+
+/** 農地転用の受付：「毎月1日～10日」「毎月5日締切」「締切 2026/10/15」 */
+function tenyoUketsukeText_(l) {
+  const mode = pick_(l.tenyoUkeMode, FORM_OPTIONS.tenyoUkeModes);
+  const day = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n : 0; };
+  let base = '';
+  if (mode === '締切日を指定') base = dateText_(l.tenyoUkeDate) ? '締切 ' + dateText_(l.tenyoUkeDate) : '';
+  else if (mode === '毎月の締切日') base = day(l.tenyoUkeDay) ? '毎月' + day(l.tenyoUkeDay) + '日締切' : '';
+  else if (mode === '毎月第○週') {
+    const w = pick_(l.tenyoUkeWeek, FORM_OPTIONS.tenyoUkeWeeks);
+    const wd = pick_(l.tenyoUkeWeekday, FORM_OPTIONS.weekdays);
+    base = w ? '毎月' + w + (wd && wd !== '曜日指定なし' ? 'の' + wd : '') + '締切' : '';
+  } else if (mode === '月ごとに異なる（年間計画）') {
+    const months = ['4', '5', '6', '7', '8', '9', '10', '11', '12', '1', '2', '3'];
+    const list = (Array.isArray(l.tenyoUkeMonths) ? l.tenyoUkeMonths : []).map(function (v, i) {
+      return i < 12 && day(v) ? months[i] + '/' + day(v) : '';
+    }).filter(String);
+    base = list.length ? '月ごとの締切 ' + list.join('・') : '月ごとに締切が異なる（年間計画）';
+  } else base = monthlyText_(l.tenyoUkeFrom, l.tenyoUkeTo);
+  const hol = pick_(l.tenyoUkeHoliday, FORM_OPTIONS.tenyoUkeHolidays);
+  const holText = hol === '前の営業日' || hol === '次の営業日' ? '土日祝は' + hol : hol === '未確認' ? '土日祝の扱い未確認' : '';
+  const note = str_(l.tenyoUkeNote, 200);
+  return [base, holText, note].filter(String).join('／');
+}
+
+/** 農振除外の受付：「年2回（5月・11月）」 */
+function jogaiUketsukeText_(kaisu, jiki) {
+  const n = Number(kaisu);
+  const k = n >= 1 && n <= 12 && Math.floor(n) === n ? '年' + n + '回' : '';
+  const j = str_(jiki, 100);
+  return k && j ? k + '（' + j + '）' : k || j;
+}
+
+/** 毎月の受付期間「毎月1日～10日」（1〜31以外は無視） */
+function monthlyText_(from, to) {
+  const d = function (v) { const n = Number(v); return n >= 1 && n <= 31 && Math.floor(n) === n ? n + '日' : ''; };
+  const t = rangeText_(d(from), d(to));
+  return t ? '毎月' + t : '';
+}
+
+/** 2つ目以降の土地改良区の入力を整える（1つ目と同じ項目・同じ条件） */
+function normalizeKairyoEntry_(e, area) {
+  const benefit = pick_(e.kairyoBenefit, FORM_OPTIONS.kairyoBenefit);
+  const on = benefit === '該当する';
+  const settlement = on ? pick_(e.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '';
+  const unit = pick_(e.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits) || '総額';
+  const feeUnit = pick_(e.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり';
+  const local = pick_(e.localConsent, FORM_OPTIONS.localConsent);
+  return {
+    kairyoName: str_(e.kairyoName, 100), kairyoTel: str_(e.kairyoTel, 20), kairyoTanto: str_(e.kairyoTanto, 50), kairyoBenefit: benefit,
+    kairyoDrain: pick_(e.kairyoDrain, FORM_OPTIONS.drainConsent),
+    kairyoProcedure: on ? pick_(e.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
+    kairyoSettlement: settlement,
+    kairyoSettlementNote: settlement === '必要' ? settlementText_(e.kairyoSettlementNote, unit, area) : '',
+    kairyoFee: on && yenText_(e.kairyoFeeAmount) ? [feeUnit + ' ' + yenText_(e.kairyoFeeAmount), str_(e.kairyoFeeNote, 100)].filter(String).join('／') : '',
+    settlementAmount: settlement === '必要' ? numOrZero_(e.kairyoSettlementNote) : 0,
+    settlementUnit: unit,
+    kairyoFeeAmount: on ? numOrZero_(e.kairyoFeeAmount) : 0,
+    kairyoFeeUnit: feeUnit,
+    localConsent: local,
+    localContacts: local === '必要' ? normalizeContacts_(e.localContacts) : [],
+  };
+}
+
+/** 2つ目以降の土地改良区を、シートで読める1行ずつの文字にする */
+function kairyoExtraText_(list) {
+  return (list || []).map(function (e) {
+    return [e.kairyoName || '名称未入力', e.kairyoTel, e.kairyoTanto && '担当 ' + e.kairyoTanto, e.kairyoBenefit && '受益地 ' + e.kairyoBenefit, e.kairyoProcedure && '地区除外 ' + e.kairyoProcedure,
+      e.kairyoSettlement && '決済金 ' + [e.kairyoSettlement, e.kairyoSettlementNote].filter(String).join(' '), e.kairyoFee && '手数料等 ' + e.kairyoFee,
+      e.kairyoDrain && '排水同意 ' + e.kairyoDrain,
+      e.localConsent && '地元同意 ' + e.localConsent + (e.localContacts && e.localContacts.length ? '（' + contactsToText_(e.localContacts).split('\n').join('、') + '）' : '')]
+      .filter(Boolean).join('／');
+  }).join('\n');
+}
+
+/** 地目変更登記が必要な物件「あり（2筆）：物件1 ○○町 123番1、物件3 ○○町 125番」（なければ空） */
+function chimokuHenkoText_(lots) {
+  const list = (lots || []).map(function (l, i) {
+    return l.chimokuHenko === true ? '物件' + (i + 1) + ' ' + [l.address, l.lotNumber].filter(String).join(' ') : '';
+  }).filter(String);
+  return list.length ? 'あり（' + list.length + '筆）：' + list.join('、') : '';
+}
+
+/** 連絡先の配列 → 「氏名／住所／電話」を1行ずつ並べた文字列 */
+function contactsToText_(list) {
+  return (list || []).map(function (c) { return [c.name, c.address, c.tel].join('／'); }).join('\n');
+}
+
+/** 画面から受け取った連絡先（氏名・住所・電話）を整える。空行は除き、最大 MAX_CONTACTS 件 */
+function normalizeContacts_(list) {
+  return (Array.isArray(list) ? list : [])
+    .map(function (c) { return { name: str_(c && c.name, 50), address: str_(c && c.address, 100), tel: str_(c && c.tel, 20) }; })
+    .filter(function (c) { return c.name || c.address || c.tel; })
+    .slice(0, MAX_CONTACTS);
+}
+
+// ------------------------------------------------------------
+// 入力の整形・チェック
+// ------------------------------------------------------------
+
+/** 文字列を整える（前後空白の除去・長さ制限） */
+function str_(v, max) {
+  return String(v === undefined || v === null ? '' : v).trim().slice(0, max || 200);
+}
+
+/** 選択肢に含まれる値だけを通す（それ以外は空文字） */
+function pick_(v, list) {
+  const s = str_(v);
+  return list.indexOf(s) >= 0 ? s : '';
+}
+
+/**
+ * 画面の入力値を扱いやすい形に整える（前後空白の除去、選択肢外の値の除外など）。
+ * 画面側の値を信用しすぎないよう、サーバー側で必ずここを通す。
+ */
+function normalizeInput_(form) {
+  const f = form || {};
+  const prefecture = str_(f.prefecture, 10) || DEFAULT_PREFECTURE;
+
+  // アップロード済みファイル（ID と資料種別）
+  const attachments = (Array.isArray(f.attachments) ? f.attachments : [])
+    .map(function (a) { return { fileId: str_(a && a.fileId, 100), docType: pick_(a && a.docType, FORM_OPTIONS.documents) }; })
+    .filter(function (a) { return a.fileId && a.docType; })
+    .slice(0, 50);
+
+  // 資料 ＝ ファイルをアップロードした種別
+  const uploaded = attachments.map(function (a) { return a.docType; });
+  const docsOther = str_(f.documentsOther, 100);
+  const documents = FORM_OPTIONS.documents
+    .filter(function (d) { return uploaded.indexOf(d) >= 0; })
+    .map(function (d) { return d === 'その他' && docsOther ? 'その他（' + docsOther + '）' : d; });
+
+  const master = getMasterList_();
+  const lots = (Array.isArray(f.lots) ? f.lots : [])
+    .slice(0, MAX_LOTS)
+    .map(function (l) {
+      // 都道府県は物件ごと（未指定なら案件の都道府県）
+      const lp = str_(l && l.prefecture, 10) || prefecture;
+      return Object.assign(normalizeLot_(l || {}, lp, master), { prefecture: lp });
+    });
+
+  return {
+    requesterName: str_(f.requesterName, 50),
+    trust: f.trust === true,
+    extraLotFee: f.extraLotFee === true, // 筆数加算をするか（1申請で足りるなら加算しない）
+    prefecture: prefecture,
+    lots: lots,
+    plan: str_(f.plan, 1000),
+    // 転用目的は物件ごと（調整区域のみ）。案件には各物件の目的をまとめて記録
+    purpose: lots.map(function (l) { return l.purpose; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join('・'),
+    documents: documents,
+    attachments: attachments,
+    submittedBy: getUserEmail_(),
+  };
+}
+
+/** 物件1件分の入力を整える */
+function normalizeLot_(l, prefecture, master) {
+  // 画面は「市区町村」と「所在・地番（町名・字〜地番）」の2欄。
+  // シートには 所在＝市区町村＋町名・字、地番＝末尾の地番 に分けて保存する（末尾の数字部分を切り出すだけ・推測なし）
+  let municipality = str_(l.municipality, 50);
+  if (municipality.indexOf(prefecture) === 0) municipality = municipality.slice(prefecture.length).trim();
+  let place = str_(l.address);
+  if (place.indexOf(prefecture) === 0) place = place.slice(prefecture.length).trim();
+  if (municipality && place.indexOf(municipality) === 0) place = place.slice(municipality.length).trim(); // 市区町村を重ねて入力した場合
+  const split = splitLotNumber_(place);
+  const convOn = pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい';
+  // 過去の転用許可・届出の履歴（現況にかかわらず聞く）。履歴があれば以降（除外・見込み・土地改良区など）は聞かない。
+  // ただし農業委員会から「再申請が必要」と回答があった場合は続ける
+  const rirekiAns = pick_(l.tenyoRireki, FORM_OPTIONS.tenyoRireki);
+  const rirekiOn = rirekiAns === 'あり';
+  const saiShinsei = rirekiOn ? pick_(l.saiShinsei, FORM_OPTIONS.saiShinsei) : ''; // 履歴ありなら現況にかかわらず再申請の要否を聞く
+  const go = !rirekiOn || saiShinsei === '必要';
+  const kairyoOn = go && pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) === 'はい';
+  const benefitOn = kairyoOn && pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) === '該当する';
+  const permitZone = go && PERMIT_ZONES.indexOf(pick_(l.zone, FORM_OPTIONS.zones)) >= 0; // 許可が必要な区域
+  const jogaiOn = go && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域' &&
+    ['はい', '分からない'].indexOf(pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown)) >= 0; // 青地（または不明）
+  const purpose = pick_(l.zone, FORM_OPTIONS.zones) === '市街化調整区域' ? pick_(l.purpose, FORM_OPTIONS.purposes) : '';
+  const drainOn = go && purpose === '分家住宅';
+  const hinochiOn = convOn && !rirekiOn && pick_(l.zone, FORM_OPTIONS.zones) !== '市街化区域';
+  const shimatsuOn = convOn && !rirekiOn && pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) === '必要';                                        // 分家住宅は排水先を確認
+  // 排水承諾：土地改良区にかかる物件は②で土地改良区ごとに聞く（kairyoDrain）。かからない分家住宅だけここで聞く
+  const drainConsentOn = drainOn && !kairyoOn && pick_(l.drainConsent, FORM_OPTIONS.drainConsent) === '必要';
+  const drainLocalOn = drainOn && pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) === '必要'; // 排水に伴う地元承諾は排水承諾の要否にかかわらず聞く
+
+  const areaText = str_(l.area).replace(/[,，]/g, '');
+  const landUse = pick_(l.landUse, FORM_OPTIONS.landUses);
+  const landUseOther = str_(l.landUseOther, 100);
+
+  return {
+    address: municipality + split.place,
+    municipality: municipality,
+    lotNumber: split.lotNumber.slice(0, 100),
+    chimoku: pick_(l.chimoku, FORM_OPTIONS.chimoku),
+    area: areaText === '' ? null : Number(areaText),
+    zone: pick_(l.zone, FORM_OPTIONS.zones),
+    isNoshin: pick_(l.isNoshin, FORM_OPTIONS.yesNoUnknown),
+    landUse: landUse,
+    // シートには「選択肢（補足）」の形で保存する
+    landUseText: landUseOther ? (landUse ? landUse + '（' + landUseOther + '）' : landUseOther) : landUse,
+    isConverted: pick_(l.isConverted, FORM_OPTIONS.yesNo),
+    landImprovement: go ? pick_(l.landImprovement, FORM_OPTIONS.yesNoUnknown) : '',
+    readFromTohon: l.readFromTohon === true,
+    chimokuHenko: l.chimokuHenko === true,
+    chimokuDate: l.chimokuHenko === true && pick_(l.isConverted, FORM_OPTIONS.yesNo) === 'はい' ? str_(l.chimokuDate, 50) : '',
+    // 土地改良区への電話確認の結果（「はい（かかっている）」のときだけ保存）
+    kairyoName: kairyoOn ? str_(l.kairyoName, 100) : '',
+    kairyoTel: kairyoOn ? str_(l.kairyoTel, 20) : '',
+    kairyoTanto: kairyoOn ? str_(l.kairyoTanto, 50) : '',
+    kairyoDrain: kairyoOn ? pick_(l.kairyoDrain, FORM_OPTIONS.drainConsent) : '', // 排水同意（同意書の発行）は土地改良区ごとに確認
+    nogyoTanto: str_(l.nogyoTanto, 50), // 電話でお話しした方（誰に聞いたか分かるように）
+    kairyoBenefit: kairyoOn ? pick_(l.kairyoBenefit, FORM_OPTIONS.kairyoBenefit) : '',
+    // 受益地に該当する場合だけ：手続きの要否・決済金（決済金が「必要」のときだけ金額）
+    kairyoProcedure: benefitOn ? pick_(l.kairyoProcedure, FORM_OPTIONS.kairyoProcedure) : '',
+    kairyoSettlement: benefitOn ? pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) : '',
+    kairyoSettlementNote: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要'
+      ? settlementText_(l.kairyoSettlementNote, pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits), areaText === '' ? null : Number(areaText)) : '',
+    // 決済金とは別の手数料など（金額・内容）
+    kairyoFee: benefitOn && yenText_(l.kairyoFeeAmount)
+      ? [(pick_(l.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり') + ' ' + yenText_(l.kairyoFeeAmount), str_(l.kairyoFeeNote, 100)].filter(String).join('／')
+      : '',
+    // 見積（実費）の計算用の数値
+    settlementAmount: benefitOn && pick_(l.kairyoSettlement, FORM_OPTIONS.kairyoSettlement) === '必要' ? numOrZero_(l.kairyoSettlementNote) : 0,
+    settlementUnit: pick_(l.kairyoSettlementUnit, FORM_OPTIONS.settlementUnits) || '総額',
+    kairyoFeeAmount: benefitOn ? numOrZero_(l.kairyoFeeAmount) : 0,
+    kairyoFeeUnit: pick_(l.kairyoFeeUnit, FORM_OPTIONS.kairyoFeeUnits) || '1申請あたり',
+    // 地元の農業委員・推進委員の押印（「必要」のときだけ氏名・連絡先を保存）
+    iinStamp: go ? pick_(l.iinStamp, FORM_OPTIONS.iinStamp) : '',
+    iinContacts: pick_(l.iinStamp, FORM_OPTIONS.iinStamp) === '必要' ? normalizeContacts_(l.iinContacts) : [],
+    // 地元関係者の同意（土地改良区へ確認。「必要」のときだけ氏名・住所・電話を保存）
+    localConsent: kairyoOn ? pick_(l.localConsent, FORM_OPTIONS.localConsent) : '',
+    localContacts: kairyoOn && pick_(l.localConsent, FORM_OPTIONS.localConsent) === '必要' ? normalizeContacts_(l.localContacts) : [],
+    // 2つ目以降の土地改良区（複数の改良区にかかる場合）
+    kairyoExtra: kairyoOn ? (Array.isArray(l.kairyoExtra) ? l.kairyoExtra : []).slice(0, MAX_KAIRYO_EXTRA)
+      .map(function (e) { return normalizeKairyoEntry_(e || {}, areaText === '' ? null : Number(areaText)); })
+      .filter(function (e) { return e.kairyoName || e.kairyoTel || e.kairyoBenefit; }) : [],
+    // 転用の見込み（許可が必要な区域で農業委員会に確認）
+    purpose: purpose,
+    // 転用済みの物件：過去の届出受理・許可の履歴（「あり」のときだけ年月日・番号・内容）
+    tenyoRireki: rirekiAns,
+    saiShinsei: saiShinsei,
+    saiShinseiNote: saiShinsei ? str_(l.saiShinseiNote, 200) : '',
+    rirekiDate: rirekiOn ? dateText_(l.rirekiDate) : '',
+    rirekiNo: rirekiOn ? str_(l.rirekiNo, 50) : '',
+    rirekiNote: rirekiOn ? str_(l.rirekiNote, 200) : '',
+    // 履歴がない（無断転用）場合：始末書の提出と押印（「必要」のときだけ押印と備考）
+    shimatsusho: convOn && !rirekiOn ? pick_(l.shimatsusho, FORM_OPTIONS.shimatsusho) : '',
+    shimatsuStamp: shimatsuOn ? pick_(l.shimatsuStamp, FORM_OPTIONS.shimatsusho) : '',
+    shimatsuNote: shimatsuOn ? str_(l.shimatsuNote, 200) : '',
+    // 無断転用（転用済み・履歴なし、市街化区域以外）：非農地証明で対応できるか → 可能なら要件、不可なら是正の許可申請
+    hinochi: hinochiOn ? pick_(l.hinochi, FORM_OPTIONS.hinochi) : '',
+    hinochiYears: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '可能' ? str_(l.hinochiYears, 20) : '',
+    hinochiDocs: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '可能'
+      ? (Array.isArray(l.hinochiDocs) ? l.hinochiDocs : []).filter(function (d) { return FORM_OPTIONS.hinochiDocs.indexOf(d) >= 0; }).join('・') : '',
+    hinochiNote: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '可能' ? str_(l.hinochiNote, 300) : '',
+    zeseiKyoka: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? pick_(l.zeseiKyoka, FORM_OPTIONS.zeseiKyoka) : '',
+    zeseiNote: hinochiOn && pick_(l.hinochi, FORM_OPTIONS.hinochi) === '不可' ? str_(l.zeseiNote, 300) : '',
+    tenyoKanou: permitZone ? pick_(l.tenyoKanou, FORM_OPTIONS.tenyoKanou) : '',
+    // 農地区分は複数選択（「第1種か第2種」のように回答が分かれることがある）
+    noutiKubun: permitZone ? (Array.isArray(l.noutiKubun) ? l.noutiKubun : String(l.noutiKubun || '').split('・'))
+      .filter(function (v, i, a) { return FORM_OPTIONS.noutiKubun.indexOf(v) >= 0 && a.indexOf(v) === i; }).join('・') : '',
+    kanouNote: permitZone ? str_(l.kanouNote, 300) : '',
+    // 農振除外の見込み（青地「はい」「分からない」のとき）
+    jogaiKanou: jogaiOn ? pick_(l.jogaiKanou, FORM_OPTIONS.tenyoKanou) : '',
+    hojoKuiki: jogaiOn ? pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) : '',
+    hojo8nen: jogaiOn && pick_(l.hojoKuiki, FORM_OPTIONS.hojoKuiki) === '区域内' ? pick_(l.hojo8nen, FORM_OPTIONS.hojo8nen) : '',
+    jogaiJisseki: jogaiOn ? pick_(l.jogaiJisseki, FORM_OPTIONS.jogaiJisseki) : '',
+    jogaiUketsuke: jogaiOn ? jogaiUketsukeText_(l.jogaiKaisu, l.jogaiJiki) : '',
+    tenyoUketsuke: permitZone || jogaiOn ? tenyoUketsukeText_(l) : '',
+    jogaiNote: jogaiOn ? str_(l.jogaiNote, 300) : '',
+    // 排水先（分家住宅のとき）
+    drainAdjacent: drainOn ? pick_(l.drainAdjacent, FORM_OPTIONS.drainAdjacent) : '',
+    drainTanto: drainOn ? str_(l.drainTanto, 50) : '',
+    drainConsent: drainOn && !kairyoOn ? pick_(l.drainConsent, FORM_OPTIONS.drainConsent) : '',
+    drainName: drainConsentOn ? str_(l.drainName, 100) : '',
+    drainTel: drainConsentOn ? str_(l.drainTel, 20) : '',
+    drainFee: drainConsentOn ? [yenText_(l.drainFeeAmount), str_(l.drainFeeNote, 100)].filter(String).join('／') : '',
+    drainFeeAmount: drainConsentOn ? numOrZero_(l.drainFeeAmount) : 0,
+    drainLocalConsent: drainOn ? pick_(l.drainLocalConsent, FORM_OPTIONS.localConsent) : '',
+    drainContacts: drainLocalOn ? normalizeContacts_(l.drainContacts) : [],
+  };
+}
+
+/**
+ * 「○○町字△△ 123番1」の末尾から地番を切り出す（例：123番1／123番地1／123-1／123）。
+ * 末尾が数字で終わらない場合は地番なし（空文字）。画面側（JavaScript.html）と同じ規則。
+ * @return {{place:string, lotNumber:string}}
+ */
+function splitLotNumber_(text) {
+  const m = String(text || '').match(LOT_NUMBER_TAIL_RE);
+  return m ? { place: m[1].trim(), lotNumber: m[2] } : { place: String(text || '').trim(), lotNumber: '' };
+}
+
+/** 保存前の必須チェック。エラーメッセージの配列を返す（空ならOK） */
+function validateInput_(input) {
+  const errors = [];
+  if (!input.requesterName) errors.push('依頼者名を入力してください。');
+  if (!input.lots.length) errors.push('物件を1件以上入力してください。');
+  input.lots.forEach(function (l, i) {
+    const name = '物件' + (i + 1) + '：';
+    if (!l.municipality) errors.push(name + '市区町村を入力してください。');
+    if (!l.lotNumber) errors.push(name + '所在・地番の末尾に地番を入力してください（例：○○町字△△ 123番1）。');
+    if (!l.zone) errors.push(name + '区域区分を選択してください（不明な場合は「分からない」）。');
+    if (l.area !== null && (isNaN(l.area) || l.area < 0)) errors.push(name + '面積は0以上の数値で入力してください。');
+  });
+  const farmland = input.lots.filter(function (l) { return FARMLAND_LAND_USES.indexOf(l.landUse) >= 0; });
+  if (farmland.length && !input.plan) {
+    errors.push('現況が農地（' + farmland[0].landUse + '）の物件があるため、今後の転用計画を入力してください。');
+  }
+  return errors;
+}
+
+/** 「はい／いいえ／分からない」をシート保存用の値にする（はい=TRUE, いいえ=FALSE, 分からない=「不明」） */
+function toSheetBool_(answer) {
+  if (answer === 'はい') return true;
+  if (answer === 'いいえ') return false;
+  if (answer === '分からない') return '不明';
+  return '';
+}
+
+/** アクセス中のユーザーのメールアドレス（取得できない場合は空文字） */
+function getUserEmail_() {
+  try {
+    return Session.getActiveUser().getEmail() || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * 失敗内容を「エラーログ」シートに記録する（原因調査用）。記録自体の失敗は無視する。
+ * @param {string} where 発生した処理
+ * @param {*} e 例外
+ * @param {string=} detail 補足（ファイル名など）
+ */
+function logError_(where, e, detail) {
+  try {
+    const ss = getSpreadsheet_();
+    const sheet = ss.getSheetByName(SHEET_NAMES.ERRORS) || ss.insertSheet(SHEET_NAMES.ERRORS);
+    if (sheet.getLastRow() === 0) sheet.appendRow(['日時', 'ユーザー', '処理', '内容', '補足', '詳細']);
+    sheet.appendRow([new Date(), getUserEmail_(), where, String(e && e.message || e),
+      String(detail || ''), String(e && e.stack || '').slice(0, 2000)]);
+  } catch (ignore) {
+    // ログが書けなくても本来の処理結果は返す
+  }
+}
+
+
+// ===== Repository.gs =====
+/**
+ * ============================================================
+ *  保存処理（スプレッドシートの読み書き）
+ * ============================================================
+ *  シートへのアクセスはこのファイルに集約しています。
+ *  列の並びは Config.gs の CASE_COLUMNS で決まるため、ここは列番号を直接持ちません。
+ */
+
+// ---- 1回の処理（サーバー呼び出し）の中での使い回し ----
+// スプレッドシートを開く・シートを探す・全行を読むのは1回の呼び出しにつき1回だけにする（毎回シートへ問い合わせると遅いため）。
+// 案件一覧・物件明細の読み取り結果は、この中の書き込み関数で同じ内容に直す（または捨てて読み直す）。
+var SS_MEMO_ = null;
+var SHEET_MEMO_ = {};
+var CASES_RAW_ = null; // 案件一覧の2行目以降（getValues の結果）
+var LOTS_RAW_ = null;  // 物件明細の2行目以降
+
+/** 保存先スプレッドシートを取得する */
+function getSpreadsheet_() {
+  if (!SS_MEMO_) {
+    SS_MEMO_ = SPREADSHEET_ID
+      ? SpreadsheetApp.openById(SPREADSHEET_ID)
+      : SpreadsheetApp.getActiveSpreadsheet();
+  }
+  return SS_MEMO_;
+}
+
+/** シート名からシートを取得する（無ければ分かりやすいエラーにする） */
+function getSheet_(name) {
+  if (SHEET_MEMO_[name]) return SHEET_MEMO_[name];
+  const sheet = getSpreadsheet_().getSheetByName(name);
+  if (!sheet) {
+    throw new Error('シート「' + name + '」が見つかりません。メニュー「初期セットアップ」を実行してください。');
+  }
+  SHEET_MEMO_[name] = sheet;
+  return sheet;
+}
+
+/** 行の追加・削除など、読み取り結果をそのまま直せない書き込みの後に呼ぶ（次の読み取りでシートから読み直す） */
+function forgetSheetCache_() {
+  CASES_RAW_ = null;
+  LOTS_RAW_ = null;
+}
+
+function casesRaw_() {
+  if (!CASES_RAW_) {
+    const sheet = getSheet_(SHEET_NAMES.CASES);
+    const lastRow = sheet.getLastRow();
+    CASES_RAW_ = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, CASE_COLUMNS.length).getValues();
+  }
+  return CASES_RAW_;
+}
+
+function lotsRaw_() {
+  if (!LOTS_RAW_) {
+    const sheet = getSheet_(SHEET_NAMES.LOTS);
+    const lastRow = sheet.getLastRow();
+    LOTS_RAW_ = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, LOT_COLUMNS.length).getValues();
+  }
+  return LOTS_RAW_;
+}
+
+/** CASE_COLUMNS の key から列番号（1始まり）を返す */
+function colIndexOf_(key) {
+  const idx = CASE_COLUMNS.findIndex(function (c) { return c.key === key; });
+  if (idx < 0) throw new Error('列定義に存在しないキーです: ' + key);
+  return idx + 1;
+}
+
+/**
+ * 案件を1行追加する。
+ * 同時送信でIDが重複しないよう、スクリプトロックをかけて採番〜書き込みを行う。
+ * @param {Object} record CASE_COLUMNS の key をプロパティに持つオブジェクト（id は不要）
+ * @return {{id:number, row:number, url:string}}
+ */
+function appendCase_(record) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000); // 最大20秒待つ（取れなければ例外）
+  try {
+    const sheet = getSheet_(SHEET_NAMES.CASES);
+    if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; })); // 列を追加した後の初回
+    const id = getNextCaseId_(sheet);
+    const caseNo = getNextCaseNo_(sheet, record.receivedAt || new Date());
+    const data = Object.assign({}, record, { id: id, caseNo: caseNo });
+
+    const row = CASE_COLUMNS.map(function (c) {
+      return toCellValue_(data[c.key]);
+    });
+    sheet.appendRow(row);
+    SpreadsheetApp.flush();
+    forgetSheetCache_();
+
+    const rowNumber = sheet.getLastRow();
+    return { id: id, caseNo: caseNo, row: rowNumber, url: buildRowUrl_(sheet, rowNumber) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 物件明細シートに、案件の物件をまとめて追加する（1物件＝1行）。
+ * @param {number} caseId
+ * @param {Array<Object>} lots LOT_COLUMNS の key を持つオブジェクト（caseId, no は不要）
+ */
+function appendLots_(caseId, lots) {
+  if (!lots.length) return;
+  const sheet = getSheet_(SHEET_NAMES.LOTS);
+  if (sheet.getLastColumn() < LOT_COLUMNS.length) ensureHeaders_(sheet, LOT_COLUMNS.map(function (c) { return c.header; })); // 列を追加した後の初回
+  const rows = lots.map(function (lot, i) {
+    const data = Object.assign({}, lot, { caseId: caseId, no: i + 1 });
+    return LOT_COLUMNS.map(function (c) { return toCellValue_(data[c.key]); });
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, LOT_COLUMNS.length).setValues(rows);
+    forgetSheetCache_();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 保存した案件を上書きする（受付番号・ID・受付日時・行政班の対応欄はそのまま）。物件明細は入れ替える。
+ * @param {number} caseId
+ * @param {Object} record CASE_COLUMNS の key を持つオブジェクト（書く列だけ）
+ * @param {Array<Object>} lots appendLots_ と同じ形
+ */
+function replaceCase_(caseId, record, lots) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  let result;
+  try {
+    const sheet = getSheet_(SHEET_NAMES.CASES);
+    if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    const keep = ['id', 'caseNo', 'receivedAt', 'status', 'assignee', 'formalEstimate', 'adminMemo', 'appointments', 'localFee', 'localFeeNote', 'karteNo',
+      'estimatePdfUrl', 'estimatePdfAt', 'reportResult'];
+    const current = sheet.getRange(row, 1, 1, CASE_COLUMNS.length).getValues()[0];
+    const next = CASE_COLUMNS.map(function (c, i) {
+      return keep.indexOf(c.key) < 0 && record[c.key] !== undefined ? toCellValue_(record[c.key]) : current[i];
+    });
+    sheet.getRange(row, 1, 1, CASE_COLUMNS.length).setValues([next]);
+    // 物件明細：この案件の行を下から消して入れ直す
+    const ls = getSheet_(SHEET_NAMES.LOTS);
+    if (ls.getLastRow() >= 2) {
+      const ids = ls.getRange(2, 1, ls.getLastRow() - 1, 1).getValues();
+      for (let i = ids.length - 1; i >= 0; i--) if (Number(ids[i][0]) === Number(caseId)) ls.deleteRow(i + 2);
+    }
+    SpreadsheetApp.flush();
+    forgetSheetCache_();
+    result = { id: Number(caseId), caseNo: current[colIndexOf_('caseNo') - 1], row: row, url: buildRowUrl_(sheet, row) };
+  } finally {
+    lock.releaseLock();
+  }
+  appendLots_(caseId, lots); // appendLots_ は自分でロックを取る
+  return result;
+}
+
+/** 物件明細を案件IDごとにまとめて返す { 案件ID: [物件, ...] } */
+function getLotsByCase_() {
+  const result = {};
+  const tz = Session.getScriptTimeZone();
+  lotsRaw_().forEach(function (r) {
+    if (r[0] === '') return;
+    const lot = {};
+    // 「2020/06/01」などはシートが日付に変換して保存する。日付のまま画面へ渡すと google.script.run が失敗する（管理画面が読み込めない）ため文字にする
+    LOT_COLUMNS.forEach(function (c, i) { lot[c.key] = r[i] instanceof Date ? Utilities.formatDate(r[i], tz, 'yyyy/MM/dd') : r[i]; });
+    (result[lot.caseId] = result[lot.caseId] || []).push(lot);
+  });
+  return result;
+}
+
+/** 物件明細の行番号（案件ID・物件No で探す）。無ければ 0 */
+function findLotRow_(caseId, no) {
+  const v = lotsRaw_();
+  for (let i = 0; i < v.length; i++) {
+    if (Number(v[i][0]) === Number(caseId) && Number(v[i][1]) === Number(no)) return i + 2;
+  }
+  return 0;
+}
+
+/** 物件明細の1行の複数セルを更新する（patch は LOT_COLUMNS の key → 値） */
+function updateLotCells_(rowNumber, patch) {
+  const sheet = getSheet_(SHEET_NAMES.LOTS);
+  const raw = LOTS_RAW_ && LOTS_RAW_[rowNumber - 2];
+  Object.keys(patch).forEach(function (key) {
+    const idx = LOT_COLUMNS.map(function (c) { return c.key; }).indexOf(key);
+    if (idx < 0) return;
+    sheet.getRange(rowNumber, idx + 1).setValue(toCellValue_(patch[key])); // 書き込みはまとめて送られる（間に読み取りを挟まない）
+    if (raw) raw[idx] = patch[key];
+  });
+}
+
+/** 指定行の1セルを更新する（通知結果の書き戻しなどに使用） */
+function updateCaseCell_(rowNumber, key, value) {
+  getSheet_(SHEET_NAMES.CASES)
+    .getRange(rowNumber, colIndexOf_(key))
+    .setValue(toCellValue_(value));
+  const raw = CASES_RAW_ && CASES_RAW_[rowNumber - 2];
+  if (raw) raw[colIndexOf_(key) - 1] = value === undefined || value === null ? '' : (typeof value === 'string' && value.charAt(0) === "'" ? value.slice(1) : value); // シートは先頭の ' を表示しない
+}
+
+/** 指定行の複数セルをまとめて更新する（patch は CASE_COLUMNS の key → 値） */
+function updateCaseCells_(rowNumber, patch) {
+  Object.keys(patch).forEach(function (key) {
+    updateCaseCell_(rowNumber, key, patch[key]);
+  });
+}
+
+/**
+ * 案件を削除する：案件一覧の行と物件明細の行を「削除した案件」「削除した物件明細」シートへ移してから消す。
+ * 資料フォルダ（ドライブ）はそのまま残す。
+ * @return {{lots:number}} 移した物件の件数
+ */
+function deleteCase_(caseId, deletedBy) {
+  const ss = getSpreadsheet_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    const cases = getSheet_(SHEET_NAMES.CASES);
+    const now = new Date();
+
+    const delCases = getOrCreateSheet_(ss, SHEET_NAMES.DELETED_CASES);
+    ensureHeaders_(delCases, ['削除日時', '削除者'].concat(CASE_COLUMNS.map(function (c) { return c.header; })));
+    const caseValues = cases.getRange(row, 1, 1, CASE_COLUMNS.length).getValues()[0];
+    delCases.appendRow([now, deletedBy].concat(caseValues));
+
+    // 物件明細：下の行から消す（行番号がずれないように）
+    const lots = getSheet_(SHEET_NAMES.LOTS);
+    const lastRow = lots.getLastRow();
+    const lotRows = [];
+    if (lastRow >= 2) {
+      lots.getRange(2, 1, lastRow - 1, LOT_COLUMNS.length).getValues().forEach(function (r, i) {
+        if (Number(r[0]) === Number(caseId)) lotRows.push({ row: i + 2, values: r });
+      });
+    }
+    if (lotRows.length) {
+      const delLots = getOrCreateSheet_(ss, SHEET_NAMES.DELETED_LOTS);
+      ensureHeaders_(delLots, ['削除日時'].concat(LOT_COLUMNS.map(function (c) { return c.header; })));
+      lotRows.forEach(function (l) { delLots.appendRow([now].concat(l.values)); });
+      lotRows.slice().reverse().forEach(function (l) { lots.deleteRow(l.row); });
+    }
+    cases.deleteRow(row);
+    SpreadsheetApp.flush();
+    forgetSheetCache_();
+    return { lots: lotRows.length };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 個別のデータ修正（指定の受付番号の案件だけ）：許可・届出の履歴がある物件の「再申請の要否」が空欄なら「不要」にし、
+ * 物件明細から概算見積を計算し直して案件一覧に書き込む。ほかの案件・ほかの列は変更しない。
+ * @return {string} 結果（スクリプトプロパティ FIX_261001_02_RESULT に記録）
+ */
+function fixCaseSaiShinseiAndRecalc_(caseNo) {
+  const c = getAllCases_().filter(function (x) { return String(x.caseNo) === caseNo; })[0];
+  if (!c) return caseNo + '：案件なし';
+  const lotsSheet = getSheet_(SHEET_NAMES.LOTS);
+  ensureHeaders_(lotsSheet, LOT_COLUMNS.map(function (x) { return x.header; }));
+  const col = function (key) { return LOT_COLUMNS.findIndex(function (x) { return x.key === key; }); };
+  const values = lotsSheet.getRange(2, 1, lotsSheet.getLastRow() - 1, LOT_COLUMNS.length).getValues();
+  let fixed = 0;
+  values.forEach(function (r, i) {
+    if (Number(r[0]) !== Number(c.id)) return;
+    if (r[col('tenyoRireki')] === 'あり' && !r[col('saiShinsei')]) {
+      lotsSheet.getRange(i + 2, col('saiShinsei') + 1).setValue('不要');
+      fixed++;
+    }
+  });
+  SpreadsheetApp.flush();
+  forgetSheetCache_();
+  // 概算は共通の再計算で（物件明細の内容と現在の金額設定から）
+  recalcCaseEstimate_(c, getLotsByCase_()[c.id]);
+  const est = getAllCases_().filter(function (x) { return x.id === c.id; })[0].estimate;
+  return caseNo + '：再申請の要否を' + fixed + '筆「不要」に／概算 ' + est;
+}
+
+/** 案件IDから行番号を探す（見つからなければ 0） */
+function findCaseRow_(caseId) {
+  const rows = casesRaw_();
+  const col = colIndexOf_('id') - 1;
+  for (let i = 0; i < rows.length; i++) {
+    if (Number(rows[i][col]) === Number(caseId)) return i + 2;
+  }
+  return 0;
+}
+
+/**
+ * 案件一覧の全行を、CASE_COLUMNS の key を持つオブジェクトの配列で返す（新しい順）。
+ * 日付は画面へ渡せるよう文字列に変換する。
+ */
+function getAllCases_() {
+  const values = casesRaw_();
+  const tz = Session.getScriptTimeZone();
+  return values
+    .filter(function (r) { return r[0] !== ''; })
+    .map(function (r) {
+      const obj = {};
+      CASE_COLUMNS.forEach(function (c, i) {
+        const v = r[i];
+        obj[c.key] = v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy/MM/dd HH:mm') : v;
+      });
+      return obj;
+    })
+    .reverse();
+}
+
+/**
+ * 受付番号を返す：受付日（yyMMdd）-その日の連番2桁。例）260930-01
+ * 削除した案件の番号も使わない。
+ */
+function getNextCaseNo_(sheet, date) {
+  const prefix = Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyMMdd') + '-';
+  const nos = caseNoColumn_(sheet, 0).concat(caseNoColumn_(getSpreadsheet_().getSheetByName(SHEET_NAMES.DELETED_CASES), 2));
+  const max = nos.reduce(function (m, v) {
+    const s = String(v);
+    return s.indexOf(prefix) === 0 ? Math.max(m, Number(s.slice(prefix.length)) || 0) : m;
+  }, 0);
+  return prefix + ('0' + (max + 1)).slice(-2);
+}
+
+/** シートの受付番号の列の値（offset：削除した案件シートは先頭に2列多い） */
+function caseNoColumn_(sheet, offset) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const col = offset + colIndexOf_('caseNo');
+  if (sheet.getLastColumn() < col) return [];
+  return sheet.getRange(2, col, sheet.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; });
+}
+
+/** 受付番号の無い既存の案件に、受付日時から受付番号を付ける（受付番号の導入前の案件用。1回だけ） */
+function fillCaseNos_() {
+  const sheet = getSheet_(SHEET_NAMES.CASES);
+  ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const idCol = colIndexOf_('id'), recCol = colIndexOf_('receivedAt'), noCol = colIndexOf_('caseNo');
+  const rows = sheet.getRange(2, 1, lastRow - 1, CASE_COLUMNS.length).getValues()
+    .map(function (r, i) { return { row: i + 2, id: Number(r[idCol - 1]), at: r[recCol - 1], no: r[noCol - 1] }; })
+    .filter(function (x) { return x.id && !x.no && x.at instanceof Date; })
+    .sort(function (a, b) { return a.id - b.id; });
+  rows.forEach(function (x) {
+    sheet.getRange(x.row, noCol).setValue(getNextCaseNo_(sheet, x.at));
+  });
+  forgetSheetCache_();
+  return rows.length;
+}
+
+/** 次の案件IDを返す（ID列の最大値 + 1） */
+function getNextCaseId_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const ids = lastRow >= 2 ? sheet.getRange(2, colIndexOf_('id'), lastRow - 1, 1).getValues() : [];
+  // 削除した案件のIDも使わない（Chat 通知の「管理画面で開く」リンクが別の案件を指さないように）
+  const del = getSpreadsheet_().getSheetByName(SHEET_NAMES.DELETED_CASES);
+  const delIds = del && del.getLastRow() >= 2 ? del.getRange(2, 2 + colIndexOf_('id'), del.getLastRow() - 1, 1).getValues() : [];
+  const max = ids.concat(delIds).reduce(function (m, r) {
+    const n = Number(r[0]);
+    return isNaN(n) ? m : Math.max(m, n);
+  }, 0);
+  return max + 1;
+}
+
+/** 案件行を直接開けるURL（シートID＋セル範囲指定） */
+function buildRowUrl_(sheet, rowNumber) {
+  return getSpreadsheet_().getUrl() + '#gid=' + sheet.getSheetId() + '&range=A' + rowNumber;
+}
+
+/**
+ * セルに書き込む値を整える。
+ * ・undefined/null は空欄
+ * ・「=」「+」「-」「@」で始まる文字列は数式として解釈されないよう先頭に ' を付ける
+ */
+function toCellValue_(value) {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string' && /^[=+\-@]/.test(value)) return "'" + value;
+  return value;
+}
+
+/**
+ * マスタシートの内容を返す（画面のプルダウン用）。
+ * @return {Array<{prefecture:string, municipality:string, cityPlanUrl:string, noshinUrl:string}>}
+ */
+function getMasterList_() {
+  const sheet = getSheet_(SHEET_NAMES.MASTER);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const cols = Math.min(Math.max(sheet.getLastColumn(), 4), MASTER_HEADERS.length);
+  return sheet.getRange(2, 1, lastRow - 1, cols).getDisplayValues()
+    .filter(function (r) { return r[0] && r[1]; }) // 都道府県・市区町村が空の行は無視
+    .map(function (r) {
+      return {
+        prefecture: String(r[0]).trim(),
+        municipality: String(r[1]).trim(),
+        cityPlanUrl: safeUrl_(r[2]),
+        noshinUrl: safeUrl_(r[3]),
+        nogyoTel: String(r[5] || '').replace(/[^0-9０-９\-－()（）]/g, '').slice(0, 20),
+      };
+    });
+}
+
+/** http(s) で始まるURLだけを通す（それ以外は空文字） */
+function safeUrl_(value) {
+  const s = String(value || '').trim();
+  return /^https?:\/\//i.test(s) ? s : '';
+}
+
+
+// ===== Estimate.gs =====
+/**
+ * ============================================================
+ *  概算見積の計算（ルールベース）
+ * ============================================================
+ *  概算見積金額 = 基本報酬 + 各種加算の合計
+ *  金額・項目名は「見積設定」シートで変更できます（再デプロイ不要）。
+ *  シートの値が読めない項目は、Config.gs の DEFAULT_FEES を使います。
+ *  AI等による自動判定は行わず、入力値だけで機械的に計算します。
+ */
+
+/**
+ * 見積設定を読み込む。
+ * @return {Object<string, {label:string, amount:number, zone:string}>} key → 設定
+ */
+function getFeeSettings_() {
+  const fees = {};
+  DEFAULT_FEES.forEach(function (d) {
+    fees[d.key] = { label: d.label, amount: d.amount, zone: d.zone || '', surveyZone: d.surveyZone || '' };
+  });
+
+  const sheet = getSpreadsheet_().getSheetByName(SHEET_NAMES.FEES);
+  if (!sheet || sheet.getLastRow() < 2) return fees;
+
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues().forEach(function (r) {
+    const key = String(r[0]).trim();
+    if (!fees[key]) return; // 知らないキーは無視
+    const label = String(r[1]).trim();
+    const amount = Number(String(r[2]).replace(/[,，¥円\s]/g, ''));
+    if (label) fees[key].label = label;
+    if (r[2] !== '' && !isNaN(amount) && amount >= 0) fees[key].amount = amount;
+  });
+  return fees;
+}
+
+/**
+ * 入力内容から概算見積を計算する（複数物件対応）。
+ *  ・基本報酬：区域区分ごとに1回（同じ区域の物件は1つの申請にまとめる想定）
+ *  ・物件追加：申請数を超える物件1筆ごとに加算
+ *  ・農振除外／地区除外：該当する物件が1つでもあれば1回加算（地区除外は「分からない」も加算）
+ *  ・地元同意書（自治会・水利組合等）：土地改良区に確認して「必要」「未確認」、または土地改良区が「分からない」物件があれば1回加算
+ *  ・事後手続き：許可の区域（調整・非線引き）に該当物件があれば1回加算（届出では不要）
+ * @param {Object} input normalizeInput_() で整えた入力（input.lots に物件の配列）
+ * @return {{ok:boolean, total:number, items:Array<{label:string, amount:number}>, notes:string[]}}
+ */
+function calculateEstimate_(input) {
+  const fees = getFeeSettings_();
+  const allLots = input.lots || [];
+  // 許可・届出の履歴がある物件は、改めて許可・届出が必要と回答があった場合以外は計上しない（物件番号は元のまま）
+  const lots = allLots.map(function (l, i) { return Object.assign({}, l, { __i: i }); })
+    .filter(function (l) { return !(l.tenyoRireki === 'あり' && l.saiShinsei !== '必要') && l.hinochi !== '可能'; });
+  // ↑ 非農地証明（現況証明）で対応できる物件も、許可申請は計上しない（現況証明を計上）
+  const items = [];
+  const notes = [];
+  const item = function (key, times) {
+    const n = times || 1;
+    return { label: fees[key].label + (n > 1 ? ' × ' + n : ''), amount: fees[key].amount * n };
+  };
+  const lotName = function (lot, i) { return lotName_(lot, i); };
+
+  if (!allLots.length || allLots.some(function (l) { return !l.zone; })) {
+    return { ok: false, total: 0, items: [], notes: ['すべての物件の区域区分を選択すると概算見積が表示されます。'] };
+  }
+
+  // --- 1. 基本報酬（区域区分ごとに1回） ---
+  const zones = [];
+  lots.forEach(function (lot, i) {
+    let zone = lot.zone;
+    if (zone === '分からない') {
+      zone = FALLBACK_ZONE_FOR_UNKNOWN;
+      notes.push(lotName(lot, i) + '：区域不明のため届出として仮計算しています。');
+    }
+    if (zones.indexOf(zone) < 0) zones.push(zone);
+  });
+  const zoneOf = function (l) { return l.zone === '分からない' ? FALLBACK_ZONE_FOR_UNKNOWN : l.zone; };
+  // 転用目的（市街化調整区域で選ぶ）が異なる物件は別申請。区域区分ごとに目的の種類を数える（未回答は数えない）
+  const purposesOf = function (z) {
+    const ps = [];
+    lots.forEach(function (l) { if (zoneOf(l) === z && l.purpose && ps.indexOf(l.purpose) < 0) ps.push(l.purpose); });
+    return ps;
+  };
+  for (let z = 0; z < zones.length; z++) {
+    const baseKey = Object.keys(fees).filter(function (k) { return fees[k].zone === zones[z]; })[0];
+    if (!baseKey) {
+      return { ok: false, total: 0, items: [], notes: ['区域「' + zones[z] + '」の基本報酬が設定されていません。'] };
+    }
+    const base = item(baseKey);
+    if (input.trust) { // 信託手続きに付随する場合は農地転用の基本報酬を1.5倍
+      base.label += '（信託手続き付随）';
+      base.amount = Math.round(base.amount * TRUST_MULTIPLIER);
+    }
+    items.push(base);
+    const ps = purposesOf(zones[z]);
+    ps.slice(1).forEach(function (pp) { // 2件目以降の申請：基本報酬の一定割合
+      items.push({ label: fees[baseKey].label + '・別申請（転用目的：' + pp + '）', amount: Math.round(base.amount * SEPARATE_APPLICATION_RATE) });
+    });
+    if (ps.length > 1) {
+      notes.push('転用目的が異なるため（' + ps.join('・') + '）、' + zones[z] + 'の申請を' + ps.length + '件として計算しています（2件目以降は基本報酬の' +
+        Math.round(SEPARATE_APPLICATION_RATE * 100) + '%）。');
+    }
+  }
+  // 調査実費（区域区分ごとに1回）
+  zones.forEach(function (z) {
+    const surveyKey = Object.keys(fees).filter(function (k) { return fees[k].surveyZone === z; })[0];
+    if (surveyKey && fees[surveyKey].amount > 0) items.push(cost(item(surveyKey)));
+  });
+  if (zones.length > 1) {
+    notes.push('区域区分が異なるため、申請' + zones.length + '件として計算しています。');
+  }
+
+  // --- 2. 筆数加算（許可・届出で別単価） ---
+  // 依頼画面で「筆数加算をする」にチェックしたときだけ（1申請で足りるなら加算しない）。
+  // 申請（区域区分）ごとに2筆目以降を数え、許可と届出で別の単価にする
+  if (input.extraLotFee === true) {
+    let todoke = 0, kyoka = 0;
+    zones.forEach(function (z) {
+      const n = lots.filter(function (l) { return zoneOf(l) === z; }).length - Math.max(1, purposesOf(z).length); // 申請ごとの2筆目以降
+      if (n <= 0) return;
+      if (PERMIT_ZONES.indexOf(z) >= 0) kyoka += n; else todoke += n;
+    });
+    if (kyoka > 0) items.push(item('ADD_PER_EXTRA_LOT', kyoka));
+    if (todoke > 0) items.push(item('ADD_PER_EXTRA_LOT_TODOKE', todoke));
+  }
+
+  // --- 3. 農振除外 加算 ---
+  const noshinYes = lots.filter(function (l) { return l.isNoshin === 'はい'; });
+  if (noshinYes.length) {
+    items.push(item('ADD_NOSHIN'));
+    if (noshinYes.some(function (l) { return l.zone === '市街化区域'; })) {
+      notes.push('市街化区域に農振農用地は通常ありません。農振図をご確認ください。');
+    }
+  } else if (lots.some(function (l) { return l.isNoshin === '分からない'; })) {
+    notes.push('農振農用地の場合は +' + formatYen_(fees.ADD_NOSHIN.amount) + '（農振除外）が見込まれます。');
+  }
+
+  // --- 4. 土地改良区 地区除外 加算（「分からない」も加算。土地改良区に「受益地に該当しない」と確認できた物件は除く） ---
+  // 土地改良区ごとに1件（複数の改良区にかかる場合は改良区の数だけ）。受益地に該当しない・手続き不要と分かった改良区は除く
+  const kairyoNames = {};
+  let kairyoUnknown = false, kairyoConfirmed = false;
+  lots.forEach(function (l) {
+    if (l.landImprovement === '分からない') { kairyoNames['（不明）'] = true; kairyoUnknown = true; return; }
+    kairyoEntries_(l).forEach(function (e) {
+      if (e.kairyoBenefit === '該当しない' || e.kairyoProcedure === '不要') return;
+      kairyoNames[e.kairyoName || '土地改良区'] = true;
+      if (e.kairyoBenefit === '該当する') kairyoConfirmed = true; else kairyoUnknown = true;
+    });
+  });
+  const kairyoCount = Object.keys(kairyoNames).length;
+  if (kairyoCount) {
+    items.push(item('ADD_LAND_IMPROVEMENT', kairyoCount));
+    if (kairyoUnknown && !kairyoConfirmed) notes.push('土地改良区の受益地か未確認のため加算しています。該当しない場合は減額となります。');
+  }
+
+
+  // --- 4-2. 地元同意書（自治会・水利組合等）加算：土地改良区へ確認。「必要」「未確認」、土地改良区が「分からない」で1回加算 ---
+  const consentLots = lots.filter(function (l) {
+    return l.landImprovement === '分からない' || kairyoEntries_(l).some(function (e) { return e.localConsent !== '不要'; }) ||
+      (!!l.drainLocalConsent && l.drainLocalConsent !== '不要'); // 排水に伴う地元承諾が必要・未確認の場合も
+  });
+  if (consentLots.length) {
+    // 同意（押印）が必要な人数分（地元関係者＋排水の地元承諾者。同じ人＝氏名と電話が同じなら1人）
+    const people = {};
+    consentLots.forEach(function (l) {
+      const fromKairyo = [];
+      kairyoEntries_(l).forEach(function (e) { if (e.localConsent === '必要') fromKairyo.push.apply(fromKairyo, e.localContacts || []); });
+      [].concat(fromKairyo, l.drainLocalConsent === '必要' ? l.drainContacts || [] : [])
+        .forEach(function (p) {
+          const key = String(p.name || '').replace(/\s/g, '') + '|' + String(p.tel || '').replace(/\D/g, '');
+          if (key !== '|') people[key] = true;
+        });
+    });
+    const count = Object.keys(people).length;
+    items.push(item('ADD_WATER_ASSOCIATION', Math.max(1, count)));
+    if (!count) {
+      notes.push(consentLots.some(function (l) { return kairyoEntries_(l).some(function (e) { return e.localConsent === '必要'; }) || l.drainLocalConsent === '必要'; })
+        ? '地元関係者の同意（押印）が必要な方の人数が未入力のため、1人分で計上しています。人数分の加算となります。'
+        : '地元関係者の同意（押印）が未確認のため1人分で加算しています。不要な場合は減額、複数の方が必要な場合は人数分の加算となります。');
+    }
+  }
+
+  // --- 4-3. 分家住宅：分家建築許可（調整区域）・建築許可の実費 ---
+  const bunkeLots = lots.filter(function (l) { return l.purpose === '分家住宅'; }); // 目的は調整区域の物件のみ
+  if (bunkeLots.length) {
+    items.push(item('ADD_BUNKE'));
+    items.push(cost(item('COST_KENCHIKU')));
+    notes.push('計画により開発行為を伴う場合は、別途見積となります。');
+  }
+  // --- 4-4. 排水同意（同意書）：土地改良区ごとに確認。分家住宅は未確認の改良区も仮に計上 ---
+  const drainTo = {};
+  let drainUnknown = false;
+  lots.forEach(function (l) {
+    const bunke = l.purpose === '分家住宅';
+    const entries = kairyoEntries_(l);
+    if (entries.length) {
+      entries.forEach(function (e) {
+        const ans = e.kairyoDrain || '';
+        if (ans === '必要' || (bunke && ans !== '不要')) {
+          drainTo[e.kairyoName || '土地改良区'] = true;
+          if (ans !== '必要') drainUnknown = true;
+        }
+      });
+    } else if (bunke && l.drainConsent !== '不要') { // 土地改良区にかからない分家住宅
+      drainTo['（排水先）'] = true;
+      if (l.drainConsent !== '必要') drainUnknown = true;
+    }
+  });
+  const drainN = Object.keys(drainTo).length;
+  if (drainN) {
+    items.push(item('ADD_DRAINAGE', drainN));
+    if (drainUnknown) notes.push('排水同意（同意書）の要否が未確認の土地改良区（排水先）があるため加算しています。不要な場合は減額となります。');
+  }
+  // --- 0. 事前相談等（報酬の最初）：分家住宅 40,000円、農地転用許可のみ 25,000円 ---
+  if (bunkeLots.length) items.unshift(item('ADD_JIZEN_BUNKE'));
+  else if (lots.some(function (l) { return PERMIT_ZONES.indexOf(l.zone) >= 0; })) items.unshift(item('ADD_JIZEN_KYOKA'));
+  lots.forEach(function (l, i) {
+    // 現況利用と「既に転用済み」の食い違い
+    if (CONVERTED_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'いいえ') {
+      notes.push(lotName(l, i) + '：現況が「' + l.landUse + '」のため既に転用している状態です（「既に転用済み」が「いいえ」になっています）。');
+    } else if (FARMLAND_LAND_USES.indexOf(l.landUse) >= 0 && l.isConverted === 'はい') {
+      notes.push(lotName(l, i) + '：現況が農地（' + l.landUse + '）なのに「既に転用済み」が「はい」になっています。ご確認ください。');
+    }
+    if (l.noutiKubun === '甲種' || l.noutiKubun === '第1種') { // 1つだけの回答のとき（複数なら判断しない）
+      notes.push(lotName(l, i) + '：' + l.noutiKubun + '農地は原則として転用が認められません（例外要件に該当する場合を除く）。');
+    }
+    if (l.hojo8nen === '未経過') {
+      notes.push(lotName(l, i) + '：土地改良事業の完了から8年を経過していないため、農振除外の要件を満たしません。');
+    }
+    if (l.jogaiUketsuke) notes.push(lotName(l, i) + '：農振除外の受付 ' + l.jogaiUketsuke + '。');
+    if (l.tenyoUketsuke) notes.push(lotName(l, i) + '：農地転用の受付 ' + l.tenyoUketsuke + '。');
+    if (l.jogaiKanou === '難しい') {
+      notes.push(lotName(l, i) + '：農業委員会より農振除外は難しいとの回答があります' + (l.jogaiNote ? '（' + l.jogaiNote + '）' : '') + '。');
+    }
+    if (l.tenyoKanou === '難しい') {
+      notes.push(lotName(l, i) + '：農業委員会より転用は難しいとの回答があります' + (l.kanouNote ? '（' + l.kanouNote + '）' : '') + '。');
+    }
+  });
+
+  // --- 5. 現況証明（非農地証明）：市街化区域外で、既に宅地など農地以外として利用されている物件 ---
+  const isConvertedLot = function (l) {
+    return l.isConverted === 'はい' || CONVERTED_LAND_USES.indexOf(l.landUse) >= 0;
+  };
+  // 非農地証明で対応できるかは農業委員会に聞かないと分からない。「可能」と回答があった物件だけ現況証明を計上する
+  const genkyo = allLots.filter(function (l) { return l.hinochi === '可能'; });
+  if (genkyo.length) items.push(item('ADD_GENKYO'));
+  allLots.forEach(function (l, i) {
+    if (l.hinochi === '可能') {
+      const req = [l.hinochiYears ? '農地以外の利用 ' + l.hinochiYears : '', l.hinochiDocs, l.hinochiNote].filter(String).join('／');
+      notes.push(lotName_(l, i) + '：非農地証明（現況証明）で対応できるとの回答のため、許可申請に代えて現況証明で計上しています' + (req ? '（要件：' + req + '）' : '') + '。');
+    } else if (l.hinochi === '不可') {
+      notes.push(lotName_(l, i) + '：非農地証明では対応できないとの回答のため、無断転用の是正として許可申請で計上しています' +
+        (l.zeseiKyoka === 'できない' ? '。ただし是正の許可申請もできないとの回答です（要相談）' : l.zeseiKyoka === '要相談・未確認' ? '（是正の許可申請の可否は要確認）' : '') +
+        (l.zeseiNote ? '（' + l.zeseiNote + '）' : '') + '。');
+    } else if (isConvertedLot(l) && l.tenyoRireki !== 'あり' && l.zone !== '市街化区域') {
+      notes.push(lotName_(l, i) + '：現況が農地以外です。非農地証明（現況証明）で対応できる場合は、許可申請に代えて現況証明（' +
+        formatYen_(fees.ADD_GENKYO.amount) + '）となります（農業委員会に確認）。');
+    }
+  });
+
+  // --- 5b. 地目変更登記：チェックした物件があれば1回（2筆以上の筆数加算は都度調整） ---
+  // 地目変更登記は農地転用とは別の手続きのため、許可・届出の履歴がある物件も含めて数える
+  // 不動産登記令4条ただし書：同じ登記所で、登記原因とその日付が同じ物件は1件の申請。登記所か原因日付が違えば別申請
+  const chimokuLots = allLots.filter(function (l) { return l.chimokuHenko === true; });
+  const chimokuApps = [];
+  chimokuLots.forEach(function (l) {
+    const office = toukiOfficeOf_(l);
+    // 原因日付：今回の転用は工事完了の日（同じ計画なら同じ日として計算）。既に転用済みは転用した時期（未入力は同じ日として計算）
+    const done = l.isConverted === 'はい';
+    const date = done ? String(l.chimokuDate || '').replace(/\s/g, '') : '';
+    const key = office + '|' + (done ? 'done:' + date : 'new');
+    let app = chimokuApps.filter(function (a) { return a.key === key; })[0];
+    if (!app) { app = { key: key, office: office, done: done, date: date, lots: [] }; chimokuApps.push(app); }
+    app.lots.push(l);
+  });
+  let chimokuExtra = 0;
+  chimokuApps.forEach(function (a, k) {
+    const why = [chimokuApps.some(function (b) { return b.office !== a.office; }) ? a.office : '',
+      a.done ? '既に転用済み' + (a.date ? '・' + a.date : '') : (chimokuApps.some(function (b) { return b.done; }) ? '今回の転用' : '')].filter(String).join('・');
+    if (k === 0) items.push(item('ADD_CHIMOKU'));
+    else items.push({ label: fees.ADD_CHIMOKU.label + '・別申請（' + (why || '原因日付が異なる') + '）', amount: Math.round(fees.ADD_CHIMOKU.amount * SEPARATE_APPLICATION_RATE) });
+    chimokuExtra += Math.max(0, a.lots.length - 2); // 申請ごとに2筆までは加算なし、3筆目から1筆ごとに加算
+  });
+  if (chimokuExtra > 0) items.push(item('ADD_CHIMOKU_EXTRA', chimokuExtra));
+  if (chimokuApps.length > 1) {
+    notes.push('地目変更登記は登記所または原因日付が異なるため、申請' + chimokuApps.length + '件として計算しています（2件目以降は' +
+      Math.round(SEPARATE_APPLICATION_RATE * 100) + '%）：' + chimokuApps.map(function (a) {
+        return a.lots.map(function (l) { return lotName_(l, l.__i !== undefined ? l.__i : allLots.indexOf(l)); }).join('・') + '（' + a.office + (a.done ? '・既に転用済み' + (a.date ? ' ' + a.date : '') : '') + '）';
+      }).join('／') + '。');
+  }
+  if (chimokuApps.some(function (a) { return a.done && !a.date; })) {
+    notes.push('地目変更登記：既に転用済みの物件で原因日付（転用した時期）が未入力のものは、同じ日として1件で計算しています。日付が異なる場合は別申請です。');
+  }
+
+  // --- 5c. 地元協力金等（管理画面で入力した金額。実費） ---
+  if (Number(input.localFee) > 0) {
+    items.push(cost({ label: '地元協力金等' + (input.localFeeNote ? '（' + input.localFeeNote + '）' : ''), amount: Math.round(Number(input.localFee)) }));
+  }
+
+  // --- 6. 実費：地区除外決済金（申請地の面積合計から計算）・土地改良区の手数料・用水の手数料 ---
+  addActualCosts_(lots, items, notes);
+
+  // 報酬（税抜）＋消費税＋実費（非課税）
+  const costTotal = items.filter(function (it) { return it.kind === 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
+  const feeSubtotal = items.filter(function (it) { return it.kind !== 'cost'; }).reduce(function (sum, it) { return sum + it.amount; }, 0);
+  const tax = Math.floor(feeSubtotal * TAX_RATE);
+  const total = feeSubtotal + tax + costTotal;
+  notes.push('概算です。正式なお見積りは調査後にご案内いたします。');
+  if (!lots.length) notes.push('すべての物件に許可・届出の履歴があるため、農地転用の手続きは計上していません。');
+  // 始末書（無断転用）の提出が必要な物件
+  allLots.forEach(function (l, i) {
+    if (l.shimatsusho !== '必要') return;
+    notes.push(lotName(l, i) + '：農業委員会より始末書の提出が必要との回答があります' +
+      (l.shimatsuStamp === '必要' ? '（押印が必要' + (l.shimatsuNote ? '：' + l.shimatsuNote : '') + '）' : l.shimatsuNote ? '（' + l.shimatsuNote + '）' : '') + '。');
+  });
+  // 最後に：過去の転用届出・許可の履歴がある物件（計上の有無も示す）
+  allLots.forEach(function (l, i) {
+    if (l.tenyoRireki !== 'あり') return;
+    const kind = l.zone === '市街化区域' ? '転用届出の受理' : l.zone === '分からない' ? '転用届出の受理または転用許可' : '転用許可';
+    const detail = [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・');
+    notes.push(lotName(l, i) + '：過去に' + kind + 'の履歴があります' + (detail ? '（' + detail + '）' : '') +
+      (l.saiShinsei === '必要' ? '。再申請（改めての許可・届出）が必要との回答です' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : l.saiShinsei === '不要' ? '。再申請は不要との回答のため、見積に計上していません' + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : '') + '。'
+        : '。許可・届出済みのため、見積に計上していません（再申請が必要な場合は加算）。'));
+  });
+  return { ok: true, total: total, feeSubtotal: feeSubtotal, tax: tax, taxRate: TAX_RATE, feeTotal: feeSubtotal + tax,
+    costTotal: costTotal, items: items, notes: notes };
+}
+
+/**
+ * 物件明細シートの1行（getLotsByCase_ の形）を、見積の計算に使う形に戻す。
+ * 金額はシートに保存した文字（「1㎡あたり 329円（…）」「1申請あたり 1,100円／…」「10,000円／…」）から読み取る。
+ */
+function lotRowToEstimateLot_(r) {
+  const bool = function (v) { return v === true ? 'はい' : v === false ? 'いいえ' : v === '不明' ? '分からない' : String(v || ''); };
+  const yen = function (s) { const m = String(s || '').match(/([\d,]+)円/); return m ? Number(m[1].replace(/,/g, '')) : 0; };
+  const st = String(r.kairyoSettlementNote || '');
+  const fee = String(r.kairyoFee || '');
+  const lot = {
+    lotNumber: String(r.lotNumber || ''),
+    area: Number(String(r.area === undefined ? '' : r.area).replace(/,/g, '')) || null,
+    isNoshin: bool(r.isNoshin), isConverted: bool(r.isConverted),
+    landUse: String(r.landUse || '').replace(/（.*$/, ''), // 「駐車場（補足）」→「駐車場」
+    chimokuHenko: r.chimokuHenko === 'はい' || r.chimokuHenko === true,
+    settlementAmount: r.kairyoSettlement === '必要' ? yen(st) : 0,
+    settlementUnit: /^1㎡あたり/.test(st) ? '㎡あたり' : /^1haあたり/.test(st) ? 'haあたり' : '総額',
+    kairyoFeeAmount: yen(fee),
+    kairyoFeeUnit: /^1筆あたり/.test(fee) ? '1筆あたり' : '1申請あたり',
+    drainFeeAmount: yen(r.drainFee),
+    localContacts: contactLines_(r.localContacts),
+    kairyoExtra: (function () { try { return JSON.parse(r.kairyoExtraData || '[]'); } catch (e) { return []; } })(),
+    drainContacts: contactLines_(r.drainContacts),
+    prefecture: String(r.prefecture || ''), municipality: String(r.municipality || ''), address: String(r.address || ''),
+    chimokuDate: String(r.chimokuDate || ''),
+  };
+  ['zone', 'landImprovement', 'kairyoBenefit', 'kairyoProcedure', 'kairyoName', 'kairyoDrain', 'localConsent', 'iinStamp', 'purpose',
+    'drainConsent', 'drainLocalConsent', 'drainName', 'jogaiKanou', 'jogaiNote', 'jogaiUketsuke', 'tenyoKanou', 'kanouNote',
+    'noutiKubun', 'tenyoUketsuke', 'tenyoRireki', 'rirekiDate', 'rirekiNo', 'rirekiNote', 'saiShinsei', 'saiShinseiNote',
+    'shimatsusho', 'shimatsuStamp', 'shimatsuNote', 'hojoKuiki', 'hojo8nen',
+    'hinochi', 'hinochiYears', 'hinochiDocs', 'hinochiNote', 'zeseiKyoka', 'zeseiNote'].forEach(function (k) {
+    lot[k] = r[k] === undefined || r[k] === null ? '' : String(r[k]);
+  });
+  return lot;
+}
+
+/** 物件の不動産登記の管轄（登記所名）。TOUKI_OFFICES に無い県・市区町村は「都道府県＋市区町村」をそのまま使う */
+function toukiOfficeOf_(l) {
+  const pref = String(l.prefecture || '');
+  const text = (String(l.municipality || '') + String(l.address || '')).replace(/[\s　]/g, '');
+  const table = TOUKI_OFFICES[pref] || (pref ? null : TOUKI_OFFICES['愛知県']);
+  if (table) {
+    let hit = '', best = 0;
+    Object.keys(table).forEach(function (office) {
+      table[office].forEach(function (tok) { if (tok.length > best && text.indexOf(tok) >= 0) { hit = office; best = tok.length; } });
+    });
+    if (hit) return hit;
+  }
+  return (pref + String(l.municipality || '')) || '（所在未入力）';
+}
+
+/** シートの「氏名／住所／電話」の行 → [{name, address, tel}] */
+function contactLines_(text) {
+  return String(text || '').split('\n').filter(function (x) { return x.trim(); }).map(function (line) {
+    const f = line.split('／');
+    return { name: f[0] || '', address: f[1] || '', tel: f[2] || '' };
+  });
+}
+
+/**
+ * 1件の概算を、物件明細シートの内容と現在の金額設定で計算し直す。変わったときだけ書き込む。
+ * @return {boolean} 書き込んだか
+ */
+function recalcCaseEstimate_(c, lotRows) {
+  if (!lotRows || !lotRows.length) return false;
+  const est = calculateEstimate_({
+    lots: lotRows.map(lotRowToEstimateLot_), trust: c.trust === true, extraLotFee: c.extraLotFee === 'あり',
+    localFee: c.localFee, localFeeNote: c.localFeeNote,
+  });
+  const total = est.ok ? est.total : '';
+  const detail = estimateToText_(est);
+  if (String(c.estimate) === String(total) && String(c.estimateDetail) === detail) return false;
+  const row = findCaseRow_(c.id);
+  if (!row) return false;
+  updateCaseCells_(row, { estimate: total, estimateDetail: detail });
+  return true;
+}
+
+/** 正式見積を提示する前の案件（RECALC_STATUSES）の概算を、現在の金額設定で計算し直す。@return {number} 変わった件数 */
+function recalcOpenEstimates_() {
+  const lotsBy = getLotsByCase_();
+  let n = 0;
+  getAllCases_().forEach(function (c) {
+    if (RECALC_STATUSES.indexOf(c.status) < 0) return;
+    if (recalcCaseEstimate_(c, lotsBy[c.id])) n++;
+  });
+  SpreadsheetApp.flush();
+  return n;
+}
+
+/** 物件の呼び名（物件1（123番1）） */
+function lotName_(l, i) {
+  return '物件' + ((l.__i !== undefined ? l.__i : i) + 1) + (l.lotNumber ? '（' + l.lotNumber + '）' : '');
+}
+
+/** 見積の行を「実費」にする */
+function cost(it) {
+  it.kind = 'cost';
+  return it;
+}
+
+/**
+ * 実費を見積に加える。
+ *  ・地区除外決済金：筆ごとに、その筆の単価 × その筆の面積（総額の場合はそのまま）
+ *  ・土地改良区の手数料等：土地改良区ごとに、1申請あたりなら1回、1筆あたりなら受益地の筆数分
+ *  ・用水の手数料（排水承諾）：用水ごとに1回
+ */
+function addActualCosts_(lots, items, notes) {
+  const groups = {};
+  lots.forEach(function (lot, i) {
+    kairyoEntries_(lot).forEach(function (e) {
+      if (e.kairyoBenefit !== '該当する') return;
+      addKairyoCost_(lot, e, i, groups, items, notes);
+    });
+  });
+  Object.keys(groups).forEach(function (k) {
+    const g = groups[k];
+    if (!(g.fee > 0)) return;
+    if (g.unit === '1筆あたり') {
+      items.push(cost({ label: '土地改良区 手数料等（' + g.name + '：1筆あたり' + formatYen_(g.fee) + ' × ' + g.count + '筆）', amount: Math.round(g.fee * g.count) }));
+    } else {
+      items.push(cost({ label: '土地改良区 手数料等（' + g.name + '：1申請あたり）', amount: Math.round(g.fee) }));
+    }
+  });
+  const drains = {};
+  lots.forEach(function (l) {
+    if (l.drainConsent !== '必要' || !(l.drainFeeAmount > 0)) return;
+    const key = l.drainName || '用水';
+    if (!drains[key]) drains[key] = l.drainFeeAmount;
+  });
+  Object.keys(drains).forEach(function (k) {
+    items.push(cost({ label: '排水承諾 手数料等（' + k + '）', amount: Math.round(drains[k]) }));
+  });
+}
+
+/** 物件の土地改良区（1つ目＋2つ目以降）。土地改良区「はい」のときだけ */
+function kairyoEntries_(l) {
+  if (l.landImprovement !== 'はい') return [];
+  return [{
+    kairyoName: l.kairyoName, kairyoBenefit: l.kairyoBenefit, kairyoProcedure: l.kairyoProcedure, kairyoDrain: l.kairyoDrain,
+    settlementAmount: l.settlementAmount, settlementUnit: l.settlementUnit, kairyoFeeAmount: l.kairyoFeeAmount, kairyoFeeUnit: l.kairyoFeeUnit,
+    localConsent: l.localConsent, localContacts: l.localContacts,
+  }].concat(Array.isArray(l.kairyoExtra) ? l.kairyoExtra : []);
+}
+
+/** 1つの土地改良区の実費（決済金は筆ごと、手数料等は改良区ごとにまとめる） */
+function addKairyoCost_(l, e, i, groups, items, notes) {
+  const name = e.kairyoName || '土地改良区';
+  l = Object.assign({}, l, { settlementAmount: e.settlementAmount, settlementUnit: e.settlementUnit, kairyoFeeAmount: e.kairyoFeeAmount, kairyoFeeUnit: e.kairyoFeeUnit });
+  // 決済金（筆ごと）
+  if (l.settlementAmount > 0) {
+    const lotLabel = lotName_(l, i) + (name !== '土地改良区' ? '・' + name : '');
+    if (l.settlementUnit === '総額') {
+      items.push(cost({ label: '地区除外決済金 ' + lotLabel, amount: Math.round(l.settlementAmount) }));
+    } else if (l.area > 0) {
+      const total = l.settlementUnit === '㎡あたり' ? l.settlementAmount * l.area : l.settlementAmount * l.area / 10000;
+      items.push(cost({ label: '地区除外決済金 ' + lotLabel + '：' + (l.settlementUnit === '㎡あたり' ? '1㎡' : '1ha') + 'あたり' +
+        formatYen_(l.settlementAmount) + ' × ' + l.area + '㎡', amount: Math.round(total) }));
+    } else {
+      notes.push(lotName_(l, i) + '：面積が未入力のため、地区除外決済金を計算できません。');
+    }
+  }
+  // 手数料等（改良区ごと）
+  const g = groups[name] = groups[name] || { name: name, count: 0, fee: 0, unit: '' };
+  g.count++;
+  if (!g.fee && l.kairyoFeeAmount > 0) { g.fee = l.kairyoFeeAmount; g.unit = l.kairyoFeeUnit; }
+}
+
+/** 見積内訳をシート保存用の1つの文字列にする */
+function estimateToText_(estimate) {
+  if (!estimate.ok) return estimate.notes.join('\n');
+  const fees = estimate.items.filter(function (it) { return it.kind !== 'cost'; });
+  const costs = estimate.items.filter(function (it) { return it.kind === 'cost'; });
+  return ['【報酬】'].concat(fees.map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); }))
+    .concat(costs.length ? ['【実費】'].concat(costs.map(function (it) { return '・' + it.label + '：' + formatYen_(it.amount); })) : [])
+    .concat(['報酬 ' + formatYen_(estimate.feeSubtotal) + '＋消費税 ' + formatYen_(estimate.tax) + '＝' + formatYen_(estimate.feeTotal) +
+      '／実費 ' + formatYen_(estimate.costTotal) + '／合計 ' + formatYen_(estimate.total)])
+    .concat(estimate.notes.map(function (n) { return '※' + n; }))
+    .join('\n');
+}
+
+/** 金額を「¥123,456」形式にする */
+function formatYen_(amount) {
+  // toLocaleString は実行環境差があるため、正規表現で3桁区切りにする
+  return '¥' + String(Math.round(Number(amount) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+
+// ===== Drive.gs =====
+/**
+ * ============================================================
+ *  添付資料（Google ドライブ）
+ * ============================================================
+ *  流れ：
+ *   1) 画面でファイルをドラッグ → すぐに「_受付中（未送信）」フォルダへアップロード
+ *   2) 送信時に、案件ごとのフォルダ（例：260930-01_豊田市_123番1）へ移動し、ファイル名に資料種別を付ける
+ *   3) 送信されずに残った一時ファイルは、メニューから一括削除できる
+ *  ファイルはWebアプリをデプロイしたアカウントのドライブに保存されます。
+ */
+
+/** 資料保存用のルートフォルダ（無ければ作成してIDを記録） */
+function getRootFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = DRIVE_ROOT_FOLDER_ID || props.getProperty('DRIVE_ROOT_FOLDER_ID');
+  if (id) return DriveApp.getFolderById(id);
+
+  const folder = DriveApp.createFolder('農地転用_案件資料');
+  props.setProperty('DRIVE_ROOT_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+/** 送信前ファイルを置く一時フォルダ（ルート直下。無ければ作成） */
+function getPendingFolder_() {
+  const root = getRootFolder_();
+  const it = root.getFoldersByName(DRIVE_PENDING_FOLDER_NAME);
+  return it.hasNext() ? it.next() : root.createFolder(DRIVE_PENDING_FOLDER_NAME);
+}
+
+/**
+ * 画面から受け取ったファイルを一時フォルダに保存する。
+ * @param {{name:string, mimeType:string, data:string}} file data は Base64
+ * @return {{fileId:string, name:string, size:number}}
+ */
+function saveUploadedFile_(file) {
+  const mimeType = String(file && file.mimeType || '');
+  if (ALLOWED_MIME_TYPES.indexOf(mimeType) < 0) {
+    throw new Error('この形式のファイルはアップロードできません（PDF・画像のみ）：' + (file && file.name));
+  }
+  const bytes = Utilities.base64Decode(String(file.data || ''));
+  if (bytes.length > MAX_UPLOAD_MB * 1024 * 1024) {
+    throw new Error('ファイルサイズが上限（' + MAX_UPLOAD_MB + 'MB）を超えています：' + file.name);
+  }
+  const name = sanitizeFileName_(file.name);
+  const saved = getPendingFolder_().createFile(Utilities.newBlob(bytes, mimeType, name));
+  saved.setDescription('アップロード者：' + getUserEmail_());
+  return { fileId: saved.getId(), name: name, size: bytes.length };
+}
+
+/**
+ * 一時フォルダ内のファイルだけを取得する。
+ * デプロイ者のドライブにある他のファイルを画面から操作されないよう、必ずここを通す。
+ */
+function getPendingFileOrNull_(fileId) {
+  try {
+    const file = DriveApp.getFileById(String(fileId));
+    const pendingId = getPendingFolder_().getId();
+    const parents = file.getParents();
+    while (parents.hasNext()) {
+      if (parents.next().getId() === pendingId) return file;
+    }
+  } catch (e) {
+    // IDが不正・削除済みなど
+  }
+  return null;
+}
+
+/** 送信前に取り消したファイルをゴミ箱へ移動する */
+function trashPendingFile_(fileId) {
+  const file = getPendingFileOrNull_(fileId);
+  if (file) file.setTrashed(true);
+  return true;
+}
+
+/**
+ * 案件フォルダを作り、一時フォルダのファイルを移動する。
+ * @param {string} caseNo 受付番号
+ * @param {Object} input normalizeInput_() の結果
+ * @return {{folderUrl:string, count:number, errors:string[]}}
+ */
+function attachFilesToCase_(caseNo, input, existingFolderUrl) {
+  const first = input.lots[0] || { municipality: '', address: '', lotNumber: '' };
+  const folderName = [caseNo, first.municipality || first.address.slice(0, 20),
+    first.lotNumber + (input.lots.length > 1 ? '他' + (input.lots.length - 1) + '筆' : '')]
+    .filter(String).join('_');
+  // 保存した案件の上書きでは、すでにある資料フォルダに追加する
+  const folder = existingFolderUrl ? getCaseFolder_({ folderUrl: existingFolderUrl, caseNo: caseNo }).folder
+    : getRootFolder_().createFolder(sanitizeFileName_(folderName));
+  const errors = [];
+  let count = 0;
+
+  input.attachments.forEach(function (a) {
+    const file = getPendingFileOrNull_(a.fileId);
+    if (!file) {
+      errors.push('ファイルが見つかりません（' + a.fileId + '）');
+      return;
+    }
+    file.setName('[' + a.docType + '] ' + file.getName());
+    file.moveTo(folder);
+    count++;
+  });
+  return { folderUrl: folder.getUrl(), count: count, errors: errors };
+}
+
+/** 案件の資料フォルダ（URLから取得。無ければ作る） */
+function getCaseFolder_(c) {
+  const m = String(c.folderUrl || '').match(/folders\/([\w-]+)/);
+  if (m) {
+    try { return { folder: DriveApp.getFolderById(m[1]), created: false }; } catch (e) { /* 削除済みなど → 作り直す */ }
+  }
+  const name = [c.caseNo || c.id, c.municipality, c.requesterName].filter(String).join('_');
+  return { folder: getRootFolder_().createFolder(sanitizeFileName_(name)), created: true };
+}
+
+/** 7日以上前に一時フォルダへアップロードされ、送信されなかったファイルを削除する（メニューから実行） */
+function cleanupPendingUploads() {
+  const limit = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const files = getPendingFolder_().getFiles();
+  let n = 0;
+  while (files.hasNext()) {
+    const f = files.next();
+    if (f.getDateCreated() < limit) {
+      f.setTrashed(true);
+      n++;
+    }
+  }
+  notifyUser_(n + '件の未送信ファイルをゴミ箱へ移動しました。');
+}
+
+/** ファイル名・フォルダ名に使えない文字を除去する */
+function sanitizeFileName_(name) {
+  const s = String(name || 'file').replace(/[\\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
+  return s.slice(0, 120) || 'file';
+}
+
+
+// ===== Tohon.gs =====
+/**
+ * ============================================================
+ *  謄本（登記事項証明書）の読み取り
+ * ============================================================
+ *  1) アップロードされた謄本（PDF・画像）を Google ドライブの OCR で文字にする
+ *  2) 決まったパターン（「所在」「○番○ 畑 496」など）に当てはまる部分だけを取り出す
+ *  AI による推測はしません。読み取れなかった項目は空欄のまま返し、
+ *  画面では「謄本から読取・要確認」と表示して、必ず人が確認する前提です。
+ *
+ *  ※Apps Script の「サービス」で Drive API（v3）を有効にしておく必要があります
+ *    （appsscript.json に設定済み）。
+ */
+
+/** 地目として認識する語（長い語を先に並べる：「用悪水路」と「水路」などの誤一致を防ぐ） */
+const TOHON_CHIMOKU_WORDS = [
+  '公衆用道路', '用悪水路', '学校用地', '鉄道用地', '水道用地', '境内地', '雑種地', '保安林', 'ため池',
+  '宅地', '山林', '原野', '牧場', '池沼', '墓地', '井溝', '鉱泉地', '塩田', '運河用地', '堤', '田', '畑',
+];
+
+/**
+ * 一時フォルダ内の謄本ファイルを読み取る。
+ * @param {string} fileId アップロード済みファイルのID（一時フォルダ内のものに限る）
+ * @return {{lots: Array<{address:string, lotNumber:string, chimoku:string, chimokuRaw:string, area:string}>, message:string}}
+ */
+function readTohonFile_(fileId) {
+  const file = getPendingFileOrNull_(fileId);
+  if (!file) throw new Error('読み取るファイルが見つかりません。');
+
+  const text = ocrToText_(file);
+  const lots = parseTohonText_(text);
+  if (!lots.length) {
+    // 読み取れなかった場合は、原因調査用に表題部の文字だけを記録する（権利部＝所有者の氏名などは記録しない）
+    const excerpt = String(text || '').split(/権\s*利\s*部/)[0].slice(0, 1500);
+    logError_('readTohon（所在・地番のパターン不一致）', '読み取れませんでした', file.getName() + '\n' + excerpt);
+  }
+  return {
+    lots: lots,
+    message: lots.length
+      ? lots.length + '件の物件を読み取りました。内容を必ず確認してください。'
+      : '謄本から所在・地番を読み取れませんでした。手入力してください。',
+  };
+}
+
+/** ドライブの OCR で文字を取り出す（変換用に作った一時ドキュメントは必ず削除） */
+function ocrToText_(file) {
+  const doc = Drive.Files.copy(
+    { name: 'OCR_' + file.getName(), mimeType: 'application/vnd.google-apps.document', parents: [getPendingFolder_().getId()] },
+    file.getId(),
+    { ocrLanguage: 'ja' }
+  );
+  try {
+    return DocumentApp.openById(doc.id).getBody().getText();
+  } finally {
+    DriveApp.getFileById(doc.id).setTrashed(true);
+  }
+}
+
+/**
+ * OCR の文字から物件（所在・地番・地目・地積）を取り出す。
+ * 1つのファイルに複数の謄本が入っている場合は「表題部」ごとに分けて読む。
+ * 変更履歴がある場合は、最後の行（最新の記載）を採用する。
+ * ※抹消事項の下線は OCR では判別できないため、最終行を最新とみなしている。
+ */
+function parseTohonText_(rawText) {
+  const text = normalizeTohonText_(rawText);
+  const chunks = text.split(/表\s*題\s*部/);
+  const sections = chunks.slice(1);
+  if (!sections.length) sections.push(text);
+
+  const chimokuPattern = TOHON_CHIMOKU_WORDS.join('|');
+  // 例）「123番1 畑 496」「123番1 宅地 165 28」「123番 田 1,024」
+  const rowRe = new RegExp('(\\d+番(?:\\d+)?)\\s+(' + chimokuPattern + ')\\s+(\\d[\\d,]*)(?:\\s*[:.]?\\s*(\\d{2}))?(?=\\s|$)', 'g');
+
+  const lots = [];
+  sections.forEach(function (sec, idx) {
+    // 登記情報提供サービス等の罫線の表（┃ │）で書かれた謄本は、表の構造から読む
+    const table = parseTohonTable_(sec);
+    if (table) {
+      const dup0 = lots.some(function (l) { return l.address === table.address && l.lotNumber === table.lotNumber; });
+      if (!dup0) lots.push(table);
+      return;
+    }
+    // 紙の全部事項証明書は、各ページ上部に「現在の」所在・地番が印字されている（例：愛知県常滑市港町5丁目10）。
+    // 下線（抹消）は文字認識で判別できないため、地番変更・所在変更があっても正しい値が取れるこの印字を最優先で使う。
+    const header = idx < chunks.length - 1 || chunks.length > 1 ? tohonPageHeader_(chunks[idx]) : null;
+
+    // 所在：最後に出てくる「所在」行。文字認識で「所 在「」「在「」「所 在|」のように崩れることがある
+    let address = '';
+    const addrRe = /(?:所\s*在|(?:^|\n)\s*在)\s*[|｜「│:]?\s*([^\n]+)/g;
+    let m;
+    while ((m = addrRe.exec(sec)) !== null) {
+      const v = cleanTohonAddress_(m[1]);
+      if (v) address = v;
+    }
+
+    // 地番・地目・地積：最後に一致した行を採用
+    let row = null;
+    rowRe.lastIndex = 0;
+    while ((m = rowRe.exec(sec)) !== null) row = m;
+    if (header) {
+      address = header.address;
+      // 行の地番が印字の地番と一致するときだけ、その行の地目・地積を使う（変更前の行の値を入れないため）
+      if (row && row[1] !== header.lotNumber) row = null;
+    }
+    if (!row && !address && !header) return;
+
+    const chimokuRaw = row ? row[2] : (header ? tohonSingleChimoku_(sec) : '');
+    // 紙のスキャンでは、地番・地目・地積が1行にならず別々の行に出る → 地番の見出しの後の、数字だけの行を地積とみなす
+    const area = row ? row[3].replace(/,/g, '') + (row[4] ? '.' + row[4] : '') : tohonLooseArea_(sec);
+    const lot = {
+      address: address,
+      lotNumber: header ? header.lotNumber : row ? row[1] : '',
+      chimoku: FORM_OPTIONS.chimoku.indexOf(chimokuRaw) >= 0 ? chimokuRaw : (chimokuRaw ? 'その他' : ''),
+      chimokuRaw: chimokuRaw,
+      area: area,
+    };
+    const dup = lots.some(function (l) { return l.address === lot.address && l.lotNumber === lot.lotNumber; });
+    if (!dup) lots.push(lot);
+  });
+  return lots;
+}
+
+/**
+ * 紙の全部事項証明書のページ上部の印字「愛知県常滑市港町5丁目10」「常滑市港町5丁目22-1」から、現在の所在・地番を取り出す。
+ * 表題部の直前（前のかたまりの最後）にある、市町村名を含み数字で終わる行（「番」「地」を含まない）を対象にする。
+ * 権利部の住所（「…173番地」など）は「番」を含むので対象外。
+ */
+function tohonPageHeader_(chunk) {
+  const lines = String(chunk || '').split('\n').map(function (l) { return l.trim(); }).filter(String);
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 8); i--) {
+    const t = lines[i].replace(/\s+/g, '');
+    if (/[番地]/.test(t)) continue;
+    const m = t.match(/^(?:愛知県|岐阜県|三重県)?(.+?[市町村].*?)(\d+)(?:[-－‐ー](\d+))?$/);
+    if (m && /[市郡町村]/.test(m[1])) {
+      return { address: m[1], lotNumber: m[2] + '番' + (m[3] || '') };
+    }
+  }
+  return null;
+}
+
+/**
+ * 紙の全部事項証明書のスキャン用：表題部の「地番」の見出しより後、権利部より前で、最初に出てくる数字だけの行を地積とする。
+ *  例）「26番」「田」「積」「m」「52」→ 52 ／「165 28」「165:28」→ 165.28
+ * 地番（「番」が付く）・日付（「年」が付く）・不動産番号（桁が多い）は数字だけの行にならないので対象外。
+ */
+function tohonLooseArea_(sec) {
+  const body = String(sec).split(/権\s*利\s*部/)[0];
+  const start = body.search(/地\s*[番審]/);
+  if (start < 0) return '';
+  const lines = body.slice(start).split(String.fromCharCode(10)).slice(1).map(function (l) { return l.trim(); });
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\d{1,3}(?:,\d{3})+|\d{1,6})(?:(?:\s*[:：.]\s*|\s+)(\d{1,2}))?$/);
+    if (m) return m[1].replace(/,/g, '') + (m[2] && Number(m[2]) > 0 ? '.' + m[2] : '');
+  }
+  return '';
+}
+
+/** 表題部に地目の語が1種類だけ出てくる場合はそれを返す（複数あれば判断しない＝空欄） */
+function tohonSingleChimoku_(sec) {
+  const body = String(sec).split(/権\s*利\s*部/)[0];
+  const found = TOHON_CHIMOKU_WORDS.filter(function (w) {
+    return new RegExp('(?:^|\\n)\\s*' + w + '\\s*(?:\\n|$)').test(body);
+  });
+  return found.length === 1 ? found[0] : '';
+}
+
+/**
+ * 罫線の表で書かれた表題部を読む（登記情報提供サービスの全部事項など）。
+ *  ┃所 在│愛知郡長久手町大字熊張字松杁 │ ┃   ← 旧所在
+ *  ┃ │長久手市松杁 │平成２４年１月４日市制施行┃  ← 最新（行頭に「所在」なし）
+ *  ┃１６７５番 │宅地 │ ４１３：２２│ ┃
+ *  ┃ │ │ ４８８：７０│③錯誤 ┃            ← 地積だけの更正（地番・地目は空欄）
+ * 所在は「所在」の行から地番の見出しまでの2列目、地番・地目・地積は見出しより後の各行で、空欄でない最後の値を採用する。
+ * 表の形でなければ null（従来の読み方に回す）。
+ */
+function parseTohonTable_(sec) {
+  if (sec.indexOf('┃') < 0 || sec.indexOf('│') < 0) return null;
+  const lines = [];
+  // 1行＝左端（┃┠┏┗）から右端（┃┨┓┛）まで。罫線だけの区切り行（─ ━ ┼ ├ など）は読み飛ばす
+  // 行は改行をまたがない（「┃」の直後が改行で次の行の「┃」が続く場合に、空の行として次の行の左端を取り込まないように）
+  const re = /[┃┠┏┗]([^┃┠┨┏┓┗┛\n]*)[┃┨┓┛]/g;
+  let m;
+  while ((m = re.exec(sec)) !== null) {
+    if (/^[\s─━┼├┤┬┴┯┷┿]*$/.test(m[1])) continue;
+    lines.push(m[1].split('│').map(function (c) { return c.replace(/\s+/g, ''); }));
+  }
+  let mode = '';
+  let address = '', lotNumber = '', chimokuRaw = '', area = '';
+  for (let i = 0; i < lines.length; i++) {
+    const cells = lines[i];
+    const head = cells.join('');
+    if (/権利部/.test(head)) break;
+    if (cells[0] === '所在') { mode = 'shozai'; }
+    else if (/地番/.test(head) && /地目/.test(head)) { mode = 'rows'; continue; }
+    if (mode === 'shozai') {
+      if (cells[0] && cells[0] !== '所在') { mode = ''; continue; } // 所在の欄を過ぎた
+      const v = cleanTohonAddress_(cells[1] || '');
+      if (v) address = v;
+    } else if (mode === 'rows') {
+      const n = (cells[0] || '').match(/^(\d+番(?:地)?\d*)/);
+      if (n) lotNumber = n[1].replace('番地', '番');
+      const c = (cells[1] || '').replace(/[①-⑳]/g, '');
+      if (c && TOHON_CHIMOKU_WORDS.indexOf(c) >= 0) chimokuRaw = c;
+      // 地積は「４１３：２２」「２２３：」（小数なしでも「：」が付く）のどちらも読む。「：」だけの行（空欄）は読み飛ばす
+      const a = (cells[2] || '').match(/^(\d[\d,]*)(?::(\d{0,2}))?$/);
+      if (a) area = a[1].replace(/,/g, '') + (a[2] && Number(a[2]) > 0 ? '.' + a[2] : '');
+    }
+  }
+  if (!address && !lotNumber) return null;
+  return {
+    address: address,
+    lotNumber: lotNumber,
+    chimoku: FORM_OPTIONS.chimoku.indexOf(chimokuRaw) >= 0 ? chimokuRaw : (chimokuRaw ? 'その他' : ''),
+    chimokuRaw: chimokuRaw,
+    area: area,
+  };
+}
+
+/** 全角英数字・全角スペースを半角にし、改行以外の空白をそろえる */
+function normalizeTohonText_(text) {
+  return String(text || '')
+    .replace(/[！-～]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/　/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\r/g, '');
+}
+
+/** 所在の値から「余白」や原因・日付の欄を取り除く */
+function cleanTohonAddress_(value) {
+  return String(value)
+    .split(/余白|〔|【|\[|昭和|平成|令和|原因/)[0]
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+
+// ===== Notify.gs =====
+/**
+ * ============================================================
+ *  Google Chat 通知
+ * ============================================================
+ *  Incoming Webhook に JSON を POST するだけのシンプルな実装です。
+ *  通知に失敗しても例外は投げず、結果を返します（保存処理を巻き戻さないため）。
+ */
+
+/** 使用する Webhook URL（スクリプトプロパティ優先 → Config.gs の定数） */
+function getWebhookUrl_() {
+  const fromProps = PropertiesService.getScriptProperties().getProperty('CHAT_WEBHOOK_URL');
+  return (fromProps || CHAT_WEBHOOK_URL || '').trim();
+}
+
+/**
+ * Chat にテキストを送る。
+ * @param {string} text
+ * @return {{ok:boolean, message:string}}
+ */
+function postToChat_(text) {
+  const url = getWebhookUrl_();
+  if (!url) {
+    return { ok: false, message: 'Webhook URLが未設定です（管理画面の設定タブで登録）' };
+  }
+  try {
+    const res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json; charset=UTF-8',
+      payload: JSON.stringify({ text: text }),
+      muteHttpExceptions: true, // HTTPエラーでも例外にせず、ステータスで判定する
+    });
+    const code = res.getResponseCode();
+    if (code >= 200 && code < 300) return { ok: true, message: '送信済み' };
+    return { ok: false, message: 'HTTP ' + code + ': ' + res.getContentText().slice(0, 200) };
+  } catch (e) {
+    return { ok: false, message: String(e && e.message || e) };
+  }
+}
+
+/**
+ * 見積調査依頼の通知文を組み立てる。
+ * Chat の書式： *太字*、<URL|リンク文字>
+ */
+function buildRequestMessage_(caseId, input, estimate, rowUrl, attach, caseNo) {
+  const adminUrl = getAdminUrl_(caseId);
+  const lines = [
+    '*【農地転用】見積調査依頼が届きました*',
+    '受付番号：' + (caseNo || caseId),
+    '依頼者名：' + (input.requesterName || '（未入力）') + (input.trust ? '（信託手続きに付随）' : ''),
+    '物件：' + input.lots.length + '件（' + input.prefecture + '）' + (input.purpose ? '／転用目的：' + input.purpose : ''),
+  ];
+  // 地目変更登記は登記担当へ連絡するため、物件の明細より前に目立たせて出す
+  const chimoku = chimokuHenkoText_(input.lots);
+  if (chimoku) lines.push('*【地目変更登記あり・登記担当へ連絡】' + chimoku.replace(/^あり/, '') + '*');
+  input.lots.forEach(function (l, i) {
+    lines.push('　' + (i + 1) + '. ' + (l.address || '（所在未入力）') + ' ' + l.lotNumber +
+      '／' + (l.chimoku || '地目-') + (l.area !== null ? ' ' + l.area + '㎡' : '') +
+      '／' + (l.zone || '区域-') + '／農振:' + (l.isNoshin || '-') + '／現況:' + (l.landUse || '-') +
+      (l.readFromTohon ? '（謄本読取）' : '') + (l.chimokuHenko ? '／地目変更登記あり' : ''));
+    if (l.nogyoTanto) lines.push('　　農業委員会でお話しした方：' + l.nogyoTanto);
+    if (l.landImprovement === 'はい' && (l.kairyoName || l.kairyoBenefit || l.kairyoSettlement)) {
+      lines.push('　　土地改良区：' + (l.kairyoName || '名称未入力') + (l.kairyoTel ? '（' + l.kairyoTel + '）' : '') + (l.kairyoTanto ? '／担当 ' + l.kairyoTanto : '') +
+        '／受益地:' + (l.kairyoBenefit || '-') + (l.kairyoProcedure ? '／手続き:' + l.kairyoProcedure : '') +
+        (l.kairyoSettlement ? '／決済金:' + l.kairyoSettlement : '') +
+        (l.kairyoSettlementNote ? '（' + l.kairyoSettlementNote + '）' : '') + (l.kairyoFee ? '／手数料等 ' + l.kairyoFee : '') +
+        (l.kairyoDrain ? '／排水同意 ' + l.kairyoDrain : ''));
+    }
+    (l.landImprovement === 'はい' ? l.kairyoExtra || [] : []).forEach(function (e, k) {
+      lines.push('　　土地改良区（' + (k + 2) + '）：' + kairyoExtraText_([e]));
+    });
+    if (l.iinStamp === '必要') {
+      lines.push('　　農業委員等の押印：必要');
+      (l.iinContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
+    }
+    if (l.tenyoRireki) {
+      lines.push('　　過去の転用届出・許可の履歴：' + l.tenyoRireki +
+        (l.tenyoRireki === 'あり' ? '（' + [l.rirekiDate, l.rirekiNo, l.rirekiNote].filter(String).join('・') + '）' : ''));
+    }
+    if (l.saiShinsei) {
+      lines.push('　　再申請の要否：' + l.saiShinsei + (l.saiShinseiNote ? '（' + l.saiShinseiNote + '）' : ''));
+    }
+    if (l.hinochi) {
+      lines.push('　　非農地証明（現況証明）：' + l.hinochi +
+        (l.hinochi === '可能' ? [l.hinochiYears && '利用 ' + l.hinochiYears, l.hinochiDocs, l.hinochiNote].filter(String).map(function (x) { return '／' + x; }).join('') : '') +
+        (l.hinochi === '不可' ? '／是正の許可申請：' + (l.zeseiKyoka || '-') + (l.zeseiNote ? '（' + l.zeseiNote + '）' : '') : ''));
+    }
+    if (l.shimatsusho) {
+      lines.push('　　始末書の提出：' + l.shimatsusho + (l.shimatsuStamp ? '／押印 ' + l.shimatsuStamp : '') + (l.shimatsuNote ? '（' + l.shimatsuNote + '）' : ''));
+    }
+    if (l.tenyoKanou || l.noutiKubun) {
+      lines.push('　　転用の見込み（農業委員会）：' + (l.tenyoKanou || '-') + '／農地区分 ' + (l.noutiKubun || '-') +
+        (l.kanouNote ? '／' + l.kanouNote : ''));
+    }
+    if (l.jogaiKanou || l.hojoKuiki || l.jogaiJisseki || l.jogaiUketsuke) {
+      lines.push('　　農振除外の見込み：' + (l.jogaiKanou || '-') + '／ほ場整備等 ' + (l.hojoKuiki || '-') + (l.hojo8nen ? '（8年' + l.hojo8nen + '）' : '') +
+        '／近隣の除外実績 ' + (l.jogaiJisseki || '-') + (l.jogaiUketsuke ? '／受付 ' + l.jogaiUketsuke : '') + (l.jogaiNote ? '／' + l.jogaiNote : ''));
+    }
+    if (l.tenyoUketsuke) lines.push('　　農地転用の受付：' + l.tenyoUketsuke);
+    if (l.drainConsent || l.drainAdjacent) {
+      lines.push('　　排水：隣接水路 ' + (l.drainAdjacent || '-') + '／排水承諾 ' + (l.drainConsent || '-') +
+        (l.drainName ? '／' + l.drainName + (l.drainTel ? '（' + l.drainTel + '）' : '') : '') +
+        (l.drainFee ? '／手数料 ' + l.drainFee : '') + (l.drainLocalConsent ? '／地元承諾 ' + l.drainLocalConsent : '') + (l.drainTanto ? '／担当 ' + l.drainTanto : ''));
+      (l.drainContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
+    }
+    if (l.localConsent) {
+      lines.push('　　地元関係者の同意（押印）：' + l.localConsent);
+      (l.localContacts || []).forEach(function (c) { lines.push('　　　' + [c.name, c.address, c.tel].join('／')); });
+    }
+  });
+  lines.push(
+    '概算見積金額：' + (estimate.ok ? formatYen_(estimate.total) : '算出不可'),
+    '資料：' + (input.documents.join('、') || 'なし'),
+    '入力者：' + (input.submittedBy || '不明')
+  );
+  if (attach && attach.folderUrl) {
+    lines.push('<' + attach.folderUrl + '|アップロード資料（' + attach.count + '件）を開く>');
+  }
+  if (attach && attach.errors.length) {
+    lines.push('⚠ 資料の保存でエラー：' + attach.errors.join(' / '));
+  }
+  if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
+  lines.push('<' + rowUrl + '|スプレッドシートで案件行を開く>');
+  return lines.join('\n');
+}
+
+/** 正式見積を提示したときの Chat 通知文 */
+function buildEstimateMessage_(c, pdfUrl) {
+  const adminUrl = getAdminUrl_(c.id);
+  const lines = [
+    '*【農地転用】正式見積を提示しました*',
+    '受付番号：' + (c.caseNo || c.id) + '　依頼者名：' + (c.requesterName || '（未入力）'),
+    '所在：' + [c.address, c.lotNumber].filter(String).join(' '),
+    c.formalEstimate !== '' && c.formalEstimate !== undefined ? '正式見積：' + formatYen_(c.formalEstimate) : '',
+    '見積書：<' + pdfUrl + '|PDFを開く>',
+  ].filter(String);
+  if (adminUrl) lines.push('<' + adminUrl + '|管理画面で案件を開く>');
+  return lines.join('\n');
+}
+
+/** 管理画面で案件を開くURL（Webアプリとしてデプロイされていない場合は空文字） */
+function getAdminUrl_(caseId) {
+  try {
+    const base = ScriptApp.getService().getUrl();
+    return base ? base + '?page=admin&id=' + caseId : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+
+// ===== Admin.gs =====
+/**
+ * ============================================================
+ *  行政班（受任側）の管理画面 API
+ * ============================================================
+ *  管理画面（Admin.html）から google.script.run で呼ばれます。
+ *  すべての関数の先頭で requireAdmin_() を呼び、権限のない人には何も返しません。
+ *  管理画面から書き換えられるのは ADMIN_EDITABLE_KEYS の列だけです。
+ */
+
+/** 管理画面の初期データ（案件一覧・選択肢） */
+function getAdminData() {
+  requireAdmin_();
+  return {
+    cases: getAllCases_(),
+    lotsByCase: getLotsByCase_(),
+    statuses: CASE_STATUSES,
+    nogyoIinkai: NOGYO_IINKAI, // 連絡先・訪問先の一覧に農業委員会の電話番号を出すため
+    nogyoWardDesks: NOGYO_WARD_DESKS, // 名古屋市など、区で窓口が分かれる市
+    yakuchoUrl: YAKUCHO_NAVI_URL, // 現況確認（ストリートビュー・Googleマップ）
+    appointmentStatuses: APPOINTMENT_STATUSES,
+    lotEditFields: LOT_EDIT_FIELDS.map(function (f) { return Object.assign({ options: f.opt ? FORM_OPTIONS[f.opt] : null }, f); }),
+    userEmail: getUserEmail_(),
+  };
+}
+
+/**
+ * 管理画面の「修正」：物件の調査結果を直す（LOT_EDIT_FIELDS の列だけ）。
+ * 正式見積の提示前（新規・調査中）の案件は概算見積も計算し直す。保存のみの案件は、依頼画面で開き直したときにも直した値が出るよう入力内容も直す。
+ * @param {number} caseId
+ * @param {number} no 物件No
+ * @param {Object} patch { 列のkey: 値 }
+ * @return {{case: Object, lots: Array}} 更新後の案件と物件明細
+ */
+function updateLotByAdmin(caseId, no, patch) {
+  requireAdmin_();
+  const p = patch || {};
+  const values = {};
+  LOT_EDIT_FIELDS.forEach(function (f) {
+    if (p[f.key] === undefined) return;
+    let v = String(p[f.key] === null ? '' : p[f.key]).trim().slice(0, f.type === 'contacts' || f.type === 'textarea' ? 2000 : 300);
+    const opts = f.opt ? FORM_OPTIONS[f.opt] : null;
+    if (f.type === 'select' && v && opts.indexOf(v) < 0) throw new Error(f.label + 'の値が不正です。');
+    if (f.type === 'multi') v = v.split('・').filter(function (x) { return opts.indexOf(x) >= 0; }).join('・');
+    if (f.type === 'contacts') v = contactLines_(v).filter(function (c) { return c.name.trim() || c.address.trim() || c.tel.trim(); })
+      .map(function (c) { return [c.name.trim(), c.address.trim(), c.tel.trim()].join('／'); }).join('\n');
+    if (f.key === 'isNoshin') v = toSheetBool_(v); // シートは はい=TRUE／いいえ=FALSE／分からない=不明
+    values[f.key] = v;
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    forgetSheetCache_(); // ロックを取る前に読んだ内容は使わない
+    const row = findLotRow_(caseId, no);
+    if (!row) throw new Error('物件（案件ID ' + caseId + '・物件' + no + '）が見つかりません。');
+    updateLotCells_(row, values);
+    const caseRow = findCaseRow_(caseId);
+    if (caseRow) updateCaseCells_(caseRow, { updatedAt: new Date() });
+    const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+    const lotRows = getLotsByCase_()[caseId] || [];
+    if (c && RECALC_STATUSES.indexOf(c.status) >= 0) recalcCaseEstimate_(c, lotRows);
+    // 保存した入力内容（依頼画面で開き直す用）も、直した項目だけ合わせる
+    if (c && c.formData) {
+      try {
+        const form = JSON.parse(c.formData);
+        const r = lotRows.filter(function (x) { return Number(x.no) === Number(no); })[0];
+        const fl = form.lots && form.lots[Number(no) - 1];
+        if (r && fl) {
+          const conv = lotRowToFormLot_(r);
+          const formKeys = { kairyoSettlementNote: ['kairyoSettlementNote', 'kairyoSettlementUnit'], kairyoFee: ['kairyoFeeAmount', 'kairyoFeeUnit', 'kairyoFeeNote'],
+            drainFee: ['drainFeeAmount', 'drainFeeNote'], tenyoUketsuke: ['tenyoUkeNote'], jogaiUketsuke: ['jogaiJiki'] };
+          Object.keys(values).forEach(function (k) {
+            (formKeys[k] || [k]).forEach(function (fk) { fl[fk] = conv[fk]; });
+            if (k === 'tenyoUketsuke') ['tenyoUkeMode', 'tenyoUkeFrom', 'tenyoUkeTo', 'tenyoUkeDay', 'tenyoUkeDate'].forEach(function (x) { fl[x] = ''; });
+            if (k === 'jogaiUketsuke') fl.jogaiKaisu = '';
+          });
+          if (caseRow) updateCaseCells_(caseRow, { formData: JSON.stringify(form) });
+        }
+      } catch (e) { logError_('updateLotByAdmin.formData', e && e.message || e, String(caseId)); }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return {
+    case: getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0],
+    lots: getLotsByCase_()[caseId] || [],
+  };
+}
+
+/**
+ * 管理画面からの更新（対応状況・担当者・正式見積・メモ）。
+ * @param {number} caseId
+ * @param {Object} patch { status, assignee, formalEstimate, adminMemo }
+ * @return {Object} 更新後の案件
+ */
+function updateCaseByAdmin(caseId, patch) {
+  requireAdmin_();
+  const p = patch || {};
+  const values = {};
+
+  if (p.status !== undefined) {
+    if (CASE_STATUSES.indexOf(p.status) < 0) throw new Error('対応状況の値が不正です。');
+    values.status = p.status;
+  }
+  if (p.assignee !== undefined) values.assignee = String(p.assignee).trim().slice(0, 50);
+  if (p.adminMemo !== undefined) values.adminMemo = String(p.adminMemo).slice(0, 2000);
+  if (p.formalEstimate !== undefined) {
+    const s = String(p.formalEstimate).replace(/[,，¥円\s]/g, '');
+    const n = Number(s);
+    if (s !== '' && (isNaN(n) || n < 0)) throw new Error('正式見積金額は数値で入力してください。');
+    values.formalEstimate = s === '' ? '' : n;
+  }
+  if (p.localFee !== undefined) {
+    const s = String(p.localFee).replace(/[,，¥円\s]/g, '');
+    const n = Number(s);
+    if (s !== '' && (isNaN(n) || n < 0)) throw new Error('地元協力金等は数値で入力してください。');
+    values.localFee = s === '' ? '' : Math.round(n);
+  }
+  if (p.localFeeNote !== undefined) values.localFeeNote = String(p.localFeeNote).trim().slice(0, 100);
+  if (p.karteNo !== undefined) {
+    const k = String(p.karteNo).trim().slice(0, 30);
+    values.karteNo = /^0\d*$/.test(k) ? "'" + k : k; // 先頭の0を数値化で落とさない
+  }
+  Object.keys(values).forEach(function (k) {
+    if (ADMIN_EDITABLE_KEYS.indexOf(k) < 0) delete values[k]; // 念のため
+  });
+  values.updatedAt = new Date();
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    forgetSheetCache_(); // ロックを取る前に読んだ内容は使わない
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    updateCaseCells_(row, values);
+    // 地元協力金等を変えたら、正式見積の提示前（新規・調査中）の案件は概算も計算し直す
+    if (values.localFee !== undefined || values.localFeeNote !== undefined) {
+      const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+      if (c && RECALC_STATUSES.indexOf(c.status) >= 0) recalcCaseEstimate_(c, getLotsByCase_()[c.id]);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return getAllCases_().filter(function (c) { return Number(c.id) === Number(caseId); })[0];
+}
+
+/**
+ * 管理画面からの削除。案件と物件明細は「削除した案件」「削除した物件明細」シートに控えを残す（資料フォルダは残す）。
+ * @param {number} caseId
+ * @return {{id:number, lots:number}}
+ */
+function deleteCaseByAdmin(caseId) {
+  requireAdmin_();
+  const id = Number(caseId);
+  if (!id) throw new Error('案件IDが不正です。');
+  const r = deleteCase_(id, getUserEmail_());
+  return { id: id, lots: r.lots };
+}
+
+/**
+ * 正式見積の提示：見積書PDFを案件フォルダに保存し、対応状況を「正式見積提示済」にして、
+ * 行政班の Chat スペースへ通知する（メールは送らない）。
+ * @param {number} caseId
+ * @param {{name:string, mimeType:string, data:string}} file data は Base64
+ * @param {{amount:string}} opts
+ * @return {Object} 更新後の案件
+ */
+function submitFormalEstimate(caseId, file, opts) {
+  requireAdmin_();
+  const o = opts || {};
+  if (String(file && file.mimeType) !== 'application/pdf') throw new Error('見積書はPDFを選んでください。');
+  const bytes = Utilities.base64Decode(String(file.data || ''));
+  if (bytes.length > MAX_UPLOAD_MB * 1024 * 1024) throw new Error('ファイルサイズが上限（' + MAX_UPLOAD_MB + 'MB）を超えています。');
+  const amountText = String(o.amount === undefined ? '' : o.amount).replace(/[,，¥円\s]/g, '');
+  if (amountText !== '' && (isNaN(Number(amountText)) || Number(amountText) < 0)) throw new Error('正式見積金額は数値で入力してください。');
+
+  const c = getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+  if (!c) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+
+  // 1) 保存
+  const cf = getCaseFolder_(c);
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+  const name = sanitizeFileName_('正式見積_' + (c.caseNo || c.id) + '_' + Utilities.formatDate(now, tz, 'yyyyMMdd') + '.pdf');
+  const pdf = cf.folder.createFile(Utilities.newBlob(bytes, 'application/pdf', name));
+  pdf.setDescription('提示者：' + getUserEmail_() + '（元のファイル名：' + sanitizeFileName_(file.name) + '）');
+
+  const values = { estimatePdfUrl: pdf.getUrl(), estimatePdfAt: now, updatedAt: now };
+  if (amountText !== '') values.formalEstimate = Number(amountText);
+  if (['新規', '調査中'].indexOf(c.status) >= 0 || !c.status) values.status = '正式見積提示済';
+  if (cf.created) values.folderUrl = cf.folder.getUrl();
+  const merged = Object.assign({}, c, values);
+
+  // 2) 行政班の Chat スペースへ通知
+  const chat = postToChat_(buildEstimateMessage_(merged, pdf.getUrl()));
+  values.reportResult = [Utilities.formatDate(now, tz, 'yyyy/MM/dd HH:mm'), 'Chat：' + (chat.ok ? '送信済み' : '失敗（' + chat.message + '）')]
+    .filter(String).join('／');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    forgetSheetCache_(); // ロックを取る前に読んだ内容は使わない
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    updateCaseCells_(row, values);
+  } finally {
+    lock.releaseLock();
+  }
+  return getAllCases_().filter(function (x) { return Number(x.id) === Number(caseId); })[0];
+}
+
+/**
+ * 案件詳細のPDF出力：管理画面で組んだ帳票（HTML）をPDFに変換して返す（保存はしない）。
+ * @param {string} html
+ * @param {string} fileName
+ * @return {{name:string, data:string}} data は Base64
+ */
+function exportCasePdf(html, fileName) {
+  requireAdmin_();
+  const name = sanitizeFileName_(String(fileName || '案件詳細.pdf'));
+  const pdf = Utilities.newBlob(String(html || ''), 'text/html', 'case.html').getAs('application/pdf');
+  return { name: /\.pdf$/i.test(name) ? name : name + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) };
+}
+
+/**
+ * 訪問のアポイント（押印・同意で伺う相手ごと）を保存する。
+ * @param {number} caseId
+ * @param {string} key 連絡先キー（区分|氏名|電話の数字）
+ * @param {{at:string, status:string, memo:string}} appt すべて空なら削除
+ * @return {string} 保存後の appointments（JSON）
+ */
+function saveAppointment(caseId, key, appt) {
+  requireAdmin_();
+  const k = String(key || '').slice(0, 200);
+  if (!k) throw new Error('連絡先が不正です。');
+  const a = appt || {};
+  const at = String(a.at || '').trim();
+  if (at && !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(at)) throw new Error('日時の形式が不正です。');
+  const status = APPOINTMENT_STATUSES.indexOf(a.status) >= 0 ? a.status : '';
+  const memo = String(a.memo || '').trim().slice(0, 300);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    forgetSheetCache_(); // ロックを取る前に読んだ内容は使わない
+    const row = findCaseRow_(caseId);
+    if (!row) throw new Error('案件ID ' + caseId + ' が見つかりません。');
+    const sheet = getSheet_(SHEET_NAMES.CASES);
+    if (sheet.getLastColumn() < CASE_COLUMNS.length) ensureHeaders_(sheet, CASE_COLUMNS.map(function (c) { return c.header; }));
+    let map = {};
+    try { map = JSON.parse(String(casesRaw_()[row - 2][colIndexOf_('appointments') - 1] || '{}')) || {}; } catch (e) { map = {}; }
+    if (at || memo || (status && status !== '未連絡')) map[k] = { at: at, status: status, memo: memo };
+    else delete map[k];
+    const json = Object.keys(map).length ? JSON.stringify(map) : '';
+    updateCaseCells_(row, { appointments: json, updatedAt: new Date() });
+    return json;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 管理者かどうか（スクリプトプロパティ ADMIN_EMAILS が優先） */
+function isAdmin_() {
+  const email = getUserEmail_().toLowerCase();
+  if (!email) return false;
+  return getAdminEmails_().indexOf(email) >= 0;
+}
+
+function requireAdmin_() {
+  if (!isAdmin_()) throw new Error('この操作を行う権限がありません。');
+}
+
+// ------------------------------------------------------------
+// 設定タブ（見積金額・管理者・Chat 通知）
+// ------------------------------------------------------------
+
+/** 設定タブの表示内容 */
+function getAdminSettings() {
+  requireAdmin_();
+  const fees = getFeeSettings_();
+  const props = PropertiesService.getScriptProperties();
+  return {
+    fees: DEFAULT_FEES.map(function (d) {
+      return { key: d.key, label: fees[d.key].label, amount: fees[d.key].amount, note: d.note };
+    }),
+    adminEmails: getAdminEmails_(),
+    adminEmailsFromProps: !!props.getProperty('ADMIN_EMAILS'),
+    webhookUrl: getWebhookUrl_(),
+    spreadsheetUrl: getSpreadsheet_().getUrl(),
+    folderUrl: getRootFolder_().getUrl(),
+  };
+}
+
+/**
+ * 見積の項目名・金額を「見積設定」シートに保存する（無い行は追加してから保存）。
+ * @param {Array<{key:string, label:string, amount:(string|number)}>} rows
+ */
+function saveFeeSettings(rows) {
+  requireAdmin_();
+  const known = DEFAULT_FEES.map(function (d) { return d.key; });
+  const clean = (rows || []).map(function (r) {
+    const key = String(r.key);
+    if (known.indexOf(key) < 0) throw new Error('不明な項目です：' + key);
+    const label = String(r.label || '').trim().slice(0, 100);
+    if (!label) throw new Error('項目名が空欄の行があります。');
+    const s = String(r.amount).replace(/[,，¥円\s]/g, '');
+    const amount = Number(s);
+    if (s === '' || isNaN(amount) || amount < 0) throw new Error('「' + label + '」の金額は0以上の数値で入力してください。');
+    return { key: key, label: label, amount: Math.round(amount) };
+  });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20 * 1000);
+  try {
+    const ss = getSpreadsheet_();
+    const sheet = getOrCreateSheet_(ss, SHEET_NAMES.FEES);
+    ensureHeaders_(sheet, FEE_HEADERS);
+    addMissingFeeRows_(sheet);
+    const keys = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues()
+      .map(function (r) { return String(r[0]).trim(); });
+    clean.forEach(function (r) {
+      const i = keys.indexOf(r.key);
+      if (i >= 0) sheet.getRange(i + 2, 2, 1, 2).setValues([[r.label, r.amount]]);
+    });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  // 正式見積を提示する前の案件（新規・調査中）の概算を、新しい金額ですぐ計算し直す
+  let recalculated = 0;
+  const lock2 = LockService.getScriptLock();
+  lock2.waitLock(30 * 1000);
+  try {
+    recalculated = recalcOpenEstimates_();
+  } finally {
+    lock2.releaseLock();
+  }
+  return Object.assign(getAdminSettings(), { recalculated: recalculated });
+}
+
+/**
+ * 管理者を保存する（1行1件またはカンマ区切り）。自分を外す変更は受け付けない（締め出し防止）。
+ * @param {string} text
+ */
+function saveAdminEmails(text) {
+  requireAdmin_();
+  const list = String(text || '').split(/[\s,，、]+/)
+    .map(function (s) { return s.trim().toLowerCase(); })
+    .filter(String)
+    .filter(function (s, i, a) { return a.indexOf(s) === i; });
+  const bad = list.filter(function (s) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s); });
+  if (bad.length) throw new Error('メールアドレスの形式が正しくありません：' + bad.join('、'));
+  const me = getUserEmail_().toLowerCase();
+  if (list.indexOf(me) < 0) throw new Error('ご自身（' + me + '）を管理者から外すことはできません。');
+  PropertiesService.getScriptProperties().setProperty('ADMIN_EMAILS', list.join(','));
+  return getAdminSettings();
+}
+
+/**
+ * Google Chat の Webhook URL を保存する（空欄で通知停止）。
+ * @param {string} url
+ */
+function saveWebhookUrl(url) {
+  requireAdmin_();
+  const u = String(url || '').trim();
+  if (u && u.indexOf('https://chat.googleapis.com/') !== 0) {
+    throw new Error('Google Chat の Webhook URL（https://chat.googleapis.com/ で始まるもの）を入力してください。');
+  }
+  PropertiesService.getScriptProperties().setProperty('CHAT_WEBHOOK_URL', u);
+  return getAdminSettings();
+}
+
+/** 保存済みの Webhook にテスト通知を送る */
+function sendTestNotification() {
+  requireAdmin_();
+  return postToChat_('【テスト】農地転用 見積・調査支援システムからの通知テストです（' + getUserEmail_() + '）。');
+}
+
+/** 管理者の一覧（スクリプトプロパティ ADMIN_EMAILS が優先、無ければ Config.gs） */
+function getAdminEmails_() {
+  const fromProps = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS');
+  return (fromProps ? fromProps.split(',') : ADMIN_EMAILS)
+    .map(function (s) { return String(s).trim().toLowerCase(); })
+    .filter(String);
+}

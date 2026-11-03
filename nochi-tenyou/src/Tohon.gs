@@ -1,0 +1,234 @@
+/**
+ * ============================================================
+ *  謄本（登記事項証明書）の読み取り
+ * ============================================================
+ *  1) アップロードされた謄本（PDF・画像）を Google ドライブの OCR で文字にする
+ *  2) 決まったパターン（「所在」「○番○ 畑 496」など）に当てはまる部分だけを取り出す
+ *  AI による推測はしません。読み取れなかった項目は空欄のまま返し、
+ *  画面では「謄本から読取・要確認」と表示して、必ず人が確認する前提です。
+ *
+ *  ※Apps Script の「サービス」で Drive API（v3）を有効にしておく必要があります
+ *    （appsscript.json に設定済み）。
+ */
+
+/** 地目として認識する語（長い語を先に並べる：「用悪水路」と「水路」などの誤一致を防ぐ） */
+const TOHON_CHIMOKU_WORDS = [
+  '公衆用道路', '用悪水路', '学校用地', '鉄道用地', '水道用地', '境内地', '雑種地', '保安林', 'ため池',
+  '宅地', '山林', '原野', '牧場', '池沼', '墓地', '井溝', '鉱泉地', '塩田', '運河用地', '堤', '田', '畑',
+];
+
+/**
+ * 一時フォルダ内の謄本ファイルを読み取る。
+ * @param {string} fileId アップロード済みファイルのID（一時フォルダ内のものに限る）
+ * @return {{lots: Array<{address:string, lotNumber:string, chimoku:string, chimokuRaw:string, area:string}>, message:string}}
+ */
+function readTohonFile_(fileId) {
+  const file = getPendingFileOrNull_(fileId);
+  if (!file) throw new Error('読み取るファイルが見つかりません。');
+
+  const text = ocrToText_(file);
+  const lots = parseTohonText_(text);
+  if (!lots.length) {
+    // 読み取れなかった場合は、原因調査用に表題部の文字だけを記録する（権利部＝所有者の氏名などは記録しない）
+    const excerpt = String(text || '').split(/権\s*利\s*部/)[0].slice(0, 1500);
+    logError_('readTohon（所在・地番のパターン不一致）', '読み取れませんでした', file.getName() + '\n' + excerpt);
+  }
+  return {
+    lots: lots,
+    message: lots.length
+      ? lots.length + '件の物件を読み取りました。内容を必ず確認してください。'
+      : '謄本から所在・地番を読み取れませんでした。手入力してください。',
+  };
+}
+
+/** ドライブの OCR で文字を取り出す（変換用に作った一時ドキュメントは必ず削除） */
+function ocrToText_(file) {
+  const doc = Drive.Files.copy(
+    { name: 'OCR_' + file.getName(), mimeType: 'application/vnd.google-apps.document', parents: [getPendingFolder_().getId()] },
+    file.getId(),
+    { ocrLanguage: 'ja' }
+  );
+  try {
+    return DocumentApp.openById(doc.id).getBody().getText();
+  } finally {
+    DriveApp.getFileById(doc.id).setTrashed(true);
+  }
+}
+
+/**
+ * OCR の文字から物件（所在・地番・地目・地積）を取り出す。
+ * 1つのファイルに複数の謄本が入っている場合は「表題部」ごとに分けて読む。
+ * 変更履歴がある場合は、最後の行（最新の記載）を採用する。
+ * ※抹消事項の下線は OCR では判別できないため、最終行を最新とみなしている。
+ */
+function parseTohonText_(rawText) {
+  const text = normalizeTohonText_(rawText);
+  const chunks = text.split(/表\s*題\s*部/);
+  const sections = chunks.slice(1);
+  if (!sections.length) sections.push(text);
+
+  const chimokuPattern = TOHON_CHIMOKU_WORDS.join('|');
+  // 例）「123番1 畑 496」「123番1 宅地 165 28」「123番 田 1,024」
+  const rowRe = new RegExp('(\\d+番(?:\\d+)?)\\s+(' + chimokuPattern + ')\\s+(\\d[\\d,]*)(?:\\s*[:.]?\\s*(\\d{2}))?(?=\\s|$)', 'g');
+
+  const lots = [];
+  sections.forEach(function (sec, idx) {
+    // 登記情報提供サービス等の罫線の表（┃ │）で書かれた謄本は、表の構造から読む
+    const table = parseTohonTable_(sec);
+    if (table) {
+      const dup0 = lots.some(function (l) { return l.address === table.address && l.lotNumber === table.lotNumber; });
+      if (!dup0) lots.push(table);
+      return;
+    }
+    // 紙の全部事項証明書は、各ページ上部に「現在の」所在・地番が印字されている（例：愛知県常滑市港町5丁目10）。
+    // 下線（抹消）は文字認識で判別できないため、地番変更・所在変更があっても正しい値が取れるこの印字を最優先で使う。
+    const header = idx < chunks.length - 1 || chunks.length > 1 ? tohonPageHeader_(chunks[idx]) : null;
+
+    // 所在：最後に出てくる「所在」行。文字認識で「所 在「」「在「」「所 在|」のように崩れることがある
+    let address = '';
+    const addrRe = /(?:所\s*在|(?:^|\n)\s*在)\s*[|｜「│:]?\s*([^\n]+)/g;
+    let m;
+    while ((m = addrRe.exec(sec)) !== null) {
+      const v = cleanTohonAddress_(m[1]);
+      if (v) address = v;
+    }
+
+    // 地番・地目・地積：最後に一致した行を採用
+    let row = null;
+    rowRe.lastIndex = 0;
+    while ((m = rowRe.exec(sec)) !== null) row = m;
+    if (header) {
+      address = header.address;
+      // 行の地番が印字の地番と一致するときだけ、その行の地目・地積を使う（変更前の行の値を入れないため）
+      if (row && row[1] !== header.lotNumber) row = null;
+    }
+    if (!row && !address && !header) return;
+
+    const chimokuRaw = row ? row[2] : (header ? tohonSingleChimoku_(sec) : '');
+    // 紙のスキャンでは、地番・地目・地積が1行にならず別々の行に出る → 地番の見出しの後の、数字だけの行を地積とみなす
+    const area = row ? row[3].replace(/,/g, '') + (row[4] ? '.' + row[4] : '') : tohonLooseArea_(sec);
+    const lot = {
+      address: address,
+      lotNumber: header ? header.lotNumber : row ? row[1] : '',
+      chimoku: FORM_OPTIONS.chimoku.indexOf(chimokuRaw) >= 0 ? chimokuRaw : (chimokuRaw ? 'その他' : ''),
+      chimokuRaw: chimokuRaw,
+      area: area,
+    };
+    const dup = lots.some(function (l) { return l.address === lot.address && l.lotNumber === lot.lotNumber; });
+    if (!dup) lots.push(lot);
+  });
+  return lots;
+}
+
+/**
+ * 紙の全部事項証明書のページ上部の印字「愛知県常滑市港町5丁目10」「常滑市港町5丁目22-1」から、現在の所在・地番を取り出す。
+ * 表題部の直前（前のかたまりの最後）にある、市町村名を含み数字で終わる行（「番」「地」を含まない）を対象にする。
+ * 権利部の住所（「…173番地」など）は「番」を含むので対象外。
+ */
+function tohonPageHeader_(chunk) {
+  const lines = String(chunk || '').split('\n').map(function (l) { return l.trim(); }).filter(String);
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 8); i--) {
+    const t = lines[i].replace(/\s+/g, '');
+    if (/[番地]/.test(t)) continue;
+    const m = t.match(/^(?:愛知県|岐阜県|三重県)?(.+?[市町村].*?)(\d+)(?:[-－‐ー](\d+))?$/);
+    if (m && /[市郡町村]/.test(m[1])) {
+      return { address: m[1], lotNumber: m[2] + '番' + (m[3] || '') };
+    }
+  }
+  return null;
+}
+
+/**
+ * 紙の全部事項証明書のスキャン用：表題部の「地番」の見出しより後、権利部より前で、最初に出てくる数字だけの行を地積とする。
+ *  例）「26番」「田」「積」「m」「52」→ 52 ／「165 28」「165:28」→ 165.28
+ * 地番（「番」が付く）・日付（「年」が付く）・不動産番号（桁が多い）は数字だけの行にならないので対象外。
+ */
+function tohonLooseArea_(sec) {
+  const body = String(sec).split(/権\s*利\s*部/)[0];
+  const start = body.search(/地\s*[番審]/);
+  if (start < 0) return '';
+  const lines = body.slice(start).split(String.fromCharCode(10)).slice(1).map(function (l) { return l.trim(); });
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\d{1,3}(?:,\d{3})+|\d{1,6})(?:(?:\s*[:：.]\s*|\s+)(\d{1,2}))?$/);
+    if (m) return m[1].replace(/,/g, '') + (m[2] && Number(m[2]) > 0 ? '.' + m[2] : '');
+  }
+  return '';
+}
+
+/** 表題部に地目の語が1種類だけ出てくる場合はそれを返す（複数あれば判断しない＝空欄） */
+function tohonSingleChimoku_(sec) {
+  const body = String(sec).split(/権\s*利\s*部/)[0];
+  const found = TOHON_CHIMOKU_WORDS.filter(function (w) {
+    return new RegExp('(?:^|\\n)\\s*' + w + '\\s*(?:\\n|$)').test(body);
+  });
+  return found.length === 1 ? found[0] : '';
+}
+
+/**
+ * 罫線の表で書かれた表題部を読む（登記情報提供サービスの全部事項など）。
+ *  ┃所 在│愛知郡長久手町大字熊張字松杁 │ ┃   ← 旧所在
+ *  ┃ │長久手市松杁 │平成２４年１月４日市制施行┃  ← 最新（行頭に「所在」なし）
+ *  ┃１６７５番 │宅地 │ ４１３：２２│ ┃
+ *  ┃ │ │ ４８８：７０│③錯誤 ┃            ← 地積だけの更正（地番・地目は空欄）
+ * 所在は「所在」の行から地番の見出しまでの2列目、地番・地目・地積は見出しより後の各行で、空欄でない最後の値を採用する。
+ * 表の形でなければ null（従来の読み方に回す）。
+ */
+function parseTohonTable_(sec) {
+  if (sec.indexOf('┃') < 0 || sec.indexOf('│') < 0) return null;
+  const lines = [];
+  // 1行＝左端（┃┠┏┗）から右端（┃┨┓┛）まで。罫線だけの区切り行（─ ━ ┼ ├ など）は読み飛ばす
+  // 行は改行をまたがない（「┃」の直後が改行で次の行の「┃」が続く場合に、空の行として次の行の左端を取り込まないように）
+  const re = /[┃┠┏┗]([^┃┠┨┏┓┗┛\n]*)[┃┨┓┛]/g;
+  let m;
+  while ((m = re.exec(sec)) !== null) {
+    if (/^[\s─━┼├┤┬┴┯┷┿]*$/.test(m[1])) continue;
+    lines.push(m[1].split('│').map(function (c) { return c.replace(/\s+/g, ''); }));
+  }
+  let mode = '';
+  let address = '', lotNumber = '', chimokuRaw = '', area = '';
+  for (let i = 0; i < lines.length; i++) {
+    const cells = lines[i];
+    const head = cells.join('');
+    if (/権利部/.test(head)) break;
+    if (cells[0] === '所在') { mode = 'shozai'; }
+    else if (/地番/.test(head) && /地目/.test(head)) { mode = 'rows'; continue; }
+    if (mode === 'shozai') {
+      if (cells[0] && cells[0] !== '所在') { mode = ''; continue; } // 所在の欄を過ぎた
+      const v = cleanTohonAddress_(cells[1] || '');
+      if (v) address = v;
+    } else if (mode === 'rows') {
+      const n = (cells[0] || '').match(/^(\d+番(?:地)?\d*)/);
+      if (n) lotNumber = n[1].replace('番地', '番');
+      const c = (cells[1] || '').replace(/[①-⑳]/g, '');
+      if (c && TOHON_CHIMOKU_WORDS.indexOf(c) >= 0) chimokuRaw = c;
+      // 地積は「４１３：２２」「２２３：」（小数なしでも「：」が付く）のどちらも読む。「：」だけの行（空欄）は読み飛ばす
+      const a = (cells[2] || '').match(/^(\d[\d,]*)(?::(\d{0,2}))?$/);
+      if (a) area = a[1].replace(/,/g, '') + (a[2] && Number(a[2]) > 0 ? '.' + a[2] : '');
+    }
+  }
+  if (!address && !lotNumber) return null;
+  return {
+    address: address,
+    lotNumber: lotNumber,
+    chimoku: FORM_OPTIONS.chimoku.indexOf(chimokuRaw) >= 0 ? chimokuRaw : (chimokuRaw ? 'その他' : ''),
+    chimokuRaw: chimokuRaw,
+    area: area,
+  };
+}
+
+/** 全角英数字・全角スペースを半角にし、改行以外の空白をそろえる */
+function normalizeTohonText_(text) {
+  return String(text || '')
+    .replace(/[！-～]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/　/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\r/g, '');
+}
+
+/** 所在の値から「余白」や原因・日付の欄を取り除く */
+function cleanTohonAddress_(value) {
+  return String(value)
+    .split(/余白|〔|【|\[|昭和|平成|令和|原因/)[0]
+    .replace(/\s+/g, '')
+    .trim();
+}
