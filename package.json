@@ -5,6 +5,8 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "test:browser": "node tests/wellmo-filler.browser.js",
-    "build:bookmarklet": "node tools/build-bookmarklet.js"
+    "build:bookmarklet": "node tools/build-bookmarklet.js",
+    "build:demo": "node tools/build-demo.js",
+    "test:app": "node tools/build-demo.js && node tests/app-demo.browser.js"
   }
 }

@@ -8,6 +8,8 @@
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('周辺調査')
+    .addItem('★ アプリを開く', 'menuOpenApp')
+    .addSeparator()
     .addItem('⓪ マイソクフォルダから新規物件を取り込み', 'menuImportMysokuFolder')
     .addItem('⓪ 選択した物件のマイソクPDFを取り込み', 'menuImportMysokuSelected')
     .addSeparator()
@@ -159,28 +161,10 @@ function processProperty_(prop, ctx) {
     // 1. 起点の座標
     if (lat == null || lng == null) {
       if (!prop['住所']) return finish_(prop, ctx, 'エラー', '住所が空です', callsBefore);
-      var g = geocode_(ctx, prop['住所']);
-      lat = g.lat;
-      lng = g.lng;
-      var warn = [];
-      if (g.locationType !== 'ROOFTOP') warn.push('Geocode精度が' + g.locationType + '（建物単位ではない）');
-      if (g.partialMatch) warn.push('住所が部分一致');
-      if (g.resultCount > 1) warn.push('候補が' + g.resultCount + '件');
-      var patch = {
-        '起点緯度': lat, '起点経度': lng, '起点確認済': false,
-        'Googleマップ': mapUrl_(lat, lng),
-        'Geocode種別': g.locationType, 'Geocode部分一致': g.partialMatch ? 'あり' : '',
-        'Geocode住所': g.formattedAddress
-      };
-      if (!nfkc_(prop['エリア']).trim()) {
-        patch['エリア'] = areaFromGeocode_(g.components, g.formattedAddress, {
-          wardCities: splitList_(ctx.settings.title_ward_cities),
-          otherStyle: nfkc_(ctx.settings.title_area_other_style).trim()
-        });
-        prop['エリア'] = patch['エリア'];
-      }
-      updateRow_(name, prop._row, patch);
-      prop['起点確認済'] = false;
+      var geo = geocodeProperty_(prop, ctx);
+      lat = geo.lat;
+      lng = geo.lng;
+      var warn = geo.warnings;
       if (requireConfirm) {
         return finish_(prop, ctx, '起点確認待ち',
           (warn.length ? '【注意】' + warn.join('・') + '。' : '') +
@@ -242,6 +226,33 @@ function finish_(prop, ctx, status, message, callsBefore) {
 
 function mapUrl_(lat, lng) {
   return 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
+}
+
+/**
+ * 住所をGeocodingして起点座標・エリアを物件シートに書き込む（起点確認済はOFFにする）
+ * @return {{lat:number, lng:number, warnings:string[], formattedAddress:string}}
+ */
+function geocodeProperty_(prop, ctx) {
+  var g = geocode_(ctx, prop['住所']);
+  var warn = [];
+  if (g.locationType !== 'ROOFTOP') warn.push('住所から求めた位置の精度が建物単位ではありません（' + g.locationType + '）');
+  if (g.partialMatch) warn.push('住所の一部だけが一致しました');
+  if (g.resultCount > 1) warn.push('住所の候補が' + g.resultCount + '件ありました');
+  var patch = {
+    '起点緯度': g.lat, '起点経度': g.lng, '起点確認済': false,
+    'Googleマップ': mapUrl_(g.lat, g.lng),
+    'Geocode種別': g.locationType, 'Geocode部分一致': g.partialMatch ? 'あり' : '',
+    'Geocode住所': g.formattedAddress
+  };
+  if (!nfkc_(prop['エリア']).trim()) {
+    patch['エリア'] = areaFromGeocode_(g.components, g.formattedAddress, {
+      wardCities: splitList_(ctx.settings.title_ward_cities),
+      otherStyle: nfkc_(ctx.settings.title_area_other_style).trim()
+    });
+  }
+  updateRow_(SHEETS.PROPERTIES, prop._row, patch);
+  Object.keys(patch).forEach(function (k) { prop[k] = patch[k]; });
+  return { lat: g.lat, lng: g.lng, warnings: warn, formattedAddress: g.formattedAddress };
 }
 
 /* ---------------- 出力 ---------------- */

@@ -1,0 +1,994 @@
+<title>マンスリー周辺調査</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDGothic:wght@400;700&display=swap">
+<style>
+/* 作業台レイアウト: 左に物件の列（作業待ちの山）、右に1物件ずつ5工程で進める作業面。主操作は常に右下の固定バー */
+:root {
+  --paper: #eef2f2;
+  --surface: #ffffff;
+  --surface-2: #f6f9f9;
+  --ink: #16232a;
+  --muted: #546770;
+  --line: #d3dcde;
+  --accent: #1c5a85;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2edf5;
+  --ok: #17703f;
+  --ok-soft: #e1f2e8;
+  --warn: #7f5200;
+  --warn-soft: #fff1d2;
+  --warn-line: #e8c46a;
+  --danger: #b3261e;
+  --danger-soft: #fce8e6;
+  --focus: #e8a400;
+  --shadow: 0 1px 2px rgba(22, 35, 42, .08), 0 4px 14px rgba(22, 35, 42, .06);
+  --font-ui: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+  --font-num: "BIZ UDGothic", "Hiragino Kaku Gothic ProN", ui-monospace, monospace;
+  --r: 10px;
+  --tap: 44px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f161a; --surface: #172127; --surface-2: #1c2830; --ink: #e5edef; --muted: #9db0b8; --line: #2c3c44;
+    --accent: #74b4e0; --accent-ink: #0a1822; --accent-soft: #1b3445; --ok: #63c98f; --ok-soft: #15301f;
+    --warn: #f2c56a; --warn-soft: #362a10; --warn-line: #7a6024; --danger: #f28b82; --danger-soft: #3b1a17;
+    --focus: #f2c94c; --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f161a; --surface: #172127; --surface-2: #1c2830; --ink: #e5edef; --muted: #9db0b8; --line: #2c3c44;
+  --accent: #74b4e0; --accent-ink: #0a1822; --accent-soft: #1b3445; --ok: #63c98f; --ok-soft: #15301f;
+  --warn: #f2c56a; --warn-soft: #362a10; --warn-line: #7a6024; --danger: #f28b82; --danger-soft: #3b1a17;
+  --focus: #f2c94c; --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.65 var(--font-ui); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- 枠組み ---------- */
+.app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 12px;
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--surface); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: .02em; }
+.brand-mark { width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 14px; }
+.topbar .spacer { flex: 1; }
+.demo-band { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--warn-line); font-size: 13px;
+  padding-block: 6px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- 物件一覧 ---------- */
+.queue { border-right: 1px solid var(--line); background: var(--surface-2); display: flex; flex-direction: column; min-height: 0; }
+@media (max-width: 900px) { .queue { border-right: 0; border-bottom: 1px solid var(--line); } .queue.collapsed .queue-body { display: none; } }
+.queue-head { display: grid; gap: 10px; padding: 14px max(16px, env(safe-area-inset-left, 0px)) 10px; }
+.queue-toggle { display: none; }
+@media (max-width: 900px) { .queue-toggle { display: inline-flex; } }
+.queue-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.queue-list { list-style: none; margin: 0; padding: 4px 10px 16px; overflow: auto; display: grid; gap: 6px; align-content: start; }
+@media (max-width: 900px) { .queue-list { max-height: 45vh; } }
+.q-item { width: 100%; text-align: left; border: 1px solid transparent; background: transparent; border-radius: var(--r); padding: 10px 12px; cursor: pointer;
+  display: grid; gap: 4px; min-height: var(--tap); }
+.q-item:hover { background: var(--surface); border-color: var(--line); }
+.q-item[aria-current="true"] { background: var(--surface); border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+.q-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-addr { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-empty { color: var(--muted); padding: 16px; font-size: 14px; }
+
+/* 状態ピル（色だけに頼らず、記号と文字を併記） */
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; padding: 2px 10px 2px 8px; border-radius: 999px; width: fit-content; }
+.pill .dot { font-family: var(--font-num); }
+.pill.s1, .pill.s2, .pill.s3 { background: var(--accent-soft); color: var(--accent); }
+.pill.s4 { background: var(--warn-soft); color: var(--warn); }
+.pill.s5 { background: var(--ok-soft); color: var(--ok); }
+
+/* ---------- ボタン・入力 ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--tap); padding: 0 18px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 700; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.big { min-height: 52px; padding: 0 26px; font-size: 16px; }
+.btn.small { min-height: 36px; padding: 0 12px; font-size: 13.5px; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--accent); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; filter: none; }
+.input, .select, .textarea { width: 100%; min-height: var(--tap); padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.textarea { min-height: 120px; resize: vertical; line-height: 1.7; }
+.input:focus, .select:focus, .textarea:focus { border-color: var(--accent); outline: 3px solid var(--accent-soft); outline-offset: 0; }
+.input.missing { border-color: var(--warn-line); background: var(--warn-soft); }
+.search { min-height: 40px; }
+
+.seg { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.seg button { min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 700; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* ---------- 作業面 ---------- */
+.work { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.work-scroll { flex: 1; overflow: auto; padding-block: 18px 28px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.work-inner { max-width: 1040px; margin: 0 auto; display: grid; gap: 18px; }
+.prop-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
+.prop-head h1 { margin: 0; font-size: 22px; line-height: 1.35; text-wrap: balance; }
+.prop-head .sub { color: var(--muted); font-size: 13.5px; }
+
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; counter-reset: s; }
+.step { position: relative; }
+.step button { width: 100%; min-height: 56px; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--r); border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; text-align: left; }
+.step .n { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-num); font-weight: 700;
+  background: var(--surface-2); border: 1px solid var(--line); }
+.step .t { display: grid; line-height: 1.3; min-width: 0; }
+.step .t b { font-size: 14.5px; }
+.step .t small { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step.done .n { background: var(--ok); color: var(--surface); border-color: var(--ok); }
+.step.current button { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+.step.current .n { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.step button[disabled] { cursor: not-allowed; opacity: .55; }
+@media (max-width: 720px) { .step .t small { display: none; } .step button { justify-content: center; padding: 6px; } .step .t b { font-size: 12.5px; } .step button { flex-direction: column; gap: 4px; } }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.card h2 { margin: 0; font-size: 16.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.card h2 .hint { font-weight: 400; color: var(--muted); font-size: 13px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; }
+@media (max-width: 720px) { .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > label, .field > .lbl { font-weight: 700; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.req { font-size: 11px; font-weight: 700; color: var(--danger); border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; }
+.help { color: var(--muted); font-size: 12.5px; }
+.station-row { display: grid; grid-template-columns: 40px minmax(0, 1.2fr) minmax(0, 1fr) 110px; gap: 10px; align-items: center; }
+.station-row .idx { font-family: var(--font-num); color: var(--muted); text-align: center; }
+@media (max-width: 720px) { .station-row { grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr); } .station-row .walk { grid-column: 2 / -1; } }
+.unit { display: flex; align-items: center; gap: 8px; }
+.unit .input { max-width: 120px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: var(--tap); display: inline-flex; align-items: center; gap: 8px; padding: 0 16px 0 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; font-weight: 700; }
+.chip .ck { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: 12px; color: transparent; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.chip[aria-pressed="true"] .ck { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+.note { display: flex; gap: 10px; padding: 12px 14px; border-radius: var(--r); font-size: 14px; align-items: flex-start; }
+.note .ic { flex: none; font-weight: 700; font-family: var(--font-num); }
+.note.info { background: var(--accent-soft); color: var(--ink); }
+.note.info .ic { color: var(--accent); }
+.note.warn { background: var(--warn-soft); border: 1px solid var(--warn-line); }
+.note.warn .ic { color: var(--warn); }
+.note.ok { background: var(--ok-soft); }
+.note.ok .ic { color: var(--ok); }
+.note.err { background: var(--danger-soft); }
+.note.err .ic { color: var(--danger); }
+.note p { margin: 0; }
+
+/* ---------- 地図 ---------- */
+.map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .map-wrap { grid-template-columns: minmax(0, 1fr); } }
+.map { position: relative; width: 100%; max-width: 100%; aspect-ratio: 640 / 400; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); cursor: crosshair; }
+.map img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+.pin { position: absolute; width: 34px; height: 46px; transform: translate(-50%, -100%); pointer-events: none; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.map-tools { position: absolute; right: 10px; top: 10px; display: grid; gap: 6px; }
+.map-tools button { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; font-weight: 700; cursor: pointer; }
+.map-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+.coord { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+.coord dt { color: var(--muted); }
+.coord dd { margin: 0; }
+
+/* ---------- 調査 ---------- */
+.plan { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.plan div { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; background: var(--surface-2); }
+.plan b { display: block; }
+.plan span { color: var(--muted); font-size: 13px; }
+.progress { height: 8px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; }
+.progress i { display: block; height: 100%; width: 35%; background: var(--accent); border-radius: 999px; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+/* ---------- 確認 ---------- */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.tab { min-height: var(--tap); padding: 0 16px; border: 0; background: transparent; cursor: pointer; font-weight: 700; color: var(--muted);
+  border-bottom: 3px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.count { font-family: var(--font-num); font-size: 12px; padding: 0 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
+.count.zero { background: var(--ok-soft); color: var(--ok); }
+.review-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cat { display: grid; gap: 8px; }
+.cat-head { display: flex; align-items: baseline; gap: 10px; }
+.cat-head h3 { margin: 0; font-size: 15.5px; }
+.cat-head span { color: var(--muted); font-size: 13px; }
+.rows { display: grid; gap: 8px; }
+.row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.row.flagged { border-color: var(--warn-line); }
+.row.off .r-name { color: var(--muted); }
+.r-main { min-width: 0; display: grid; gap: 2px; }
+.r-name { font-weight: 700; overflow-wrap: anywhere; }
+.r-meta { color: var(--muted); font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; }
+.r-dist { text-align: right; font-family: var(--font-num); font-weight: 700; font-size: 15px; white-space: nowrap; }
+.r-dist small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.r-flag { grid-column: 2 / -1; display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap;
+  background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; font-size: 13.5px; }
+.r-flag.done { background: var(--ok-soft); }
+@media (max-width: 600px) { .row { grid-template-columns: auto minmax(0, 1fr); } .r-dist { grid-column: 2; text-align: left; } .r-flag { grid-column: 1 / -1; } }
+.switch { position: relative; width: 52px; height: 30px; border-radius: 999px; border: 0; background: var(--line); cursor: pointer; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+.switch[aria-checked="true"] { background: var(--ok); }
+.switch[aria-checked="true"]::after { transform: translateX(22px); }
+.switch-wrap { display: grid; justify-items: center; gap: 2px; font-size: 11px; color: var(--muted); }
+details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700; font-size: 13.5px; min-height: 36px; display: flex; align-items: center; }
+.tag { font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+.tag.g { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+
+/* ---------- 出力 ---------- */
+.out-item { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 10px 16px; align-items: start; padding: 14px 0; border-top: 1px solid var(--line); }
+.out-item:first-child { border-top: 0; }
+@media (max-width: 720px) { .out-item { grid-template-columns: minmax(0, 1fr) auto; } .out-item .out-val { grid-column: 1 / -1; grid-row: 2; } }
+.out-label { font-weight: 700; font-size: 13.5px; color: var(--muted); padding-top: 4px; }
+.out-val { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.out-val.empty { color: var(--muted); }
+.meter { display: grid; gap: 4px; margin-top: 8px; }
+.meter-bar { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
+.meter-bar i { display: block; height: 100%; background: var(--ok); }
+.meter-bar i.over { background: var(--danger); }
+.meter small { color: var(--muted); font-size: 12px; }
+.howto { margin: 0; padding-left: 1.4em; display: grid; gap: 4px; }
+.handoff { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; }
+
+/* ---------- 下部の固定操作バー ---------- */
+.actionbar { position: sticky; bottom: 0; z-index: 4; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -4px 14px rgba(0,0,0,.04);
+  padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.actionbar-inner { max-width: 1040px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+.actionbar .msg { flex: 1; min-width: 0; color: var(--muted); font-size: 13.5px; }
+.saved { font-size: 12.5px; color: var(--muted); }
+.saved.ok { color: var(--ok); }
+
+.toast { position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 20; background: var(--ink); color: var(--surface);
+  padding: 10px 18px; border-radius: 10px; font-weight: 700; box-shadow: var(--shadow); max-width: calc(100% - 32px); }
+.drop { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--accent) 18%, transparent); display: grid; place-items: center; pointer-events: none; }
+.drop div { background: var(--surface); border: 3px dashed var(--accent); border-radius: 16px; padding: 28px 36px; font-size: 18px; font-weight: 700; color: var(--accent); }
+.empty-state { display: grid; justify-items: center; text-align: center; gap: 12px; padding: 60px 16px; color: var(--muted); }
+.empty-state h2 { color: var(--ink); margin: 0; }
+.inline-form { display: flex; gap: 8px; }
+.loading { color: var(--muted); padding: 40px 0; text-align: center; }
+</style>
+
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">周</span>マンスリー周辺調査</div>
+    <div class="spacer"></div>
+    <button class="btn small queue-toggle" id="queue-toggle" type="button" aria-controls="queue" aria-expanded="true">物件一覧</button>
+  </header>
+  <div class="demo-band" id="demo-band" hidden>デモ版：架空のサンプルデータで動いています。Google API・スプレッドシート・ウェルモには接続しません。</div>
+  <div class="layout">
+    <aside class="queue" id="queue" aria-label="物件一覧">
+      <div class="queue-head">
+        <button class="btn primary" type="button" id="btn-upload">＋ マイソクPDFを追加</button>
+        <input type="file" id="file-input" accept="application/pdf" class="sr" tabindex="-1" aria-hidden="true">
+        <div id="manual-add"></div>
+        <label class="sr" for="q-search">物件を検索</label>
+        <input class="input search" id="q-search" type="search" placeholder="建物名・住所で検索">
+        <div class="seg" role="group" aria-label="表示する物件" id="q-filter">
+          <button type="button" data-filter="all" aria-pressed="true">すべて</button>
+          <button type="button" data-filter="todo" aria-pressed="false">作業中</button>
+          <button type="button" data-filter="done" aria-pressed="false">完了</button>
+        </div>
+      </div>
+      <div class="queue-body"><ul class="queue-list" id="q-list"></ul></div>
+    </aside>
+    <main class="work" id="work" aria-live="polite"></main>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="drop" id="drop" hidden><div>ここにマイソクPDFをドロップ</div></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ================= サーバー呼び出し（GAS / デモ） ================= */
+  var API = window.DEMO_BACKEND || {
+    call: function (fn) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      return new Promise(function (resolve, reject) {
+        var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+          reject(e instanceof Error ? e : new Error(String(e && e.message || e)));
+        });
+        r[fn].apply(r, args);
+      });
+    }
+  };
+  if (window.DEMO_BACKEND) document.getElementById('demo-band').hidden = false;
+
+  /* ================= 定数 ================= */
+  var STEPS = [
+    { n: 1, t: '物件情報', d: 'マイソクの内容を確認' },
+    { n: 2, t: '位置', d: '建物の出入口を指定' },
+    { n: 3, t: '調査', d: '周辺施設・駅を調べる' },
+    { n: 4, t: '確認', d: '掲載する施設を選ぶ' },
+    { n: 5, t: '出力', d: 'ウェルモへ入力' }
+  ];
+  var KINDS = ['マンション', 'アパート', '一戸建て', 'その他'];
+  var STRUCTS = [['RC', 'RC（鉄筋コンクリート）'], ['SRC', 'SRC（鉄骨鉄筋コンクリート）'], ['S', 'S（鉄骨）'], ['軽量鉄骨', '軽量鉄骨'], ['木造', '木造'], ['その他', 'その他']];
+  var EQUIP_TITLE = [['駐車場', '駐車場'], ['無料Wi-Fi', '無料Wi-Fi'], ['角部屋', '角部屋'], ['バストイレ別', 'バストイレ別'], ['独立洗面台', '独立洗面台'],
+    ['全居室6帖以上', '全居室6帖以上'], ['リフォーム済', 'リフォーム済'], ['オートロック', 'オートロック'], ['エレベーター', 'エレベーター'],
+    ['宅配BOX', '宅配ボックス'], ['自転車駐輪可能', '駐輪場']];
+  var EQUIP_WELLMO = [['防犯カメラ', '防犯カメラ'], ['コンシェルジュ', 'コンシェルジュ'], ['自動販売機', '自動販売機'], ['TVドアホン', 'TVドアホン'], ['ゴミ捨て場', 'ゴミ捨て場']];
+  var MAP_W = 640, MAP_H = 400;
+
+  /* ================= 状態 ================= */
+  var S = {
+    list: [], filter: 'all', query: '',
+    id: null, data: null, step: 1, tab: 'facility', onlyPending: false,
+    map: null, busy: '', surveyResult: null, error: '', addOpen: false, forceStep: 0
+  };
+
+  /* ================= 小道具 ================= */
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function b(v) { return v === true || v === 'TRUE' || v === 'true'; }
+  function n(v) { if (v === '' || v == null) return null; var x = Number(String(v).normalize('NFKC').replace(/[^\d.\-]/g, '')); return isNaN(x) ? null : x; }
+  function has(v) { return v !== '' && v != null; }
+  var toastTimer;
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2600);
+  }
+  function errorText(e) { return (e && e.message) ? e.message : String(e); }
+  function copyText(text, label) {
+    var done = function () { toast((label || '内容') + 'をコピーしました'); };
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove();
+      if (ok) done(); else toast('コピーできませんでした。内容を選択してコピーしてください');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  }
+
+  /* 確認待ちの件数（サーバーの countUnconfirmed_ と同じ規則） */
+  function pendingCount(d) {
+    if (!d) return 0;
+    var c = 0;
+    d.facilities.forEach(function (r) { if (['採用', '該当なし', 'エラー'].indexOf(r['採否']) >= 0 && r['要確認理由'] && !b(r['確認済'])) c++; });
+    d.stations.forEach(function (r) { if (r['要確認理由'] && !b(r['確認済'])) c++; });
+    d.access.forEach(function (r) { if (b(r['採用']) && r['要確認理由'] && !b(r['確認済'])) c++; });
+    return c;
+  }
+  function hasResults(d) { return d && (d.facilities.length + d.stations.length + d.access.length) > 0; }
+  function maxStep(d) {
+    if (!d) return 1;
+    // 住所を入力した直後（保存の応答前）でも位置の確認へ進めるようにする
+    if (d.stage < 2 && String(d.prop['住所'] || '').trim()) return 2;
+    // 確認が残っていても出力は見られる（出力画面で残件数を知らせる）
+    if (d.stage === 4) return 5;
+    return d.stage;
+  }
+
+  /* ================= 物件一覧 ================= */
+  function loadList(selectId) {
+    return API.call('api_listProperties').then(function (list) {
+      S.list = list || [];
+      renderList();
+      var target = selectId || S.id || (S.list[0] && S.list[0].id);
+      if (target) openProperty(target, !selectId && S.id === target);
+      else renderWork();
+    }).catch(function (e) { S.error = errorText(e); renderWork(); });
+  }
+
+  function renderList() {
+    var q = S.query.normalize('NFKC').toLowerCase();
+    var items = S.list.filter(function (p) {
+      if (S.filter === 'todo' && p.stage === 5) return false;
+      if (S.filter === 'done' && p.stage !== 5) return false;
+      if (q && (p.name + ' ' + p.address).normalize('NFKC').toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    $('q-list').innerHTML = items.length ? items.map(function (p) {
+      return '<li><button type="button" class="q-item" data-open="' + esc(p.id) + '" aria-current="' + (p.id === S.id) + '">' +
+        '<span class="q-name">' + esc(p.name || '（建物名未入力）') + '</span>' +
+        '<span class="q-addr">' + esc(p.address || '住所未入力') + '</span>' +
+        pill(p.stage, p.stageLabel) + '</button></li>';
+    }).join('') : '<li class="q-empty">' + (S.list.length ? '条件に合う物件はありません' : 'まだ物件がありません。「マイソクPDFを追加」から始めましょう。') + '</li>';
+  }
+
+  function pill(stage, label) {
+    var mark = stage === 5 ? '✓' : stage === 4 ? '!' : String(stage);
+    return '<span class="pill s' + stage + '"><span class="dot" aria-hidden="true">' + mark + '</span>' + esc(label) + '</span>';
+  }
+
+  /* ================= 物件を開く ================= */
+  function openProperty(id, keepStep) {
+    var changed = S.id !== id;
+    S.id = id; S.error = '';
+    if (changed) { S.data = null; S.map = null; S.surveyResult = null; S.tab = 'facility'; S.onlyPending = false; }
+    renderList();
+    renderWork();
+    return API.call('api_getProperty', id).then(function (d) {
+      S.data = d;
+      if (S.forceStep) { S.step = S.forceStep; S.forceStep = 0; }
+      else if (changed || !keepStep) S.step = Math.min(d.stage, 5);
+      renderWork();
+      if (window.innerWidth <= 900) setQueueOpen(false);
+    }).catch(function (e) { S.error = errorText(e); renderWork(); });
+  }
+
+  function applyData(d) {
+    S.data = d;
+    var item = S.list.filter(function (p) { return p.id === S.id; })[0];
+    if (item) {
+      item.stage = d.stage; item.stageLabel = d.stageLabel; item.pending = d.pending;
+      item.name = String(d.prop['建物名'] || d.prop['物件名'] || ''); item.address = String(d.prop['住所'] || '');
+      renderList();
+    }
+  }
+
+  /* ================= 作業面 ================= */
+  function renderWork() {
+    var w = $('work');
+    if (S.error && !S.data) {
+      w.innerHTML = '<div class="work-scroll"><div class="work-inner"><div class="note err"><span class="ic">×</span><p>' + esc(S.error) + '</p></div></div></div>';
+      return;
+    }
+    if (!S.id) {
+      w.innerHTML = '<div class="work-scroll"><div class="empty-state"><h2>マイソクPDFを追加して始めましょう</h2>' +
+        '<p>PDFを左上のボタンから選ぶか、この画面にドラッグ＆ドロップしてください。<br>物件名・所在地・交通・設備を自動で読み取ります。</p></div></div>';
+      return;
+    }
+    if (!S.data) { w.innerHTML = '<div class="work-scroll"><p class="loading">読み込み中…</p></div>'; return; }
+    var d = S.data, p = d.prop;
+    var body = S.step === 1 ? stepInfo(d) : S.step === 2 ? stepMap(d) : S.step === 3 ? stepSurvey(d) : S.step === 4 ? stepReview(d) : stepOutput(d);
+    w.innerHTML =
+      '<div class="work-scroll"><div class="work-inner">' +
+        '<div class="prop-head"><div><h1>' + esc(p['建物名'] || p['物件名'] || '（建物名未入力）') + '</h1>' +
+        '<div class="sub">' + esc(p['住所'] || '住所未入力') + '</div></div>' + pill(d.stage, d.stageLabel) + '</div>' +
+        stepper(d) + body +
+      '</div></div>' + actionBar(d);
+    afterRender();
+  }
+
+  function stepper(d) {
+    var max = maxStep(d);
+    return '<nav aria-label="作業の手順"><ol class="steps">' + STEPS.map(function (s) {
+      var cls = s.n === S.step ? 'current' : s.n < max ? 'done' : '';
+      var disabled = s.n > max;
+      return '<li class="step ' + cls + '"><button type="button" data-step="' + s.n + '"' + (disabled ? ' disabled title="前の手順を終えると進めます"' : '') +
+        (s.n === S.step ? ' aria-current="step"' : '') + '><span class="n" aria-hidden="true">' + (cls === 'done' ? '✓' : s.n) + '</span>' +
+        '<span class="t"><b>' + s.t + '</b><small>' + s.d + '</small></span></button></li>';
+    }).join('') + '</ol></nav>';
+  }
+
+  /* 下部の固定バー：その手順で次にやることを1つだけ大きく */
+  function actionBar(d) {
+    var back = S.step > 1 ? '<button class="btn" type="button" data-step="' + (S.step - 1) + '">← 戻る</button>' : '';
+    var msg = '', primary = '';
+    var p = d.prop;
+    if (S.step === 1) {
+      var missing = [];
+      if (!String(p['建物名'] || '').trim()) missing.push('建物名');
+      if (!String(p['住所'] || '').trim()) missing.push('住所');
+      msg = missing.length ? missing.join('・') + 'を入力すると次へ進めます' : '<span class="saved" id="save-state">入力は自動で保存されます</span>';
+      primary = '<button class="btn primary big" type="button" data-step="2"' + (missing.length ? ' disabled' : '') + '>位置の確認へ →</button>';
+    } else if (S.step === 2) {
+      msg = '地図をクリックして、ピンを建物の出入口に合わせてください';
+      primary = '<button class="btn primary big" type="button" data-act="confirm-origin"' + (S.map && S.map.pinLat != null ? '' : ' disabled') + '>この位置で確定 →</button>';
+    } else if (S.step === 3) {
+      if (S.busy === 'survey') { msg = '調査中です。画面を閉じずにお待ちください'; primary = '<button class="btn primary big" type="button" disabled>調査中…</button>'; }
+      else if (hasResults(d) && d.stage >= 4) { msg = '調査は完了しています'; primary = '<button class="btn primary big" type="button" data-step="4">結果の確認へ →</button>'; }
+      else { msg = '1物件あたり1〜2分かかります'; primary = '<button class="btn primary big" type="button" data-act="survey">調査を開始する</button>'; }
+    } else if (S.step === 4) {
+      var pc = pendingCount(d);
+      msg = pc ? '<b style="color:var(--warn)">確認が' + pc + '件残っています</b>（出力は確認後に作り直されます）' : '<span style="color:var(--ok)">✓ すべて確認しました</span>';
+      primary = '<button class="btn primary big" type="button" data-step="5">出力を確認する →</button>';
+    } else {
+      msg = '内容を確認したら、ウェルモの編集画面に貼り付けます';
+      primary = '<button class="btn primary big" type="button" data-act="copy-json"' + (d.output ? '' : ' disabled') + '>ウェルモ用データをコピー</button>';
+    }
+    return '<div class="actionbar"><div class="actionbar-inner">' + back + '<div class="msg">' + msg + '</div>' + primary + '</div></div>';
+  }
+
+  /* ---------- 手順1：物件情報 ---------- */
+  function txt(field, label, opt) {
+    opt = opt || {};
+    var v = S.data.prop[field];
+    var missing = opt.required && !String(v || '').trim();
+    return '<div class="field"><label for="f-' + esc(field) + '">' + esc(label) + (opt.required ? '<span class="req">必須</span>' : '') + '</label>' +
+      '<input class="input' + (missing ? ' missing' : '') + (opt.num ? ' num' : '') + '" id="f-' + esc(field) + '" data-field="' + esc(field) + '" value="' + esc(v) + '"' +
+      (opt.num ? ' inputmode="numeric"' : '') + (opt.ph ? ' placeholder="' + esc(opt.ph) + '"' : '') + '>' +
+      (opt.help ? '<div class="help">' + esc(opt.help) + '</div>' : '') + '</div>';
+  }
+  function unit(field, label, suffix) {
+    return '<div class="field"><label for="f-' + esc(field) + '">' + esc(label) + '</label><div class="unit">' +
+      '<input class="input num" id="f-' + esc(field) + '" data-field="' + esc(field) + '" inputmode="numeric" value="' + esc(S.data.prop[field]) + '"><span>' + esc(suffix) + '</span></div></div>';
+  }
+  function chips(list) {
+    return '<div class="chips">' + list.map(function (e) {
+      var on = b(S.data.prop[e[0]]);
+      return '<button type="button" class="chip" data-toggle="' + esc(e[0]) + '" aria-pressed="' + on + '"><span class="ck" aria-hidden="true">✓</span>' + esc(e[1]) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function stepInfo(d) {
+    var p = d.prop;
+    var memo = String(p['マイソク取込メモ'] || '');
+    var memoNote = memo ? '<div class="note ' + (/要確認|エラー/.test(memo) ? 'warn' : 'info') + '"><span class="ic">i</span><div><p><b>マイソクの読み取り結果</b>（' + esc(p['マイソク取込日時'] || '') + '）</p><p>' + esc(memo) + '</p></div>' +
+      (p['マイソクPDF'] ? '<button class="btn small" type="button" data-act="reimport" style="margin-left:auto">再読み取り</button>' : '') + '</div>' : '';
+    var kind = String(p['物件種別'] || '');
+    var stations = [1, 2, 3].map(function (i) {
+      var k = 'マイソク駅' + i;
+      return '<div class="station-row"><span class="idx">' + i + '</span>' +
+        '<input class="input" aria-label="駅' + i + 'の路線" data-field="' + k + '_路線" placeholder="路線（例：東山線）" value="' + esc(p[k + '_路線']) + '">' +
+        '<input class="input" aria-label="駅' + i + 'の駅名" data-field="' + k + '_駅名" placeholder="駅名（例：今池）" value="' + esc(p[k + '_駅名']) + '">' +
+        '<div class="unit walk"><input class="input num" aria-label="駅' + i + 'の徒歩分" data-field="' + k + '_徒歩分" inputmode="numeric" placeholder="徒歩" value="' + esc(p[k + '_徒歩分']) + '"><span>分</span></div></div>';
+    }).join('');
+    return memoNote +
+      '<section class="card"><h2>基本情報</h2><div class="grid2">' +
+        txt('建物名', '建物名', { required: true }) +
+        txt('ふりがな', 'ふりがな', { required: true, ph: 'ひらがなで入力', help: 'ウェルモの必須項目です。マイソクにないため手入力してください' }) +
+        '<div class="field"><span class="lbl">物件種別</span><div class="seg" role="group" aria-label="物件種別">' +
+          KINDS.map(function (k) { return '<button type="button" data-set="物件種別" data-value="' + k + '" aria-pressed="' + (kind === k) + '">' + k + '</button>'; }).join('') + '</div></div>' +
+        txt('郵便番号', '郵便番号', { num: true, ph: '例：464-0850' }) +
+      '</div>' + txt('住所', '所在地', { required: true, ph: '例：愛知県名古屋市千種区今池3丁目39-21' }) +
+      '<div class="grid2">' + txt('エリア', 'エリア（タイトル用）', { help: '位置の確認で自動入力されます。例：千種区／愛知県豊田市' }) +
+        txt('その他アピール', 'その他アピール（タイトル用）', { ph: '例：mozoワンダーシティ徒歩5分', help: '近くに有名な施設があるときに入力' }) + '</div></section>' +
+      '<section class="card"><h2>交通 <span class="hint">マイソクの記載。足りない駅は調査で補います</span></h2>' + stations + '</section>' +
+      '<section class="card"><h2>設備 <span class="hint">押すとON/OFFが切り替わります</span></h2>' +
+        '<div class="field"><span class="lbl">タイトル・ウェルモ共通</span>' + chips(EQUIP_TITLE) + '</div>' +
+        '<div class="field"><span class="lbl">ウェルモの建物設備のみ</span>' + chips(EQUIP_WELLMO) + '</div>' +
+        '<div class="grid3">' + unit('最大洋室帖数', '最も広い洋室', '帖') +
+          txt('Wi-Fiサービス名', 'Wi-Fiサービス名', { help: 'USEN AIR はタイトルの「無料Wi-Fi」に含めません' }) + '</div></section>' +
+      '<section class="card"><h2>建物情報</h2><div class="grid3">' +
+        '<div class="field"><label for="f-建物構造">建物構造</label><select class="select" id="f-建物構造" data-field="建物構造"><option value="">選択してください</option>' +
+          STRUCTS.map(function (s) { return '<option value="' + s[0] + '"' + (String(p['建物構造']) === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select></div>' +
+        unit('地上階数', '地上', '階') + unit('地下階数', '地下', '階') + unit('築年', '築年', '年') + unit('築月', '築月', '月') + unit('総戸数', '総戸数', '戸') +
+      '</div></section>';
+  }
+
+  /* 自動保存（入力をやめて0.6秒後） */
+  var pending = {}, saveTimer = null, saving = false;
+  function queueSave(field, value) {
+    pending[field] = value;
+    S.data.prop[field] = value;
+    refreshActionBar();
+    setSaveState('保存中…');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 600);
+  }
+  function flushSave() {
+    if (saving || !Object.keys(pending).length) return;
+    var patch = pending; pending = {}; saving = true;
+    var id = S.id;
+    API.call('api_saveProperty', id, patch).then(function (d) {
+      saving = false;
+      if (S.id !== id) return;
+      var stepBefore = S.step;
+      var stageChanged = d.stage !== S.data.stage;
+      // 入力中の値は画面のものを優先（保存中に打った文字を消さない）
+      Object.keys(pending).forEach(function (k) { d.prop[k] = pending[k]; });
+      applyData(d);
+      if ('住所' in patch) S.map = null;
+      // 入力中のフォームは描き直さない（フォーカスと入力位置を守る）。見出し・手順・操作バーだけ更新
+      if (stageChanged && stepBefore !== 1) renderWork(); else refreshChrome();
+      setSaveState('✓ 保存しました', true);
+      if (Object.keys(pending).length) flushSave();
+    }).catch(function (e) { saving = false; setSaveState('保存できませんでした：' + errorText(e)); });
+  }
+  function setSaveState(t, ok) { var el = $('save-state'); if (el) { el.textContent = t; el.className = 'saved' + (ok ? ' ok' : ''); } }
+  function refreshChrome() {
+    var nav = document.querySelector('nav[aria-label="作業の手順"]');
+    if (nav) { var t1 = document.createElement('div'); t1.innerHTML = stepper(S.data); nav.replaceWith(t1.firstChild); }
+    var pl = document.querySelector('.prop-head > .pill');
+    if (pl) { var t2 = document.createElement('div'); t2.innerHTML = pill(S.data.stage, S.data.stageLabel); pl.replaceWith(t2.firstChild); }
+    var h = document.querySelector('.prop-head h1');
+    if (h) h.textContent = S.data.prop['建物名'] || S.data.prop['物件名'] || '（建物名未入力）';
+    var sub = document.querySelector('.prop-head .sub');
+    if (sub) sub.textContent = S.data.prop['住所'] || '住所未入力';
+    refreshActionBar();
+  }
+  function refreshActionBar() {
+    var bar = document.querySelector('.actionbar');
+    if (bar) { var tmp = document.createElement('div'); tmp.innerHTML = actionBar(S.data); bar.replaceWith(tmp.firstChild); }
+  }
+
+  /* ---------- 手順2：位置 ---------- */
+  function project(lat, lng, z) {
+    var s = 256 * Math.pow(2, z), sin = Math.sin(lat * Math.PI / 180);
+    return { x: (lng + 180) / 360 * s, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * s };
+  }
+  function unproject(x, y, z) {
+    var s = 256 * Math.pow(2, z), k = Math.PI - 2 * Math.PI * y / s;
+    return { lat: 180 / Math.PI * Math.atan(0.5 * (Math.exp(k) - Math.exp(-k))), lng: x / s * 360 - 180 };
+  }
+
+  function stepMap(d) {
+    var m = S.map;
+    if (!m) { startMap(); return '<section class="card"><p class="loading">住所から位置を求めています…</p></section>'; }
+    if (m.error && m.lat == null) return '<section class="card"><div class="note err"><span class="ic">×</span><p>' + esc(m.error) + '</p></div></section>';
+    var warns = (m.warnings || []).map(function (w) { return '<div class="note warn"><span class="ic">!</span><p>' + esc(w) + '</p></div>'; }).join('');
+    var pinStyle = '';
+    if (m.img && m.pinLat != null) {
+      var c = project(m.img.lat, m.img.lng, m.img.zoom), p = project(m.pinLat, m.pinLng, m.img.zoom);
+      pinStyle = 'left:' + ((p.x - c.x + MAP_W / 2) / MAP_W * 100) + '%;top:' + ((p.y - c.y + MAP_H / 2) / MAP_H * 100) + '%';
+    }
+    var gmap = 'https://www.google.com/maps/search/?api=1&query=' + m.pinLat + ',' + m.pinLng;
+    return warns +
+      '<section class="card"><h2>建物の出入口を指定 <span class="hint">徒歩分は出入口から計算します（公正競争規約）</span></h2>' +
+      '<div class="map-wrap"><div>' +
+        '<div class="map" id="map" role="application" aria-label="地図。クリックした位置にピンを置きます">' +
+          (m.img && m.img.dataUrl ? '<img id="map-img" src="' + m.img.dataUrl + '" alt="物件周辺の地図">' : '') +
+          (m.img && !m.loading ? '<svg class="pin" style="' + pinStyle + '" viewBox="0 0 34 46" aria-hidden="true"><path d="M17 1C8.2 1 1 8 1 16.8 1 28.6 17 45 17 45s16-16.4 16-28.2C33 8 25.8 1 17 1z" fill="#d93025" stroke="#fff" stroke-width="2"/><circle cx="17" cy="17" r="6" fill="#fff"/></svg>' : '') +
+          (m.loading ? '<div class="map-loading">地図を読み込み中…</div>' : '') +
+          (m.img && m.img.error ? '<div class="map-loading">' + esc(m.img.error) + '</div>' : '') +
+          '<div class="map-tools"><button type="button" data-act="zoom-in" aria-label="拡大">＋</button><button type="button" data-act="zoom-out" aria-label="縮小">−</button></div>' +
+        '</div><p class="help">ピンの先端が<b>建物の出入口</b>に来るように、地図をクリックしてください。＋／−で拡大縮小できます。</p></div>' +
+        '<div class="field">' +
+          '<dl class="coord num"><dt>緯度</dt><dd>' + (m.pinLat != null ? m.pinLat.toFixed(6) : '—') + '</dd><dt>経度</dt><dd>' + (m.pinLng != null ? m.pinLng.toFixed(6) : '—') + '</dd><dt>拡大</dt><dd>' + (m.zoom) + '</dd></dl>' +
+          (m.geocodedAddress ? '<p class="help">住所の検索結果：' + esc(m.geocodedAddress) + '</p>' : '') +
+          '<a class="btn small" href="' + esc(gmap) + '" target="_blank" rel="noopener">Googleマップで周辺を見る ↗</a>' +
+          '<button class="btn small ghost" type="button" data-act="recenter">ピンを地図の中心にして再表示</button>' +
+          (b(d.prop['起点確認済']) ? '<div class="note ok"><span class="ic">✓</span><p>この物件の位置は確定済みです。変更した場合は再調査が必要です。</p></div>' : '') +
+        '</div></div></section>';
+  }
+
+  function startMap() {
+    var id = S.id;
+    S.map = { loading: true, zoom: 18 };
+    API.call('api_locate', id).then(function (loc) {
+      if (S.id !== id) return;
+      S.map = { lat: loc.lat, lng: loc.lng, pinLat: loc.lat, pinLng: loc.lng, zoom: 18, warnings: loc.warnings, geocodedAddress: loc.geocodedAddress, loading: true };
+      loadMapImage(loc.lat, loc.lng, 18);
+      // 住所から求めた位置を一覧の状態に反映
+      API.call('api_getProperty', id).then(function (d) { if (S.id === id) { applyData(d); } });
+    }).catch(function (e) { S.map = { error: errorText(e) }; renderWork(); });
+  }
+  function loadMapImage(lat, lng, zoom) {
+    var id = S.id;
+    S.map.loading = true; renderWork();
+    API.call('api_mapImage', lat, lng, zoom).then(function (img) {
+      if (S.id !== id || !S.map) return;
+      S.map.img = img; S.map.zoom = img.zoom || zoom; S.map.loading = false; renderWork();
+    }).catch(function (e) { S.map.img = { error: errorText(e), lat: lat, lng: lng, zoom: zoom }; S.map.loading = false; renderWork(); });
+  }
+  function onMapClick(ev) {
+    var m = S.map; if (!m || !m.img || m.img.error) return;
+    var box = $('map').getBoundingClientRect();
+    var lx = (ev.clientX - box.left) / box.width * MAP_W, ly = (ev.clientY - box.top) / box.height * MAP_H;
+    var c = project(m.img.lat, m.img.lng, m.img.zoom);
+    var p = unproject(c.x + lx - MAP_W / 2, c.y + ly - MAP_H / 2, m.img.zoom);
+    m.pinLat = Math.round(p.lat * 1e6) / 1e6; m.pinLng = Math.round(p.lng * 1e6) / 1e6;
+    renderWork();
+  }
+
+  /* ---------- 手順3：調査 ---------- */
+  function stepSurvey(d) {
+    var cats = d.categories.slice().sort(function (a, c) { return a.order - c.order; }).map(function (c) { return c.label; });
+    var res = S.surveyResult;
+    var resultNote = '';
+    if (res) {
+      resultNote = res.error
+        ? '<div class="note err"><span class="ic">×</span><div><p><b>調査できませんでした</b></p><p>' + esc(res.error) + '</p></div></div>'
+        : '<div class="note ' + (/エラー/.test(res.status) ? 'warn' : 'ok') + '"><span class="ic">' + (/エラー/.test(res.status) ? '!' : '✓') + '</span><div><p><b>' + esc(res.status) + '</b>（Google API ' + esc(res.apiCalls) + '回）</p><p>' + esc(res.message) + '</p></div></div>';
+    }
+    var running = S.busy === 'survey'
+      ? '<div class="card"><h2>調査中…</h2><div class="progress" role="progressbar" aria-label="調査中"><i></i></div><p class="help">Googleから施設・駅・経路を取得し、道路距離から徒歩分（80m＝1分）を計算しています。</p></div>' : '';
+    var again = hasResults(d) && S.busy !== 'survey'
+      ? '<div class="note info"><span class="ic">i</span><div><p>この物件は調査済みです。もう一度調査すると結果を最新にします（掲載のON/OFF・路線などの入力は引き継ぎます）。</p>' +
+        '<p><button class="btn small" type="button" data-act="survey" style="margin-top:8px">もう一度調査する</button></p></div></div>' : '';
+    return resultNote + running +
+      '<section class="card"><h2>調べる内容</h2><div class="plan">' +
+        '<div><b>周辺施設</b><span>' + esc(cats.join('・')) + '</span></div>' +
+        '<div><b>最寄り駅 3駅</b><span>マイソク記載駅＋Googleで近い順。徒歩30分以上はバス／車の所要時間</span></div>' +
+        '<div><b>その他アクセス</b><span>最寄りバス停からの徒歩分</span></div>' +
+        '<div><b>空港からのアクセス</b><span>中部国際空港・県営名古屋空港のうち近い方（深夜の車移動）</span></div>' +
+      '</div><p class="help">距離はすべてGoogleの道路距離です。AIによる推定は行いません。</p></section>' + again;
+  }
+
+  function runSurvey() {
+    var id = S.id;
+    S.busy = 'survey'; S.surveyResult = null; renderWork();
+    API.call('api_runSurvey', id).then(function (r) {
+      S.busy = '';
+      if (S.id !== id) return;
+      S.surveyResult = r; applyData(r.data);
+      if (r.data.stage >= 4) { S.step = 4; toast('調査が完了しました。結果を確認してください'); }
+      renderWork();
+    }).catch(function (e) { S.busy = ''; S.surveyResult = { error: errorText(e) }; renderWork(); });
+  }
+
+  /* ---------- 手順4：確認 ---------- */
+  function distText(r) {
+    var car = n(r['車所要分']);
+    if (car != null) return '車 約' + car + '分<small>徒歩' + esc(r['徒歩分']) + '分・' + esc(r['道路距離m']) + 'm</small>';
+    if (!has(r['徒歩分'])) return '';
+    return '徒歩 ' + esc(r['徒歩分']) + '分<small>道路距離 ' + esc(r['道路距離m']) + 'm</small>';
+  }
+  function flagBox(kind, key, r) {
+    if (!r['要確認理由']) return '';
+    var done = b(r['確認済']);
+    return '<div class="r-flag' + (done ? ' done' : '') + '"><span>' + (done ? '✓ 確認済み：' : '! 要確認：') + esc(r['要確認理由']) + '</span>' +
+      '<button class="btn small" type="button" data-confirm="' + kind + '" data-key="' + esc(key) + '" data-val="' + (!done) + '">' + (done ? '確認を取り消す' : '確認した') + '</button></div>';
+  }
+  function facilityRow(r) {
+    var key = r['カテゴリID'] + '|' + (r['place_id'] || r['採否']);
+    if (r['採否'] === '該当なし' || r['採否'] === 'エラー') {
+      return '<div class="row flagged"><span></span><div class="r-main"><span class="r-name">' + esc(r['採否'] === 'エラー' ? '取得できませんでした' : '見つかりませんでした') + '</span></div><span></span>' + flagBox('facility', key, r) + '</div>';
+    }
+    var on = b(r['掲載']);
+    var flagged = r['要確認理由'] && !b(r['確認済']);
+    return '<div class="row' + (flagged ? ' flagged' : '') + (on ? '' : ' off') + '">' +
+      '<div class="switch-wrap"><button type="button" class="switch" role="switch" aria-checked="' + on + '" aria-label="' + esc(r['名称']) + 'を掲載" data-publish="' + esc(key) + '"></button><span>' + (on ? '掲載' : '非掲載') + '</span></div>' +
+      '<div class="r-main"><span class="r-name">' + esc(r['名称']) + '</span><span class="r-meta">' +
+        (r['採用理由'] ? '<span class="tag g">' + esc(r['採用理由']) + '</span>' : '') + (r['採否'] === '候補' ? '<span class="tag">候補</span>' : '') +
+        (r['住所'] ? '<span>' + esc(String(r['住所']).replace(/^日本、/, '')) + '</span>' : '') + '</span></div>' +
+      '<div class="r-dist">' + distText(r) + '</div>' + flagBox('facility', key, r) + '</div>';
+  }
+  function reviewFacilities(d) {
+    var cats = d.categories.slice().sort(function (a, c) { return a.order - c.order; });
+    var html = cats.map(function (c) {
+      var rows = d.facilities.filter(function (r) { return r['カテゴリID'] === c.id; });
+      var main = rows.filter(function (r) { return r['採否'] !== '候補'; });
+      var others = rows.filter(function (r) { return r['採否'] === '候補'; });
+      if (S.onlyPending) {
+        main = main.filter(function (r) { return r['要確認理由'] && !b(r['確認済']); });
+        if (!main.length) return '';
+        others = [];
+      }
+      var published = rows.filter(function (r) { return b(r['掲載']); }).length;
+      return '<section class="cat"><div class="cat-head"><h3>' + esc(c.label) + '</h3><span>掲載 ' + published + '件</span></div><div class="rows">' +
+        (main.length ? main.map(facilityRow).join('') : '<p class="help">条件に合う施設はありません（「あれば掲載」の項目です）</p>') + '</div>' +
+        (others.length ? '<details class="more"><summary>ほかの候補を表示（' + others.length + '件）</summary><div class="rows">' + others.map(facilityRow).join('') + '</div></details>' : '') +
+      '</section>';
+    }).join('');
+    return html || '<div class="note ok"><span class="ic">✓</span><p>確認が必要な施設はありません。</p></div>';
+  }
+  function reviewStations(d) {
+    var rows = d.stations.slice().sort(function (a, c) { return n(a['枠']) - n(c['枠']); });
+    if (S.onlyPending) rows = rows.filter(function (r) { return r['要確認理由'] && !b(r['確認済']); });
+    if (!rows.length) return '<div class="note ok"><span class="ic">✓</span><p>確認が必要な駅はありません。</p></div>';
+    return '<div class="rows">' + rows.map(function (r) {
+      var key = String(r['枠']);
+      var alt = has(r['代替所要分']) ? '<span class="tag g">' + esc(r['代替手段']) + 'で' + esc(r['代替所要分']) + '分</span>' : '';
+      return '<div class="row' + (r['要確認理由'] && !b(r['確認済']) ? ' flagged' : '') + '" style="grid-template-columns:minmax(0,1fr) auto">' +
+        '<div class="r-main"><span class="r-name">' + esc(r['枠']) + '. 「' + esc(String(r['駅名']).replace(/駅$/, '')) + '」駅 <span class="tag' + (r['出典'] === 'マイソク' ? '' : ' g') + '">' + esc(r['出典']) + '</span> ' + alt + '</span>' +
+          '<span class="r-meta">マイソク ' + (has(r['マイソク徒歩分']) ? esc(r['マイソク徒歩分']) + '分' : '—') + ' ／ Google ' + (has(r['Google徒歩分']) ? esc(r['Google徒歩分']) + '分（' + esc(r['道路距離m']) + 'm）' : '—') + ' → 採用：' + esc(r['採用元']) + '</span>' +
+          '<div class="field" style="margin-top:6px;max-width:360px"><label for="line-' + key + '">路線<span class="help">（複数ある場合は利用者の多い路線）</span></label>' +
+          '<input class="input' + (String(r['路線'] || '').trim() ? '' : ' missing') + '" id="line-' + key + '" data-line="' + esc(key) + '" value="' + esc(r['路線']) + '" placeholder="例：名古屋市東山線"></div></div>' +
+        '<div class="r-dist">' + (has(r['採用徒歩分']) ? '徒歩 ' + esc(r['採用徒歩分']) + '分' : '—') + (has(r['代替詳細']) ? '<small style="max-width:220px;white-space:normal">' + esc(r['代替詳細']) + '</small>' : '') + '</div>' +
+        flagBox('station', key, r).replace('class="r-flag', 'style="grid-column:1/-1" class="r-flag') + '</div>';
+    }).join('') + '</div>';
+  }
+  function reviewAccess(d) {
+    var bus = d.access.filter(function (r) { return r['種別'] === 'バス停'; });
+    var air = d.access.filter(function (r) { return r['種別'] === '空港'; });
+    var busHtml = bus.map(function (r) {
+      var key = r['種別'] + '|' + (r['place_id'] || r['名称']);
+      var on = b(r['採用']);
+      if (!r['名称']) return '<div class="row flagged"><span></span><div class="r-main"><span class="r-name">バス停が見つかりませんでした</span></div><span></span>' + flagBox('access', key, r) + '</div>';
+      return '<div class="row' + (on && r['要確認理由'] && !b(r['確認済']) ? ' flagged' : '') + (on ? '' : ' off') + '">' +
+        '<div class="switch-wrap"><button type="button" class="switch" role="switch" aria-checked="' + on + '" aria-label="' + esc(r['名称']) + 'を使う" data-usebus="' + esc(key) + '"></button><span>' + (on ? '使う' : '—') + '</span></div>' +
+        '<div class="r-main"><span class="r-name">「' + esc(r['名称']) + '」停</span>' +
+          (on ? '<div class="field" style="margin-top:6px;max-width:360px"><label for="op-' + esc(r['place_id']) + '">運行会社</label><input class="input' + (String(r['運行会社'] || '').trim() ? '' : ' missing') + '" id="op-' + esc(r['place_id']) + '" data-operator="' + esc(key) + '" value="' + esc(r['運行会社']) + '" placeholder="例：名古屋市営バス"></div>' : '') +
+        '</div><div class="r-dist">徒歩 ' + esc(r['徒歩分']) + '分<small>' + esc(r['道路距離m']) + 'm</small></div>' + (on ? flagBox('access', key, r) : '') + '</div>';
+    }).join('');
+    var airHtml = air.map(function (r) {
+      var on = b(r['採用']);
+      return '<div class="row' + (on ? '' : ' off') + '" style="grid-template-columns:minmax(0,1fr) auto"><div class="r-main"><span class="r-name">' + esc(r['名称']) + (on ? ' <span class="tag g">近い方を採用</span>' : '') + '</span>' +
+        '<span class="r-meta">' + esc(r['詳細'] || r['要確認理由']) + '</span></div><div class="r-dist">' + (has(r['車所要分']) ? '車 約' + esc(r['車所要分']) + '分' : '—') + (r['有料道路'] ? '<small>有料道路あり</small>' : '') + '</div></div>';
+    }).join('');
+    return '<section class="cat"><div class="cat-head"><h3>最寄りバス停</h3><span>「その他アクセス」に使うバス停を1つ選びます</span></div><div class="rows">' + (busHtml || '<p class="help">データがありません</p>') + '</div></section>' +
+      '<section class="cat"><div class="cat-head"><h3>空港からのアクセス</h3><span>深夜の車移動で計算</span></div><div class="rows">' + (airHtml || '<p class="help">データがありません</p>') + '</div></section>';
+  }
+  function stepReview(d) {
+    var cf = d.facilities.filter(function (r) { return ['採用', '該当なし', 'エラー'].indexOf(r['採否']) >= 0 && r['要確認理由'] && !b(r['確認済']); }).length;
+    var cs = d.stations.filter(function (r) { return r['要確認理由'] && !b(r['確認済']); }).length;
+    var ca = d.access.filter(function (r) { return b(r['採用']) && r['要確認理由'] && !b(r['確認済']); }).length;
+    var tab = function (id, label, c) {
+      return '<button type="button" class="tab" role="tab" id="tab-' + id + '" aria-selected="' + (S.tab === id) + '" aria-controls="panel" data-tab="' + id + '">' + label + '<span class="count' + (c ? '' : ' zero') + '">' + (c ? '要確認 ' + c : '✓') + '</span></button>';
+    };
+    var body = S.tab === 'facility' ? reviewFacilities(d) : S.tab === 'station' ? reviewStations(d) : reviewAccess(d);
+    return '<section class="card"><div class="tabs" role="tablist" aria-label="確認する内容">' + tab('facility', '周辺施設', cf) + tab('station', '最寄り駅', cs) + tab('access', 'バス・空港', ca) + '</div>' +
+      '<div class="review-tools"><p class="help" style="margin:0">「掲載」をONにした施設だけが周辺環境に載ります。注意が出ている行は内容を確かめて「確認した」を押してください。</p>' +
+      '<button class="btn small" type="button" data-act="only-pending" aria-pressed="' + S.onlyPending + '">' + (S.onlyPending ? 'すべて表示' : '要確認だけ表示') + '</button></div>' +
+      '<div id="panel" role="tabpanel" aria-labelledby="tab-' + S.tab + '" style="display:grid;gap:18px">' + body + '</div></section>';
+  }
+
+  function updateResult(kind, key, patch) {
+    var id = S.id;
+    // 先に画面へ反映（押した手応えをすぐ返す）
+    var list = kind === 'facility' ? S.data.facilities : kind === 'station' ? S.data.stations : S.data.access;
+    var keyOf = kind === 'facility' ? function (r) { return r['カテゴリID'] + '|' + (r['place_id'] || r['採否']); }
+      : kind === 'station' ? function (r) { return String(r['枠']); } : function (r) { return r['種別'] + '|' + (r['place_id'] || r['名称']); };
+    var row = list.filter(function (r) { return keyOf(r) === key; })[0];
+    if (row) {
+      Object.keys(patch).forEach(function (k) { row[k] = patch[k]; });
+      if (kind === 'access' && patch['採用'] === true) list.forEach(function (r) { if (r !== row && r['種別'] === row['種別']) r['採用'] = false; });
+    }
+    var y = document.querySelector('.work-scroll') ? document.querySelector('.work-scroll').scrollTop : 0;
+    var rerender = !('路線' in patch || '運行会社' in patch);
+    if (rerender) { renderWork(); restoreScroll(y); } else refreshActionBar();
+    return API.call('api_updateResult', kind, id, key, patch).then(function (d) {
+      if (S.id !== id) return;
+      applyData(d);
+      if (rerender) { var y2 = document.querySelector('.work-scroll').scrollTop; renderWork(); restoreScroll(y2); } else refreshActionBar();
+    }).catch(function (e) { toast('保存できませんでした：' + errorText(e)); openProperty(id, true); });
+  }
+  function restoreScroll(y) { var el = document.querySelector('.work-scroll'); if (el) el.scrollTop = y; }
+
+  /* ---------- 手順5：出力 ---------- */
+  function outItem(label, value, copyLabel, extra) {
+    var empty = !String(value || '').trim();
+    return '<div class="out-item"><div class="out-label">' + esc(label) + '</div><div class="out-val' + (empty ? ' empty' : '') + '">' + (empty ? '（なし）' : esc(value)) + (extra || '') + '</div>' +
+      (empty ? '<span></span>' : '<button class="btn small" type="button" data-copy="' + esc(copyLabel || label) + '" data-text="' + esc(value) + '">コピー</button>') + '</div>';
+  }
+  function stepOutput(d) {
+    var o = d.output;
+    if (!o) return '<section class="card"><div class="note info"><span class="ic">i</span><p>調査が終わると、ここにウェルモへ入力する内容が表示されます。</p></div></section>';
+    var len = n(o['タイトル文字数']) || 0, max = d.config.titleMax;
+    var meter = '<div class="meter"><div class="meter-bar"><i class="' + (len > max ? 'over' : '') + '" style="width:' + Math.min(100, len / max * 100) + '%"></i></div>' +
+      '<small class="num">' + len + ' / ' + max + '文字' + (o['タイトル注記'] ? '　' + esc(o['タイトル注記']) : '') + '</small></div>';
+    var stations = [1, 2, 3].map(function (i) {
+      var label = o['駅' + i];
+      if (!label) return '';
+      var walk = has(o['駅' + i + '_徒歩分']) && String(o['駅' + i + '_徒歩分']) !== '' ? ' 徒歩' + o['駅' + i + '_徒歩分'] + '分' : '';
+      var other = o['駅' + i + '_その他'] ? ' ' + o['駅' + i + '_その他'] : '';
+      return outItem('最寄り駅' + i, label + walk + other, '最寄り駅' + i);
+    }).join('');
+    var pc = pendingCount(d);
+    var equip = EQUIP_TITLE.concat(EQUIP_WELLMO).filter(function (e) { return ['エレベーター', 'オートロック', '宅配BOX', '防犯カメラ', 'コンシェルジュ', '自転車駐輪可能', '自動販売機', 'TVドアホン', 'ゴミ捨て場'].indexOf(e[0]) >= 0 && b(d.prop[e[0]]); })
+      .map(function (e) { return e[1]; }).join('・');
+    return (pc ? '<div class="note warn"><span class="ic">!</span><div><p><b>確認が' + pc + '件残っています。</b>このまま入力することもできますが、先に確認すると安心です。</p>' +
+        '<p><button class="btn small" type="button" data-step="4" style="margin-top:8px">確認に戻る</button></p></div></div>' : '') +
+      '<section class="card"><h2>ウェルモに入力する内容 <span class="hint">項目名はウェルモの画面と同じです</span></h2><div>' +
+        outItem('マンスリー表示名', o['タイトル'], 'タイトル', meter) +
+        outItem('周辺環境', o['周辺施設'], '周辺環境') +
+        stations +
+        outItem('その他アクセス', o['その他アクセス']) +
+        outItem('空港からのアクセス', o['空港からのアクセス']) +
+        outItem('建物設備', equip, '建物設備') +
+      '</div></section>' +
+      '<section class="card"><h2>ウェルモへの入力手順</h2><div class="handoff"><ol class="howto">' +
+        '<li>下の「ウェルモ用データをコピー」を押す</li><li>ウェルモの「建物管理｜編集」画面を開く</li>' +
+        '<li>ブックマークの「ウェルモ自動入力」を押して貼り付ける</li><li>右上の結果を見て、赤字の項目だけ手で直してから保存</li></ol>' +
+        '<button class="btn primary" type="button" data-act="copy-json">ウェルモ用データをコピー</button></div>' +
+        '<p class="help">出典表記：' + esc(o['出典表記'] || '') + '</p></section>';
+  }
+
+  /* ================= 描画後の処理・イベント ================= */
+  function afterRender() {
+    var map = $('map');
+    if (map) map.addEventListener('click', onMapClick);
+  }
+
+  function go(step) {
+    step = Math.max(1, Math.min(5, step));
+    if (S.data && step > maxStep(S.data)) return;
+    flushSave();
+    S.step = step;
+    if (step === 2 && S.map && S.map.error) S.map = null;
+    renderWork();
+    var sc = document.querySelector('.work-scroll'); if (sc) sc.scrollTop = 0;
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest('button, a');
+    if (!t) return;
+    var ds = t.dataset;
+    if (ds.open) { flushSave(); openProperty(ds.open); return; }
+    if (ds.filter) {
+      S.filter = ds.filter;
+      Array.prototype.forEach.call(document.querySelectorAll('#q-filter button'), function (x) { x.setAttribute('aria-pressed', x === t); });
+      renderList(); return;
+    }
+    if (ds.step) { go(Number(ds.step)); return; }
+    if (ds.toggle) {
+      var on = !b(S.data.prop[ds.toggle]);
+      t.setAttribute('aria-pressed', on); queueSave(ds.toggle, on); return;
+    }
+    if (ds.set) {
+      Array.prototype.forEach.call(t.parentNode.querySelectorAll('button'), function (x) { x.setAttribute('aria-pressed', x === t); });
+      queueSave(ds.set, ds.value); return;
+    }
+    if (ds.tab) { S.tab = ds.tab; renderWork(); return; }
+    if (ds.publish) { var r = S.data.facilities.filter(function (x) { return x['カテゴリID'] + '|' + (x['place_id'] || x['採否']) === ds.publish; })[0]; updateResult('facility', ds.publish, { '掲載': !b(r && r['掲載']) }); return; }
+    if (ds.confirm) { updateResult(ds.confirm, ds.key, { '確認済': ds.val === 'true' }); return; }
+    if (ds.usebus) { updateResult('access', ds.usebus, { '採用': true }); return; }
+    if (ds.copy) { copyText(ds.text, ds.copy); return; }
+    switch (ds.act) {
+      case 'survey': runSurvey(); break;
+      case 'only-pending': S.onlyPending = !S.onlyPending; renderWork(); break;
+      case 'copy-json': if (S.data.output) copyText(S.data.output['ウェルモJSON'], 'ウェルモ用データ'); break;
+      case 'zoom-in': case 'zoom-out':
+        var z = S.map.zoom + (ds.act === 'zoom-in' ? 1 : -1);
+        if (z < 14 || z > 20) return;
+        S.map.zoom = z; loadMapImage(S.map.pinLat, S.map.pinLng, z); break;
+      case 'recenter': loadMapImage(S.map.pinLat, S.map.pinLng, S.map.zoom); break;
+      case 'confirm-origin':
+        var id = S.id;
+        t.disabled = true;
+        API.call('api_confirmOrigin', id, S.map.pinLat, S.map.pinLng).then(function (d) {
+          applyData(d); S.step = 3; toast('位置を確定しました'); renderWork();
+        }).catch(function (e) { toast('確定できませんでした：' + errorText(e)); t.disabled = false; });
+        break;
+      case 'reimport':
+        t.disabled = true; t.textContent = '読み取り中…';
+        API.call('api_reimportMysoku', S.id).then(function (r) { applyData(r.data); toast(r.filled.length ? r.filled.length + '項目を反映しました' : '新しく反映する項目はありませんでした'); renderWork(); })
+          .catch(function (e) { toast('読み取れませんでした：' + errorText(e)); t.disabled = false; t.textContent = '再読み取り'; });
+        break;
+      case 'manual-add': S.addOpen = !S.addOpen; renderManualAdd(); break;
+    }
+  });
+
+  document.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (el.id === 'q-search') { S.query = el.value; renderList(); return; }
+    if (el.dataset.field && el.tagName !== 'SELECT') { el.classList.remove('missing'); queueSave(el.dataset.field, el.value); }
+  });
+  document.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (el.dataset.field && el.tagName === 'SELECT') queueSave(el.dataset.field, el.value);
+    if (el.dataset.line) updateResult('station', el.dataset.line, { '路線': el.value.trim() });
+    if (el.dataset.operator) updateResult('access', el.dataset.operator, { '運行会社': el.value.trim() });
+    if (el.id === 'file-input' && el.files[0]) { uploadFile(el.files[0]); el.value = ''; }
+  });
+
+  /* ---------- マイソクの追加 ---------- */
+  $('btn-upload').addEventListener('click', function () { $('file-input').click(); });
+  function renderManualAdd() {
+    $('manual-add').innerHTML = S.addOpen
+      ? '<form class="inline-form" id="add-form"><label class="sr" for="add-name">建物名</label><input class="input" id="add-name" placeholder="建物名" required><button class="btn" type="submit">追加</button></form>'
+      : '<button class="btn small ghost" type="button" data-act="manual-add">マイソクがない物件を手入力で追加</button>';
+    var f = $('add-form');
+    if (f) {
+      $('add-name').focus();
+      f.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var name = $('add-name').value.trim(); if (!name) return;
+        API.call('api_createProperty', name).then(function (r) { S.addOpen = false; renderManualAdd(); S.forceStep = 1; return loadList(r.id); });
+      });
+    }
+  }
+  renderManualAdd();
+
+  function uploadFile(file) {
+    if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { toast('PDFファイルを選んでください'); return; }
+    var btn = $('btn-upload'); btn.disabled = true; btn.textContent = '読み取り中…';
+    var reader = new FileReader();
+    reader.onload = function () {
+      var b64 = String(reader.result).split(',')[1];
+      API.call('api_uploadMysoku', file.name, b64).then(function (r) {
+        toast('マイソクを読み取りました。内容を確認してください');
+        S.forceStep = 1;
+        return loadList(r.id);
+      }).catch(function (e) { toast('読み取れませんでした：' + errorText(e)); })
+        .then(function () { btn.disabled = false; btn.textContent = '＋ マイソクPDFを追加'; });
+    };
+    reader.readAsDataURL(file);
+  }
+  var dragDepth = 0;
+  window.addEventListener('dragenter', function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') >= 0) { dragDepth++; $('drop').hidden = false; } });
+  window.addEventListener('dragleave', function () { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('drop').hidden = true; });
+  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('drop', function (e) {
+    e.preventDefault(); dragDepth = 0; $('drop').hidden = true;
+    var f = e.dataTransfer && e.dataTransfer.files[0]; if (f) uploadFile(f);
+  });
+
+  /* ---------- 狭い画面：物件一覧の開閉 ---------- */
+  function setQueueOpen(open) {
+    $('queue').classList.toggle('collapsed', !open);
+    $('queue-toggle').setAttribute('aria-expanded', open);
+  }
+  $('queue-toggle').addEventListener('click', function () { setQueueOpen($('queue').classList.contains('collapsed')); });
+
+  window.addEventListener('beforeunload', flushSave);
+  loadList();
+})();
+</script>

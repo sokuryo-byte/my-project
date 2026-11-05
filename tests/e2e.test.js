@@ -67,6 +67,7 @@ function makeSpreadsheet() {
     deleteSheet: (s) => sheets.splice(sheets.indexOf(s), 1),
     setSpreadsheetTimeZone: () => {},
     getSpreadsheetTimeZone: () => 'Asia/Tokyo',
+    getId: () => 'SHEET_ID',
     setActive: (s) => { active = s; },
     getActive: () => active
   };

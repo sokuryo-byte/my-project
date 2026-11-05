@@ -3,8 +3,15 @@
  * スプレッドシートの読み書き。列は見出し名で参照する（列の並べ替えに強くするため）。
  */
 
+var SCRIPT_PROP_SHEET_ID = 'SPREADSHEET_ID';
+
+/** 対象のスプレッドシート（ウェブアプリから呼ばれた場合は初期セットアップ時に記録したIDで開く） */
 function ss_() {
-  return SpreadsheetApp.getActiveSpreadsheet();
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) return active;
+  var id = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_SHEET_ID);
+  if (!id) throw new Error('スプレッドシートが特定できません。スプレッドシートのメニューから「初期セットアップ」を実行してください。');
+  return SpreadsheetApp.openById(id);
 }
 
 function ensureSheet_(name) {
@@ -158,6 +165,7 @@ function loadBrandDict_() {
 
 function setupSheets_() {
   ss_().setSpreadsheetTimeZone('Asia/Tokyo');
+  PropertiesService.getScriptProperties().setProperty(SCRIPT_PROP_SHEET_ID, ss_().getId());
   [SHEETS.PROPERTIES, SHEETS.FACILITIES, SHEETS.STATIONS, SHEETS.ACCESS, SHEETS.OUTPUT,
     SHEETS.CATEGORIES, SHEETS.BRANDS, SHEETS.SETTINGS, SHEETS.LOG].forEach(ensureSheet_);
 

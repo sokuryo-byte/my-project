@@ -1,0 +1,2553 @@
+<title>マンスリー周辺調査</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDGothic:wght@400;700&display=swap">
+<style>
+/* 作業台レイアウト: 左に物件の列（作業待ちの山）、右に1物件ずつ5工程で進める作業面。主操作は常に右下の固定バー */
+:root {
+  --paper: #eef2f2;
+  --surface: #ffffff;
+  --surface-2: #f6f9f9;
+  --ink: #16232a;
+  --muted: #546770;
+  --line: #d3dcde;
+  --accent: #1c5a85;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2edf5;
+  --ok: #17703f;
+  --ok-soft: #e1f2e8;
+  --warn: #7f5200;
+  --warn-soft: #fff1d2;
+  --warn-line: #e8c46a;
+  --danger: #b3261e;
+  --danger-soft: #fce8e6;
+  --focus: #e8a400;
+  --shadow: 0 1px 2px rgba(22, 35, 42, .08), 0 4px 14px rgba(22, 35, 42, .06);
+  --font-ui: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+  --font-num: "BIZ UDGothic", "Hiragino Kaku Gothic ProN", ui-monospace, monospace;
+  --r: 10px;
+  --tap: 44px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f161a; --surface: #172127; --surface-2: #1c2830; --ink: #e5edef; --muted: #9db0b8; --line: #2c3c44;
+    --accent: #74b4e0; --accent-ink: #0a1822; --accent-soft: #1b3445; --ok: #63c98f; --ok-soft: #15301f;
+    --warn: #f2c56a; --warn-soft: #362a10; --warn-line: #7a6024; --danger: #f28b82; --danger-soft: #3b1a17;
+    --focus: #f2c94c; --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f161a; --surface: #172127; --surface-2: #1c2830; --ink: #e5edef; --muted: #9db0b8; --line: #2c3c44;
+  --accent: #74b4e0; --accent-ink: #0a1822; --accent-soft: #1b3445; --ok: #63c98f; --ok-soft: #15301f;
+  --warn: #f2c56a; --warn-soft: #362a10; --warn-line: #7a6024; --danger: #f28b82; --danger-soft: #3b1a17;
+  --focus: #f2c94c; --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.65 var(--font-ui); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- 枠組み ---------- */
+.app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 12px;
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--surface); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: .02em; }
+.brand-mark { width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 14px; }
+.topbar .spacer { flex: 1; }
+.demo-band { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--warn-line); font-size: 13px;
+  padding-block: 6px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- 物件一覧 ---------- */
+.queue { border-right: 1px solid var(--line); background: var(--surface-2); display: flex; flex-direction: column; min-height: 0; }
+@media (max-width: 900px) { .queue { border-right: 0; border-bottom: 1px solid var(--line); } .queue.collapsed .queue-body { display: none; } }
+.queue-head { display: grid; gap: 10px; padding: 14px max(16px, env(safe-area-inset-left, 0px)) 10px; }
+.queue-toggle { display: none; }
+@media (max-width: 900px) { .queue-toggle { display: inline-flex; } }
+.queue-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.queue-list { list-style: none; margin: 0; padding: 4px 10px 16px; overflow: auto; display: grid; gap: 6px; align-content: start; }
+@media (max-width: 900px) { .queue-list { max-height: 45vh; } }
+.q-item { width: 100%; text-align: left; border: 1px solid transparent; background: transparent; border-radius: var(--r); padding: 10px 12px; cursor: pointer;
+  display: grid; gap: 4px; min-height: var(--tap); }
+.q-item:hover { background: var(--surface); border-color: var(--line); }
+.q-item[aria-current="true"] { background: var(--surface); border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+.q-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-addr { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-empty { color: var(--muted); padding: 16px; font-size: 14px; }
+
+/* 状態ピル（色だけに頼らず、記号と文字を併記） */
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; padding: 2px 10px 2px 8px; border-radius: 999px; width: fit-content; }
+.pill .dot { font-family: var(--font-num); }
+.pill.s1, .pill.s2, .pill.s3 { background: var(--accent-soft); color: var(--accent); }
+.pill.s4 { background: var(--warn-soft); color: var(--warn); }
+.pill.s5 { background: var(--ok-soft); color: var(--ok); }
+
+/* ---------- ボタン・入力 ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--tap); padding: 0 18px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 700; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.big { min-height: 52px; padding: 0 26px; font-size: 16px; }
+.btn.small { min-height: 36px; padding: 0 12px; font-size: 13.5px; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--accent); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; filter: none; }
+.input, .select, .textarea { width: 100%; min-height: var(--tap); padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.textarea { min-height: 120px; resize: vertical; line-height: 1.7; }
+.input:focus, .select:focus, .textarea:focus { border-color: var(--accent); outline: 3px solid var(--accent-soft); outline-offset: 0; }
+.input.missing { border-color: var(--warn-line); background: var(--warn-soft); }
+.search { min-height: 40px; }
+
+.seg { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.seg button { min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 700; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* ---------- 作業面 ---------- */
+.work { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.work-scroll { flex: 1; overflow: auto; padding-block: 18px 28px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.work-inner { max-width: 1040px; margin: 0 auto; display: grid; gap: 18px; }
+.prop-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
+.prop-head h1 { margin: 0; font-size: 22px; line-height: 1.35; text-wrap: balance; }
+.prop-head .sub { color: var(--muted); font-size: 13.5px; }
+
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; counter-reset: s; }
+.step { position: relative; }
+.step button { width: 100%; min-height: 56px; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--r); border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; text-align: left; }
+.step .n { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-num); font-weight: 700;
+  background: var(--surface-2); border: 1px solid var(--line); }
+.step .t { display: grid; line-height: 1.3; min-width: 0; }
+.step .t b { font-size: 14.5px; }
+.step .t small { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step.done .n { background: var(--ok); color: var(--surface); border-color: var(--ok); }
+.step.current button { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+.step.current .n { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.step button[disabled] { cursor: not-allowed; opacity: .55; }
+@media (max-width: 720px) { .step .t small { display: none; } .step button { justify-content: center; padding: 6px; } .step .t b { font-size: 12.5px; } .step button { flex-direction: column; gap: 4px; } }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.card h2 { margin: 0; font-size: 16.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.card h2 .hint { font-weight: 400; color: var(--muted); font-size: 13px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; }
+@media (max-width: 720px) { .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > label, .field > .lbl { font-weight: 700; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.req { font-size: 11px; font-weight: 700; color: var(--danger); border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; }
+.help { color: var(--muted); font-size: 12.5px; }
+.station-row { display: grid; grid-template-columns: 40px minmax(0, 1.2fr) minmax(0, 1fr) 110px; gap: 10px; align-items: center; }
+.station-row .idx { font-family: var(--font-num); color: var(--muted); text-align: center; }
+@media (max-width: 720px) { .station-row { grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr); } .station-row .walk { grid-column: 2 / -1; } }
+.unit { display: flex; align-items: center; gap: 8px; }
+.unit .input { max-width: 120px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: var(--tap); display: inline-flex; align-items: center; gap: 8px; padding: 0 16px 0 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; font-weight: 700; }
+.chip .ck { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: 12px; color: transparent; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.chip[aria-pressed="true"] .ck { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+.note { display: flex; gap: 10px; padding: 12px 14px; border-radius: var(--r); font-size: 14px; align-items: flex-start; }
+.note .ic { flex: none; font-weight: 700; font-family: var(--font-num); }
+.note.info { background: var(--accent-soft); color: var(--ink); }
+.note.info .ic { color: var(--accent); }
+.note.warn { background: var(--warn-soft); border: 1px solid var(--warn-line); }
+.note.warn .ic { color: var(--warn); }
+.note.ok { background: var(--ok-soft); }
+.note.ok .ic { color: var(--ok); }
+.note.err { background: var(--danger-soft); }
+.note.err .ic { color: var(--danger); }
+.note p { margin: 0; }
+
+/* ---------- 地図 ---------- */
+.map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .map-wrap { grid-template-columns: minmax(0, 1fr); } }
+.map { position: relative; width: 100%; max-width: 100%; aspect-ratio: 640 / 400; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); cursor: crosshair; }
+.map img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+.pin { position: absolute; width: 34px; height: 46px; transform: translate(-50%, -100%); pointer-events: none; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.map-tools { position: absolute; right: 10px; top: 10px; display: grid; gap: 6px; }
+.map-tools button { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; font-weight: 700; cursor: pointer; }
+.map-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+.coord { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+.coord dt { color: var(--muted); }
+.coord dd { margin: 0; }
+
+/* ---------- 調査 ---------- */
+.plan { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.plan div { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; background: var(--surface-2); }
+.plan b { display: block; }
+.plan span { color: var(--muted); font-size: 13px; }
+.progress { height: 8px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; }
+.progress i { display: block; height: 100%; width: 35%; background: var(--accent); border-radius: 999px; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+/* ---------- 確認 ---------- */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.tab { min-height: var(--tap); padding: 0 16px; border: 0; background: transparent; cursor: pointer; font-weight: 700; color: var(--muted);
+  border-bottom: 3px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.count { font-family: var(--font-num); font-size: 12px; padding: 0 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
+.count.zero { background: var(--ok-soft); color: var(--ok); }
+.review-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cat { display: grid; gap: 8px; }
+.cat-head { display: flex; align-items: baseline; gap: 10px; }
+.cat-head h3 { margin: 0; font-size: 15.5px; }
+.cat-head span { color: var(--muted); font-size: 13px; }
+.rows { display: grid; gap: 8px; }
+.row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.row.flagged { border-color: var(--warn-line); }
+.row.off .r-name { color: var(--muted); }
+.r-main { min-width: 0; display: grid; gap: 2px; }
+.r-name { font-weight: 700; overflow-wrap: anywhere; }
+.r-meta { color: var(--muted); font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; }
+.r-dist { text-align: right; font-family: var(--font-num); font-weight: 700; font-size: 15px; white-space: nowrap; }
+.r-dist small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.r-flag { grid-column: 2 / -1; display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap;
+  background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; font-size: 13.5px; }
+.r-flag.done { background: var(--ok-soft); }
+@media (max-width: 600px) { .row { grid-template-columns: auto minmax(0, 1fr); } .r-dist { grid-column: 2; text-align: left; } .r-flag { grid-column: 1 / -1; } }
+.switch { position: relative; width: 52px; height: 30px; border-radius: 999px; border: 0; background: var(--line); cursor: pointer; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+.switch[aria-checked="true"] { background: var(--ok); }
+.switch[aria-checked="true"]::after { transform: translateX(22px); }
+.switch-wrap { display: grid; justify-items: center; gap: 2px; font-size: 11px; color: var(--muted); }
+details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700; font-size: 13.5px; min-height: 36px; display: flex; align-items: center; }
+.tag { font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+.tag.g { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+
+/* ---------- 出力 ---------- */
+.out-item { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 10px 16px; align-items: start; padding: 14px 0; border-top: 1px solid var(--line); }
+.out-item:first-child { border-top: 0; }
+@media (max-width: 720px) { .out-item { grid-template-columns: minmax(0, 1fr) auto; } .out-item .out-val { grid-column: 1 / -1; grid-row: 2; } }
+.out-label { font-weight: 700; font-size: 13.5px; color: var(--muted); padding-top: 4px; }
+.out-val { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.out-val.empty { color: var(--muted); }
+.meter { display: grid; gap: 4px; margin-top: 8px; }
+.meter-bar { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
+.meter-bar i { display: block; height: 100%; background: var(--ok); }
+.meter-bar i.over { background: var(--danger); }
+.meter small { color: var(--muted); font-size: 12px; }
+.howto { margin: 0; padding-left: 1.4em; display: grid; gap: 4px; }
+.handoff { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; }
+
+/* ---------- 下部の固定操作バー ---------- */
+.actionbar { position: sticky; bottom: 0; z-index: 4; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -4px 14px rgba(0,0,0,.04);
+  padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.actionbar-inner { max-width: 1040px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+.actionbar .msg { flex: 1; min-width: 0; color: var(--muted); font-size: 13.5px; }
+.saved { font-size: 12.5px; color: var(--muted); }
+.saved.ok { color: var(--ok); }
+
+.toast { position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 20; background: var(--ink); color: var(--surface);
+  padding: 10px 18px; border-radius: 10px; font-weight: 700; box-shadow: var(--shadow); max-width: calc(100% - 32px); }
+.drop { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--accent) 18%, transparent); display: grid; place-items: center; pointer-events: none; }
+.drop div { background: var(--surface); border: 3px dashed var(--accent); border-radius: 16px; padding: 28px 36px; font-size: 18px; font-weight: 700; color: var(--accent); }
+.empty-state { display: grid; justify-items: center; text-align: center; gap: 12px; padding: 60px 16px; color: var(--muted); }
+.empty-state h2 { color: var(--ink); margin: 0; }
+.inline-form { display: flex; gap: 8px; }
+.loading { color: var(--muted); padding: 40px 0; text-align: center; }
+</style>
+
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">周</span>マンスリー周辺調査</div>
+    <div class="spacer"></div>
+    <button class="btn small queue-toggle" id="queue-toggle" type="button" aria-controls="queue" aria-expanded="true">物件一覧</button>
+  </header>
+  <div class="demo-band" id="demo-band" hidden>デモ版：架空のサンプルデータで動いています。Google API・スプレッドシート・ウェルモには接続しません。</div>
+  <div class="layout">
+    <aside class="queue" id="queue" aria-label="物件一覧">
+      <div class="queue-head">
+        <button class="btn primary" type="button" id="btn-upload">＋ マイソクPDFを追加</button>
+        <input type="file" id="file-input" accept="application/pdf" class="sr" tabindex="-1" aria-hidden="true">
+        <div id="manual-add"></div>
+        <label class="sr" for="q-search">物件を検索</label>
+        <input class="input search" id="q-search" type="search" placeholder="建物名・住所で検索">
+        <div class="seg" role="group" aria-label="表示する物件" id="q-filter">
+          <button type="button" data-filter="all" aria-pressed="true">すべて</button>
+          <button type="button" data-filter="todo" aria-pressed="false">作業中</button>
+          <button type="button" data-filter="done" aria-pressed="false">完了</button>
+        </div>
+      </div>
+      <div class="queue-body"><ul class="queue-list" id="q-list"></ul></div>
+    </aside>
+    <main class="work" id="work" aria-live="polite"></main>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="drop" id="drop" hidden><div>ここにマイソクPDFをドロップ</div></div>
+
+<script>
+/* ---- src/00_Config.js ---- */
+/**
+ * 00_Config.js
+ * シート名・列定義・初期設定値。
+ * 設定値はすべて「設定」「カテゴリ設定」「チェーン辞書」シートで管理し、
+ * コードに業務ルールを埋め込まない（引継ぎ後も部門側で調整できるようにする）。
+ */
+
+var APP_NAME = 'マンスリー周辺施設調査';
+var SCRIPT_PROP_API_KEY = 'GOOGLE_MAPS_API_KEY';
+var MAX_EXEC_MS = 270000; // GASの6分制限に対して余裕を持たせる（4.5分）
+
+var SHEETS = {
+  PROPERTIES: '物件',
+  FACILITIES: '施設結果',
+  STATIONS: '駅結果',
+  ACCESS: 'アクセス結果',
+  OUTPUT: '出力',
+  CATEGORIES: 'カテゴリ設定',
+  BRANDS: 'チェーン辞書',
+  SETTINGS: '設定',
+  LOG: '実行ログ'
+};
+
+var HEADERS = {};
+HEADERS[SHEETS.PROPERTIES] = [
+  '物件ID', 'マイソクPDF', 'マイソク取込日時', 'マイソク取込メモ', '物件名', '住所',
+  'マイソク駅1_駅名', 'マイソク駅1_路線', 'マイソク駅1_徒歩分',
+  'マイソク駅2_駅名', 'マイソク駅2_路線', 'マイソク駅2_徒歩分',
+  'マイソク駅3_駅名', 'マイソク駅3_路線', 'マイソク駅3_徒歩分',
+  // タイトル用（Google APIでは取得できない物件情報。担当者が入力する）
+  'エリア', '建物名', '号室', '駐車場', '無料Wi-Fi', 'Wi-Fiサービス名', '角部屋',
+  'バストイレ別', '独立洗面台', '最大洋室帖数', '全居室6帖以上', 'リフォーム済',
+  'オートロック', 'エレベーター', '宅配BOX', '自転車駐輪可能', 'その他アピール',
+  // ウェルモ入力用（マイソクから取り込み／担当者入力）
+  'ふりがな', '物件種別', '郵便番号', '建物構造', '地上階数', '地下階数', '総戸数', '築年', '築月',
+  '防犯カメラ', 'コンシェルジュ', '自動販売機', 'TVドアホン', 'ゴミ捨て場',
+  '起点緯度', '起点経度', '起点確認済', 'Googleマップ',
+  'Geocode種別', 'Geocode部分一致', 'Geocode住所',
+  'ステータス', '最終調査日時', 'メッセージ'
+];
+HEADERS[SHEETS.FACILITIES] = [
+  '物件ID', '実行ID', 'カテゴリID', 'カテゴリ', '採否', '採用理由', '順位',
+  '名称', 'ブランド', '道路距離m', '徒歩分', '車所要分', '車距離m', '直線距離m', '住所', '緯度', '経度',
+  'place_id', '営業状態', '面積概算m2', '要確認理由', '確認済', '掲載', '備考', '取得日時'
+];
+HEADERS[SHEETS.STATIONS] = [
+  '物件ID', '実行ID', '枠', '出典', '駅名', '路線', 'マイソク徒歩分',
+  '道路距離m', 'Google徒歩分', '採用徒歩分', '採用元',
+  '代替手段', '代替所要分', '代替距離m', '代替有料道路', '代替詳細',
+  '要確認理由', '確認済', '備考', 'place_id', '緯度', '経度', '取得日時'
+];
+HEADERS[SHEETS.ACCESS] = [
+  '物件ID', '実行ID', '種別', '名称', '運行会社', '道路距離m', '徒歩分',
+  '車所要分', '車距離m', '有料道路', '採用', '詳細',
+  '要確認理由', '確認済', '備考', 'place_id', '緯度', '経度', '取得日時'
+];
+HEADERS[SHEETS.OUTPUT] = [
+  '物件ID', '物件名',
+  '駅1', '駅1_徒歩分', '駅1_その他',
+  '駅2', '駅2_徒歩分', '駅2_その他',
+  '駅3', '駅3_徒歩分', '駅3_その他',
+  'タイトル', 'タイトル文字数', 'タイトル注記',
+  'その他アクセス', '空港からのアクセス', '周辺施設', '出典表記',
+  '未確認の要確認件数', '生成日時', 'ウェルモJSON'
+];
+HEADERS[SHEETS.CATEGORIES] = [
+  'カテゴリID', '表示名', '有効', '検索方法', 'includedTypes', '検索語',
+  '名称に含む', '名称に含まない', '圏内上限分', '最低件数', '最大件数',
+  '他社のみ', 'チェーン辞書必須', '面積下限m2', '常に要確認', '要確認メモ', '出力順'
+];
+HEADERS[SHEETS.BRANDS] = ['ブランド名', '照合キーワード', '対象カテゴリID'];
+HEADERS[SHEETS.SETTINGS] = ['キー', '値', '説明'];
+HEADERS[SHEETS.LOG] = ['日時', '実行ID', '物件ID', '処理', '結果', 'API呼出数', 'メッセージ'];
+
+var CHECKBOX_COLUMNS = {};
+CHECKBOX_COLUMNS[SHEETS.PROPERTIES] = ['駐車場', '無料Wi-Fi', '角部屋', 'バストイレ別', '独立洗面台', '全居室6帖以上',
+  'リフォーム済', 'オートロック', 'エレベーター', '宅配BOX', '自転車駐輪可能',
+  '防犯カメラ', 'コンシェルジュ', '自動販売機', 'TVドアホン', 'ゴミ捨て場', '起点確認済'];
+CHECKBOX_COLUMNS[SHEETS.FACILITIES] = ['確認済', '掲載'];
+CHECKBOX_COLUMNS[SHEETS.STATIONS] = ['確認済'];
+CHECKBOX_COLUMNS[SHEETS.ACCESS] = ['採用', '確認済'];
+
+var DEFAULT_SETTINGS = [
+  ['walk_m_per_min', '80', '徒歩1分あたりの道路距離(m)。公正競争規約施行規則の基準。変更しないこと'],
+  ['welmo_walk_limit_min', '30', 'この分数以上の駅は徒歩分を空欄にし、バス/車の所要時間を出す（ウェルモの入力制限）'],
+  ['require_origin_confirm', 'TRUE', 'TRUE: 起点（建物出入口）を担当者が確認するまで周辺調査を行わない'],
+  ['station_count', '3', '登録する駅の数'],
+  ['station_search_radii_m', '2000,5000,10000', '駅検索の半径(m)。足りなければ順に広げる'],
+  ['facility_max_radius_m', '5000', '「最低件数」を満たすために広げる施設検索半径の上限(m)'],
+  ['bus_stop_radius_m', '1000', 'バス停検索の半径(m)'],
+  ['alt_transport_mode', 'バス優先', '徒歩30分以上の駅の代替手段: バス優先 / 車のみ'],
+  ['transit_departure_time', '10:00', 'バス経路検索の出発時刻（次の平日）'],
+  ['drive_departure_time', '03:00', '車の所要時間検索の出発時刻（渋滞の少ない時間）'],
+  ['show_drive_distance', 'FALSE', 'TRUE: 車の所要時間に道路距離を併記（公正競争規約施行規則は道路距離の明示を求めている。運用方針を確認のうえ設定）'],
+  ['facility_drive_threshold_min', '20', '周辺施設の徒歩分がこれを超える場合は「車で約n分」で表示'],
+  ['title_max_length', '60', 'タイトルの最大文字数。超える場合は後ろの要素から削る'],
+  ['title_station_walk_max_min', '10', 'タイトルの最寄り駅に徒歩分を付ける上限（超えたら駅名のみ）'],
+  ['title_room_format', '{建物名}', 'タイトル末尾の書式（{建物名}{号室}を置換）。建物登録では号室を付けない'],
+  ['title_ward_cities', '名古屋市', 'エリアを「区」だけで表す市（カンマ区切り）'],
+  ['title_area_other_style', '県+市', '上記以外のエリア表記: 県+市 / 市のみ'],
+  ['title_auto_appeal', 'TRUE', 'TRUE:「その他アピール」が空欄なら、掲載チェック済みの大型商業施設（圏内）を使う'],
+  ['toll_detect_diff_m', '100', '有料道路回避ルートとの距離差がこれを超えたら「有料道路あり」と判定(m)'],
+  ['detour_ratio_max', '2.0', '道路距離/直線距離がこれを超えたら要確認'],
+  ['airport_1_name', '中部国際空港', '空港1の表示名'],
+  ['airport_1_address', '中部国際空港 愛知県常滑市セントレア', '空港1の検索用住所（Routes APIで解決）'],
+  ['airport_2_name', '県営名古屋空港', '空港2の表示名'],
+  ['airport_2_address', '県営名古屋空港 愛知県西春日井郡豊山町', '空港2の検索用住所（Routes APIで解決）'],
+  ['retention_days', '30', 'Google由来データの保存日数。超過分は「保存期限切れデータの整理」で削除'],
+  ['max_unselected_saved', '5', 'カテゴリごとに保存する不採用候補の最大数（担当者の差し替え用）'],
+  ['attribution', '周辺施設・距離：Google Maps Platformのデータを基に算出', '周辺施設の出力末尾に付ける出典表記'],
+  ['api_retries', '3', 'API一時エラー時のリトライ回数'],
+  ['mysoku_folder_id', '', 'マイソクPDFを置くGoogleドライブのフォルダ（URLまたはID）。「フォルダから新規取り込み」で使用']
+];
+
+// [ID, 表示名, 有効, 検索方法, includedTypes, 検索語, 名称に含む, 名称に含まない,
+//  圏内上限分, 最低件数, 最大件数, 他社のみ, チェーン辞書必須, 面積下限m2, 常に要確認, 要確認メモ, 出力順]
+var DEFAULT_CATEGORIES = [
+  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, '', true, false, '', false, '', 1],
+  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, '', true, false, '', false, '', 2],
+  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, '', true, false, '', false, '', 3],
+  ['hundred_yen', '100円ショップ', true, 'text', '', '100円ショップ', 'ダイソー,DAISO,セリア,Seria,キャンドゥ,Can★Do,ワッツ,Watts,meets,シルク', '', 10, 0, '', true, false, '', false, '', 4],
+  ['mall', '大型商業施設', true, 'nearby', 'shopping_mall,department_store,electronics_store,home_improvement_store', '', '', '', 15, 0, '', true, false, '', true, '大型ショッピングモール・商業施設に該当するか確認', 5],
+  ['clinic', '内科系クリニック', true, 'text', '', '内科', '', '歯科,眼科,皮膚科,整形外科,耳鼻,動物,美容,形成外科', '', 1, 1, false, false, '', true, '内科系の診療科か確認', 6],
+  ['hospital', '総合病院', true, 'nearby', 'hospital', '', '病院', '動物,歯科', 15, 0, '', false, false, '', true, '総合病院（複数診療科）に該当するか確認', 7],
+  ['post_office', '郵便局', true, 'nearby', 'post_office', '', '郵便局', 'ATM,ゆうちょ銀行', '', 1, 1, false, false, '', false, '', 8],
+  ['park', '公園', true, 'nearby', 'park', '', '', '', 10, 0, '', false, false, 10000, false, '', 9],
+  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, '', true, true, '', false, '', 10]
+];
+
+// [ブランド名, 照合キーワード(カンマ区切り), 対象カテゴリID(空欄=全カテゴリ)]
+var DEFAULT_BRANDS = [
+  // コンビニ
+  ['セブン-イレブン', 'セブン-イレブン,セブンイレブン,7-ELEVEN', 'convenience'],
+  ['ファミリーマート', 'ファミリーマート,FamilyMart', 'convenience'],
+  ['ローソン', 'ローソン,LAWSON', 'convenience'],
+  ['ミニストップ', 'ミニストップ,MINISTOP', 'convenience'],
+  ['デイリーヤマザキ', 'デイリーヤマザキ', 'convenience'],
+  ['セイコーマート', 'セイコーマート', 'convenience'],
+  // スーパー
+  ['イオン', 'イオン,AEON', 'supermarket'],
+  ['マックスバリュ', 'マックスバリュ', 'supermarket'],
+  ['アピタ', 'アピタ', 'supermarket'],
+  ['ピアゴ', 'ピアゴ', 'supermarket'],
+  ['バロー', 'バロー', 'supermarket'],
+  ['ヤマナカ', 'ヤマナカ', 'supermarket'],
+  ['フィール', 'フィール', 'supermarket'],
+  ['カネスエ', 'カネスエ', 'supermarket'],
+  ['西友', '西友', 'supermarket'],
+  ['イトーヨーカドー', 'イトーヨーカドー', 'supermarket'],
+  ['業務スーパー', '業務スーパー', 'supermarket'],
+  ['ライフ', 'ライフ', 'supermarket'],
+  ['八百鮮', '八百鮮', 'supermarket'],
+  ['ドン・キホーテ', 'ドン・キホーテ,ドンキホーテ,MEGAドン・キホーテ', ''],
+  // ドラッグストア
+  ['スギ薬局', 'スギ薬局,スギドラッグ', 'drugstore'],
+  ['ウエルシア', 'ウエルシア', 'drugstore'],
+  ['マツモトキヨシ', 'マツモトキヨシ,マツキヨ', 'drugstore'],
+  ['ココカラファイン', 'ココカラファイン', 'drugstore'],
+  ['V・drug', 'V・drug,Vdrug,ブイドラッグ', 'drugstore'],
+  ['クスリのアオキ', 'クスリのアオキ', 'drugstore'],
+  ['ツルハドラッグ', 'ツルハ', 'drugstore'],
+  ['サンドラッグ', 'サンドラッグ', 'drugstore'],
+  ['ゲンキー', 'ゲンキー', 'drugstore'],
+  ['ドラッグコスモス', 'コスモス', 'drugstore'],
+  // 100円ショップ
+  ['ダイソー', 'ダイソー,DAISO', 'hundred_yen'],
+  ['セリア', 'セリア,Seria', 'hundred_yen'],
+  ['キャンドゥ', 'キャンドゥ,Can★Do,CanDo', 'hundred_yen'],
+  ['ワッツ', 'ワッツ,Watts,meets,シルク', 'hundred_yen'],
+  // チェーン系飲食店
+  ['マクドナルド', 'マクドナルド,McDonald', 'chain_restaurant'],
+  ['モスバーガー', 'モスバーガー', 'chain_restaurant'],
+  ['ケンタッキーフライドチキン', 'ケンタッキー,KFC', 'chain_restaurant'],
+  ['バーガーキング', 'バーガーキング', 'chain_restaurant'],
+  ['サブウェイ', 'サブウェイ,SUBWAY', 'chain_restaurant'],
+  ['すき家', 'すき家', 'chain_restaurant'],
+  ['吉野家', '吉野家', 'chain_restaurant'],
+  ['松屋', '松屋', 'chain_restaurant'],
+  ['なか卯', 'なか卯', 'chain_restaurant'],
+  ['松のや', '松のや', 'chain_restaurant'],
+  ['かつや', 'かつや', 'chain_restaurant'],
+  ['ガスト', 'ガスト', 'chain_restaurant'],
+  ['バーミヤン', 'バーミヤン', 'chain_restaurant'],
+  ['ジョナサン', 'ジョナサン', 'chain_restaurant'],
+  ['サイゼリヤ', 'サイゼリヤ', 'chain_restaurant'],
+  ['デニーズ', 'デニーズ', 'chain_restaurant'],
+  ['ココス', 'ココス', 'chain_restaurant'],
+  ['ロイヤルホスト', 'ロイヤルホスト', 'chain_restaurant'],
+  ['びっくりドンキー', 'びっくりドンキー', 'chain_restaurant'],
+  ['ジョイフル', 'ジョイフル', 'chain_restaurant'],
+  ['丸亀製麺', '丸亀製麺', 'chain_restaurant'],
+  ['はなまるうどん', 'はなまるうどん', 'chain_restaurant'],
+  ['CoCo壱番屋', 'CoCo壱番屋,ココイチ', 'chain_restaurant'],
+  ['スシロー', 'スシロー', 'chain_restaurant'],
+  ['くら寿司', 'くら寿司', 'chain_restaurant'],
+  ['はま寿司', 'はま寿司', 'chain_restaurant'],
+  ['かっぱ寿司', 'かっぱ寿司', 'chain_restaurant'],
+  ['大戸屋', '大戸屋', 'chain_restaurant'],
+  ['やよい軒', 'やよい軒', 'chain_restaurant'],
+  ['餃子の王将', '餃子の王将', 'chain_restaurant'],
+  ['大阪王将', '大阪王将', 'chain_restaurant'],
+  ['リンガーハット', 'リンガーハット', 'chain_restaurant'],
+  ['幸楽苑', '幸楽苑', 'chain_restaurant'],
+  ['天下一品', '天下一品', 'chain_restaurant'],
+  ['スガキヤ', 'スガキヤ', 'chain_restaurant'],
+  ['コメダ珈琲店', 'コメダ', 'chain_restaurant'],
+  ['スターバックス', 'スターバックス,STARBUCKS', 'chain_restaurant'],
+  ['ドトール', 'ドトール', 'chain_restaurant'],
+  ['ミスタードーナツ', 'ミスタードーナツ', 'chain_restaurant'],
+  ['鳥貴族', '鳥貴族', 'chain_restaurant'],
+  ['木曽路', '木曽路', 'chain_restaurant'],
+  ['ステーキガスト', 'ステーキガスト', 'chain_restaurant'],
+  ['焼肉きんぐ', '焼肉きんぐ', 'chain_restaurant'],
+  ['ほっともっと', 'ほっともっと', 'chain_restaurant']
+];
+
+/* ---- src/01_Util.js ---- */
+/**
+ * 01_Util.js
+ * 汎用関数（GASサービスに依存しない純粋関数。Node.jsのテストからも読み込む）。
+ */
+
+var JST_OFFSET_MS = 9 * 3600 * 1000;
+
+function nfkc_(s) {
+  return String(s == null ? '' : s).normalize('NFKC');
+}
+
+/** ブランド照合用の正規化（全角半角統一・大文字化・空白/中黒/ハイフン類を除去） */
+function normKey_(s) {
+  return nfkc_(s).toUpperCase().replace(/[\s・\-‐－―ー_.·]/g, '');
+}
+
+/** 駅名照合用の正規化（括弧内・空白・末尾の「駅」を除去） */
+function normStationName_(s) {
+  return nfkc_(s)
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/\s/g, '')
+    .replace(/駅$/, '');
+}
+
+function toNum_(v) {
+  if (v === '' || v == null) return null;
+  if (typeof v === 'number') return isNaN(v) ? null : v;
+  var m = nfkc_(v).match(/-?\d+(\.\d+)?/);
+  return m ? Number(m[0]) : null;
+}
+
+function bool_(v) {
+  if (typeof v === 'boolean') return v;
+  var s = nfkc_(v).trim().toUpperCase();
+  return s === 'TRUE' || s === '1' || s === 'YES' || s === 'はい';
+}
+
+function splitList_(s) {
+  return nfkc_(s).split(/[,、]/).map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+}
+
+/** 2点間の直線距離(m)。表示には使わず、検索範囲と異常値検出にのみ使う */
+function haversineM_(a, b) {
+  var R = 6371008.8;
+  var toRad = Math.PI / 180;
+  var dLat = (b.lat - a.lat) * toRad;
+  var dLng = (b.lng - a.lng) * toRad;
+  var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(a.lat * toRad) * Math.cos(b.lat * toRad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/** "123s" / "123.5s" → 秒数 */
+function parseDurationSec_(d) {
+  if (d == null) return null;
+  var m = String(d).match(/^(\d+(\.\d+)?)s$/);
+  return m ? Number(m[1]) : null;
+}
+
+/** Places APIのviewport（外接矩形）から面積の概算(m2)を出す。実面積ではない */
+function viewportAreaM2_(vp) {
+  if (!vp || !vp.low || !vp.high) return null;
+  var lat = (vp.low.latitude + vp.high.latitude) / 2;
+  var h = haversineM_({ lat: vp.low.latitude, lng: vp.low.longitude }, { lat: vp.high.latitude, lng: vp.low.longitude });
+  var w = haversineM_({ lat: lat, lng: vp.low.longitude }, { lat: lat, lng: vp.high.longitude });
+  return Math.round(h * w);
+}
+
+/**
+ * 次の「HH:mm（日本時間）」の出発時刻をRFC3339(UTC)で返す。
+ * weekdayOnly=true の場合は土日を避ける。現在時刻から15分以内の場合は翌日以降にする。
+ */
+function nextDepartureIso_(hhmm, weekdayOnly, nowMs) {
+  var now = nowMs == null ? Date.now() : nowMs;
+  var p = String(hhmm || '03:00').split(':');
+  var h = Number(p[0]) || 0;
+  var mi = Number(p[1]) || 0;
+  var j = new Date(now + JST_OFFSET_MS);
+  var cand = Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate(), h, mi) - JST_OFFSET_MS;
+  var isWeekend = function (ms) {
+    var dow = new Date(ms + JST_OFFSET_MS).getUTCDay();
+    return dow === 0 || dow === 6;
+  };
+  while (cand < now + 15 * 60 * 1000 || (weekdayOnly && isWeekend(cand))) {
+    cand += 86400000;
+  }
+  return new Date(cand).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function pad2_(n) { return (n < 10 ? '0' : '') + n; }
+
+/** 日本時間 "yyyy/MM/dd HH:mm" */
+function formatJst_(dateOrMs) {
+  var ms = dateOrMs instanceof Date ? dateOrMs.getTime() : (dateOrMs == null ? Date.now() : dateOrMs);
+  var j = new Date(ms + JST_OFFSET_MS);
+  return j.getUTCFullYear() + '/' + pad2_(j.getUTCMonth() + 1) + '/' + pad2_(j.getUTCDate()) + ' ' +
+    pad2_(j.getUTCHours()) + ':' + pad2_(j.getUTCMinutes());
+}
+
+function makeRunId_(nowMs) {
+  var j = new Date((nowMs == null ? Date.now() : nowMs) + JST_OFFSET_MS);
+  return 'R' + j.getUTCFullYear() + pad2_(j.getUTCMonth() + 1) + pad2_(j.getUTCDate()) +
+    pad2_(j.getUTCHours()) + pad2_(j.getUTCMinutes()) + pad2_(j.getUTCSeconds());
+}
+
+/** "yyyy/MM/dd HH:mm" を日本時間として解釈しエポックmsへ */
+function parseJst_(s) {
+  if (s instanceof Date) return s.getTime();
+  var m = String(s || '').match(/(\d{4})\/(\d{1,2})\/(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!m) return null;
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)) - JST_OFFSET_MS;
+}
+
+function addFlag_(flags, msg) {
+  if (msg && flags.indexOf(msg) < 0) flags.push(msg);
+  return flags;
+}
+
+/* ---- src/02_DistanceRule.js ---- */
+/**
+ * 02_DistanceRule.js
+ * 表示規約に関わる計算をこのファイルに集約する。
+ *
+ * - 徒歩所要時間：道路距離80mにつき1分。1分未満の端数は1分に切り上げ
+ *   （不動産の表示に関する公正競争規約施行規則）。
+ *   Routes APIの徒歩duration（Google独自の推定速度）は表示に使わない。
+ * - 車の所要時間：Routes APIのduration（秒）を分に切り上げ。道路距離を併記できるようにする。
+ */
+
+/** 道路距離(m) → 徒歩分（80m/分、端数切り上げ、最小1分） */
+function walkMinutes_(roadMeters, mPerMin) {
+  if (roadMeters == null || isNaN(roadMeters)) return null;
+  var unit = mPerMin || 80;
+  return Math.max(1, Math.ceil(roadMeters / unit));
+}
+
+/** 秒 → 分（切り上げ、最小1分） */
+function ceilMinutes_(sec) {
+  if (sec == null || isNaN(sec)) return null;
+  return Math.max(1, Math.ceil(sec / 60));
+}
+
+/** 表示用の距離（10m単位で切り上げ。短く見せない方向に丸める） */
+function displayMeters_(m) {
+  if (m == null) return null;
+  return Math.ceil(m / 10) * 10;
+}
+
+/** 表示用のkm（0.1km単位で切り上げ） */
+function displayKm_(m) {
+  if (m == null) return null;
+  return (Math.ceil(m / 100) / 10).toFixed(1);
+}
+
+/**
+ * 道路距離の妥当性チェック。AIによる補正は行わず、怪しい値に「要確認」を付けるだけ。
+ * @return {string[]} 要確認理由
+ */
+function distanceFlags_(roadM, straightM, detourMax) {
+  var flags = [];
+  if (roadM == null) {
+    flags.push('徒歩経路が取得できない');
+    return flags;
+  }
+  if (straightM != null && straightM - roadM > 20) {
+    flags.push('道路距離が直線距離より短い（起点/施設の位置ずれの可能性）');
+  }
+  if (straightM != null && straightM > 50 && roadM / straightM > (detourMax || 2.0)) {
+    flags.push('迂回率が高い（' + (roadM / straightM).toFixed(1) + '倍）');
+  }
+  return flags;
+}
+
+/* ---- src/07_Stations.js ---- */
+/**
+ * 07_Stations.js
+ * 最寄り駅（3駅）の調査。
+ *
+ * ルール（マンスリー部門の運用）:
+ *  1. マイソク記載の駅をベースにする。
+ *  2. マイソクに3駅なければGoogle（Places API）の近い順で補う。
+ *  3. Googleの道路距離から80m/分で算出した徒歩分の方が短ければ、そちらを採用する。
+ *  4. 採用徒歩分が30分以上（ウェルモの入力上限）の場合は、徒歩分を空欄にしてバス/車の所要時間を出す。
+ *  5. 複数路線のうち「利用者の多い路線」の選択はGoogle APIから取得できないため、担当者が「路線」列に入力する。
+ */
+
+var STATION_TYPES = ['train_station', 'subway_station', 'light_rail_station'];
+
+function mysokuStations_(prop) {
+  var list = [];
+  for (var i = 1; i <= 3; i++) {
+    var name = nfkc_(prop['マイソク駅' + i + '_駅名']).trim();
+    if (!name) continue;
+    list.push({
+      name: name,
+      line: nfkc_(prop['マイソク駅' + i + '_路線']).trim(),
+      minutes: toNum_(prop['マイソク駅' + i + '_徒歩分'])
+    });
+  }
+  return list;
+}
+
+/**
+ * 採用徒歩分の決定（純粋関数）。マイソクとGoogle算出値のうち短い方。
+ * @return {{minutes:number|null, from:string}}
+ */
+function adoptStationMinutes_(mysokuMin, googleMin) {
+  if (mysokuMin == null && googleMin == null) return { minutes: null, from: '' };
+  if (mysokuMin == null) return { minutes: googleMin, from: 'Google' };
+  if (googleMin == null) return { minutes: mysokuMin, from: 'マイソク' };
+  if (googleMin < mysokuMin) return { minutes: googleMin, from: 'Google（マイソクより短い）' };
+  return { minutes: mysokuMin, from: 'マイソク' };
+}
+
+/**
+ * マイソク駅とGoogle候補から枠を組む（純粋関数）。
+ * @param {Array} mysoku mysokuStations_の結果
+ * @param {Array} googleList {key, place, roadM, minutes} 道路距離順
+ * @param {number} count 登録駅数
+ */
+function buildStationSlots_(mysoku, googleList, count) {
+  var slots = [];
+  var used = {};
+  mysoku.forEach(function (m) {
+    var key = normStationName_(m.name);
+    var g = null;
+    for (var i = 0; i < googleList.length; i++) {
+      if (googleList[i].key === key) { g = googleList[i]; break; }
+    }
+    used[key] = true;
+    slots.push({ source: 'マイソク', name: m.name, line: m.line, mysokuMin: m.minutes, g: g, key: key });
+  });
+  googleList.forEach(function (g) {
+    if (slots.length >= count || used[g.key] || g.roadM == null) return;
+    used[g.key] = true;
+    slots.push({ source: 'Google', name: g.place.name, line: '', mysokuMin: null, g: g, key: g.key });
+  });
+  return slots.slice(0, Math.max(count, mysoku.length));
+}
+
+function surveyStations_(ctx, prop, origin) {
+  var count = toNum_(ctx.settings.station_count) || 3;
+  var radii = splitList_(ctx.settings.station_search_radii_m).map(Number).filter(function (n) { return n > 0; });
+  if (!radii.length) radii = [2000, 5000, 10000];
+  var byKey = {};
+  for (var ri = 0; ri < radii.length; ri++) {
+    placesNearby_(ctx, origin, STATION_TYPES, radii[ri]).forEach(function (p) {
+      if (p.lat == null) return;
+      if (p.businessStatus && p.businessStatus !== 'OPERATIONAL') return;
+      var key = normStationName_(p.name);
+      var straight = haversineM_(origin, p);
+      if (!byKey[key] || straight < byKey[key].straightM) {
+        byKey[key] = { key: key, place: p, straightM: Math.round(straight), roadM: null, minutes: null };
+      }
+    });
+    if (Object.keys(byKey).length >= count + 2) break;
+  }
+  var googleList = Object.keys(byKey).map(function (k) { return byKey[k]; })
+    .sort(function (a, b) { return a.straightM - b.straightM; })
+    .slice(0, count + 5);
+
+  // マイソク記載駅がGoogle候補にない場合は駅名で個別に検索
+  var mysoku = mysokuStations_(prop);
+  mysoku.forEach(function (m) {
+    var key = normStationName_(m.name);
+    if (googleList.some(function (g) { return g.key === key; })) return;
+    var res = placesText_(ctx, key + '駅', origin, 20000, null);
+    var hit = null;
+    for (var i = 0; i < res.length; i++) {
+      if (normStationName_(res[i].name) === key && res[i].lat != null) { hit = res[i]; break; }
+    }
+    if (hit) googleList.push({ key: key, place: hit, straightM: Math.round(haversineM_(origin, hit)), roadM: null, minutes: null });
+  });
+
+  var routes = walkMatrix_(ctx, origin, googleList.map(function (g) { return g.place; }));
+  googleList.forEach(function (g, i) {
+    if (routes[i]) {
+      g.roadM = routes[i].distanceMeters;
+      g.minutes = walkMinutes_(g.roadM, ctx.mPerMin);
+    }
+  });
+  googleList.sort(function (a, b) {
+    return (a.roadM == null ? Infinity : a.roadM) - (b.roadM == null ? Infinity : b.roadM);
+  });
+
+  var slots = buildStationSlots_(mysoku, googleList, count);
+  var limit = toNum_(ctx.settings.welmo_walk_limit_min) || 30;
+  var now = formatJst_();
+  return slots.map(function (s, idx) {
+    var flags = [];
+    var g = s.g;
+    var googleMin = g ? g.minutes : null;
+    var adopted = adoptStationMinutes_(s.mysokuMin, googleMin);
+    if (!g) addFlag_(flags, 'Googleで駅を特定できない（マイソク値のみ）');
+    if (g) distanceFlags_(g.roadM, g.straightM, toNum_(ctx.settings.detour_ratio_max)).forEach(function (f) { addFlag_(flags, f); });
+    if (adopted.from.indexOf('Google') === 0) addFlag_(flags, '駅の座標は代表点。駅出入口までの距離か地図で確認');
+    if (!s.line) addFlag_(flags, '路線を入力（複数路線の場合は利用者の多い路線）');
+    if (s.source === 'マイソク' && s.mysokuMin == null) addFlag_(flags, 'マイソク徒歩分が空欄');
+
+    var row = {
+      '物件ID': ctx.propertyId, '実行ID': ctx.runId, '枠': idx + 1, '出典': s.source,
+      '駅名': s.name, '路線': s.line, 'マイソク徒歩分': s.mysokuMin,
+      '道路距離m': g ? g.roadM : null, 'Google徒歩分': googleMin,
+      '採用徒歩分': adopted.minutes, '採用元': adopted.from,
+      '代替手段': '', '代替所要分': '', '代替距離m': '', '代替有料道路': '', '代替詳細': '',
+      '要確認理由': '', '確認済': false, '備考': '',
+      'place_id': g ? g.place.placeId : '', '緯度': g ? g.place.lat : '', '経度': g ? g.place.lng : '',
+      '取得日時': now
+    };
+
+    if (adopted.minutes != null && adopted.minutes >= limit) {
+      var alt = null;
+      if (g) {
+        try {
+          alt = alternativeTransport_(ctx, origin, g.place);
+        } catch (e) {
+          addFlag_(flags, '代替手段の取得エラー: ' + e.message);
+        }
+      } else {
+        addFlag_(flags, '徒歩' + limit + '分以上だが駅の座標がなくバス/車の所要時間を取得できない');
+      }
+      if (alt) {
+        row['代替手段'] = alt.mode;
+        row['代替所要分'] = alt.minutes;
+        row['代替距離m'] = alt.distanceMeters;
+        row['代替有料道路'] = alt.toll ? 'あり' : '';
+        row['代替詳細'] = alt.detail;
+        if (alt.note) addFlag_(flags, alt.note);
+      }
+    }
+    row['要確認理由'] = flags.join(' / ');
+    return row;
+  });
+}
+
+/** 徒歩30分以上の駅への代替手段（バス優先→なければ車） */
+function alternativeTransport_(ctx, origin, dest) {
+  var mode = nfkc_(ctx.settings.alt_transport_mode).trim();
+  if (mode !== '車のみ') {
+    var bus = busRoute_(ctx, origin, dest);
+    if (bus) {
+      return { mode: 'バス', minutes: bus.minutes, distanceMeters: bus.distanceMeters, toll: false, detail: bus.detail,
+        note: 'バス所要時間は検索時刻の時刻表による。停留所名・乗車時間を確認' };
+    }
+  }
+  var car = driveWithTollCheck_(ctx, origin, dest);
+  if (!car) return null;
+  return { mode: '車', minutes: car.minutes, distanceMeters: car.distanceMeters, toll: car.toll, detail: car.detail,
+    note: mode !== '車のみ' ? 'Googleでバス経路が取得できないため車で算出' : '' };
+}
+
+/* ---- src/09_Output.js ---- */
+/**
+ * 09_Output.js
+ * 表示文の生成。固定テンプレートのみ（AIによる文章生成は行わない）。
+ * 担当者が結果シートで編集した値（路線・運行会社・掲載可否）を反映するため、出力時に毎回組み立て直す。
+ */
+
+function stationBaseName_(name) {
+  return nfkc_(name).trim().replace(/[（(][^）)]*[）)]/g, '').trim().replace(/駅$/, '');
+}
+
+/** 例: 名鉄瀬戸線「大曽根」駅 */
+function formatStationLabel_(line, name) {
+  return (line ? line : '（路線未入力）') + '「' + stationBaseName_(name) + '」駅';
+}
+
+/** 車の所要時間の付記。例: （約18.2km・有料道路あり） */
+function driveSuffix_(distanceM, toll, showDistance) {
+  var parts = [];
+  if (showDistance && distanceM) parts.push('約' + displayKm_(distanceM) + 'km');
+  if (toll) parts.push('有料道路あり');
+  return parts.length ? '（' + parts.join('・') + '）' : '';
+}
+
+/**
+ * 駅1行分の表示（純粋関数）
+ * @return {{label:string, walk:string, other:string}}
+ */
+function formatStation_(row, limitMin, showDistance) {
+  var label = formatStationLabel_(row['路線'], row['駅名']);
+  var min = toNum_(row['採用徒歩分']);
+  if (min == null) return { label: label, walk: '', other: '' };
+  if (min < limitMin) return { label: label, walk: String(min), other: '' };
+  var altMin = toNum_(row['代替所要分']);
+  if (altMin == null) return { label: label, walk: '', other: '（徒歩' + limitMin + '分以上・代替手段未取得）' };
+  if (row['代替手段'] === 'バス') return { label: label, walk: '', other: 'バスで' + altMin + '分' };
+  return {
+    label: label, walk: '',
+    other: '車で' + altMin + '分' + driveSuffix_(toNum_(row['代替距離m']), row['代替有料道路'] === 'あり', showDistance)
+  };
+}
+
+/** 例: ○○バス「△△」停から徒歩約n分 */
+function formatBusStop_(row) {
+  if (!row || !row['名称']) return '';
+  var op = nfkc_(row['運行会社']).trim() || '○○バス';
+  return op + '「' + row['名称'] + '」停から徒歩約' + row['徒歩分'] + '分';
+}
+
+/** 例: 県営名古屋空港から車で約n分（有料道路あり） */
+function formatAirport_(row, showDistance) {
+  if (!row || row['車所要分'] === '' || row['車所要分'] == null) return '';
+  return row['名称'] + 'から車で約' + row['車所要分'] + '分' +
+    driveSuffix_(toNum_(row['車距離m']), row['有料道路'] === 'あり', showDistance);
+}
+
+/**
+ * 例: セブンイレブン 豊田市小川町店まで徒歩約2分
+ *     スーパーマーケットバロー 東新町店まで車で約6分（徒歩分が閾値を超え、車の所要時間がある場合）
+ */
+function formatFacility_(row, showDistance) {
+  var car = toNum_(row['車所要分']);
+  if (car != null) {
+    return row['名称'] + 'まで車で約' + car + '分' + driveSuffix_(toNum_(row['車距離m']), false, showDistance);
+  }
+  return row['名称'] + 'まで徒歩約' + row['徒歩分'] + '分';
+}
+
+/** 周辺施設の複数行テキスト（カテゴリの出力順→道路距離順。純粋関数） */
+function formatFacilities_(rows, categories, showDistance) {
+  var lines = [];
+  var cats = categories.slice().sort(function (a, b) { return a.order - b.order; });
+  cats.forEach(function (cat) {
+    rows.filter(function (r) { return r['カテゴリID'] === cat.id && bool_(r['掲載']) && r['名称']; })
+      .sort(function (a, b) { return toNum_(a['道路距離m']) - toNum_(b['道路距離m']); })
+      .forEach(function (r) { lines.push(formatFacility_(r, showDistance)); });
+  });
+  return lines.join('\n');
+}
+
+/** 未確認の要確認件数 */
+function countUnconfirmed_(facRows, stRows, acRows) {
+  var n = 0;
+  facRows.forEach(function (r) {
+    if ((r['採否'] === '採用' || r['採否'] === '該当なし' || r['採否'] === 'エラー') && r['要確認理由'] && !bool_(r['確認済'])) n++;
+  });
+  stRows.forEach(function (r) { if (r['要確認理由'] && !bool_(r['確認済'])) n++; });
+  acRows.forEach(function (r) { if (bool_(r['採用']) && r['要確認理由'] && !bool_(r['確認済'])) n++; });
+  return n;
+}
+
+/** 物件1件分の出力行（純粋関数） */
+function buildOutputRow_(prop, facRows, stRows, acRows, categories, settings) {
+  var limit = toNum_(settings.welmo_walk_limit_min) || 30;
+  var showDist = bool_(settings.show_drive_distance);
+  var out = { '物件ID': prop['物件ID'], '物件名': prop['物件名'] };
+  var st = stRows.slice().sort(function (a, b) { return toNum_(a['枠']) - toNum_(b['枠']); });
+  for (var i = 0; i < 3; i++) {
+    var f = st[i] ? formatStation_(st[i], limit, showDist) : { label: '', walk: '', other: '' };
+    out['駅' + (i + 1)] = f.label;
+    out['駅' + (i + 1) + '_徒歩分'] = f.walk;
+    out['駅' + (i + 1) + '_その他'] = f.other;
+  }
+  var bus = acRows.filter(function (r) { return r['種別'] === 'バス停' && bool_(r['採用']); })[0];
+  var air = acRows.filter(function (r) { return r['種別'] === '空港' && bool_(r['採用']); })[0];
+  out['その他アクセス'] = formatBusStop_(bus);
+  out['空港からのアクセス'] = formatAirport_(air, showDist);
+  out['周辺施設'] = formatFacilities_(facRows, categories, showDist);
+  out['出典表記'] = out['周辺施設'] ? String(settings.attribution || '') : '';
+  var t = buildTitleFromResults_(prop, st, facRows, settings);
+  out['タイトル'] = t.title;
+  out['タイトル文字数'] = t.length;
+  out['タイトル注記'] = t.notes.join(' / ');
+  out['未確認の要確認件数'] = countUnconfirmed_(facRows, stRows, acRows);
+  out['ウェルモJSON'] = JSON.stringify(buildWellmoData_(prop, out, st));
+  out['生成日時'] = formatJst_();
+  return out;
+}
+
+/* ---- src/12_Title.js ---- */
+/**
+ * 12_Title.js
+ * 物件タイトルの自動生成。
+ *
+ * 書式:
+ *  【エリア/最寄り駅&徒歩分数/駐車場/無料Wi-Fi/角部屋/バストイレ別(・独立洗面台)/洋室〇帖 or 全居室6帖以上/
+ *    リフォーム済/オートロック/エレベーター/宅配BOX/自転車駐輪可能/その他アピール】建物名
+ *  - 建物登録用のため号室は付けない（設定 title_room_format で変更可）
+ *  - エリア・最寄り駅・建物名は必須。それ以降は該当するもののみ。
+ *  - 最寄り駅は徒歩10分以内なら「今池駅徒歩4分」、超える場合は「今池駅」のみ。
+ *  - USEN AIRは無料Wi-Fiとして扱わない。
+ *  - 自転車駐輪可能は、駐車場ありの物件では書かない。
+ *  - 60文字を超える場合は、後ろの要素から順に削る。
+ *
+ * エリアと最寄り駅は調査結果（Geocoding / Places / Routes）から、設備は物件シートの入力値から作る。
+ * 「著名な施設」かどうかの判断はAPIではできないため、その他アピールは担当者入力、
+ * または担当者が掲載チェックした大型商業施設のみを使う。
+ */
+
+function charLen_(s) {
+  return Array.from(String(s)).length;
+}
+
+/**
+ * Geocodingのaddress_componentsからエリア表記を作る（純粋関数）。
+ * @param {Array} comps address_components（language=ja）
+ * @param {string} formatted formatted_address（componentsで判定できない場合の予備）
+ * @param {Object} opt {wardCities:string[], otherStyle:'県+市'|'市のみ'}
+ */
+function areaFromGeocode_(comps, formatted, opt) {
+  var has = function (c, t) { return (c.types || []).indexOf(t) >= 0; };
+  var find = function (pred) {
+    for (var i = 0; i < (comps || []).length; i++) if (pred(comps[i])) return comps[i].long_name;
+    return '';
+  };
+  var pref = find(function (c) { return has(c, 'administrative_area_level_1'); });
+  var city = find(function (c) { return has(c, 'locality'); });
+  var ward = find(function (c) {
+    return has(c, 'ward') || ((has(c, 'sublocality_level_1') || has(c, 'locality')) && /区$/.test(c.long_name) && c.long_name !== city);
+  });
+  if (!pref || !city) {
+    // 予備: 住所文字列から抽出（例: 日本、〒464-0850 愛知県名古屋市千種区今池1丁目）
+    var addr = nfkc_(formatted).replace(/^日本、?\s*/, '').replace(/^〒?\d{3}-?\d{4}\s*/, '');
+    var m = addr.match(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)(.+?郡.+?[町村]|.+?市)(.+?区)?/);
+    if (m) {
+      pref = pref || m[1];
+      city = city || m[2];
+      ward = ward || m[3] || '';
+    }
+  }
+  if (!city) return '';
+  var wardCities = (opt && opt.wardCities) || ['名古屋市'];
+  if (ward && wardCities.indexOf(city) >= 0) return ward;
+  if (opt && opt.otherStyle === '市のみ') return city;
+  return pref + city;
+}
+
+/** 採用徒歩分の最も短い駅（純粋関数） */
+function nearestStation_(stRows) {
+  var best = null;
+  (stRows || []).forEach(function (r) {
+    var m = toNum_(r['採用徒歩分']);
+    if (m == null || !r['駅名']) return;
+    if (!best || m < best.minutes) best = { name: stationBaseName_(r['駅名']), minutes: m };
+  });
+  return best;
+}
+
+/**
+ * タイトルを組み立てる（純粋関数）。
+ * @param {Object} p 物件シートの1行
+ * @param {{name:string, minutes:number}|null} station 最寄り駅
+ * @param {string} autoAppeal 自動のその他アピール（空可）
+ * @param {Object} settings
+ * @return {{title:string, length:number, notes:string[]}}
+ */
+function buildTitle_(p, station, autoAppeal, settings) {
+  var notes = [];
+  var maxLen = toNum_(settings.title_max_length) || 60;
+  var walkMax = toNum_(settings.title_station_walk_max_min) || 10;
+
+  var area = nfkc_(p['エリア']).trim();
+  if (!area) notes.push('エリアが未設定');
+  var st = '';
+  if (station) {
+    st = station.name + '駅' + (station.minutes <= walkMax ? '徒歩' + station.minutes + '分' : '');
+  } else {
+    notes.push('最寄り駅が未取得');
+  }
+  var building = String(p['建物名'] || '').trim();
+  var room = String(p['号室'] || '').trim();
+  if (!building) notes.push('建物名が未入力');
+  var tailFormat = String(settings.title_room_format || '{建物名}');
+  if (!room && tailFormat.indexOf('{号室}') >= 0) notes.push('号室が未入力');
+
+  var opts = [];
+  var parking = bool_(p['駐車場']);
+  if (parking) opts.push('駐車場');
+  if (bool_(p['無料Wi-Fi'])) {
+    if (/USEN/i.test(nfkc_(p['Wi-Fiサービス名']))) notes.push('USEN AIRは無料Wi-Fiとして扱わないため除外');
+    else opts.push('無料Wi-Fi');
+  }
+  if (bool_(p['角部屋'])) opts.push('角部屋');
+  if (bool_(p['バストイレ別'])) opts.push('バストイレ別' + (bool_(p['独立洗面台']) ? '・独立洗面台' : ''));
+  else if (bool_(p['独立洗面台'])) opts.push('独立洗面台');
+  var jo = toNum_(p['最大洋室帖数']);
+  if (jo != null && jo >= 7) opts.push('洋室' + jo + '帖');
+  else if (bool_(p['全居室6帖以上'])) opts.push('全居室6帖以上');
+  if (bool_(p['リフォーム済'])) opts.push('リフォーム済');
+  if (bool_(p['オートロック'])) opts.push('オートロック');
+  if (bool_(p['エレベーター'])) opts.push('エレベーター');
+  if (bool_(p['宅配BOX'])) opts.push('宅配BOX');
+  if (bool_(p['自転車駐輪可能']) && !parking) opts.push('自転車駐輪可能');
+  var appeal = String(p['その他アピール'] || '').trim() || autoAppeal || '';
+  if (appeal) opts.push(appeal);
+
+  var tail = tailFormat
+    .replace('{建物名}', building).replace('{号室}', room).trim();
+  var compose = function (o) {
+    return '【' + [area, st].filter(function (x) { return x; }).concat(o).join('/') + '】' + tail;
+  };
+  var title = compose(opts);
+  var cut = [];
+  while (charLen_(title) > maxLen && opts.length) {
+    cut.unshift(opts.pop());
+    title = compose(opts);
+  }
+  if (cut.length) notes.push(maxLen + '文字超過のため削除: ' + cut.join('、'));
+  if (charLen_(title) > maxLen) notes.push('必須項目だけで' + maxLen + '文字を超過。手動で調整');
+  return { title: title, length: charLen_(title), notes: notes };
+}
+
+/** 調査結果シートの行からタイトルを作る */
+function buildTitleFromResults_(prop, stRows, facRows, settings) {
+  var auto = '';
+  if (bool_(settings.title_auto_appeal) && !String(prop['その他アピール'] || '').trim()) {
+    var malls = (facRows || []).filter(function (r) {
+      return r['カテゴリID'] === 'mall' && r['採否'] === '採用' && bool_(r['掲載']) && r['名称'] && r['車所要分'] === '';
+    }).sort(function (a, b) { return toNum_(a['道路距離m']) - toNum_(b['道路距離m']); });
+    if (malls[0]) auto = malls[0]['名称'] + '徒歩' + malls[0]['徒歩分'] + '分';
+  }
+  return buildTitle_(prop, nearestStation_(stRows), auto, settings);
+}
+
+/* ---- src/13_Mysoku.js ---- */
+/**
+ * 13_Mysoku.js
+ * マイソクPDFの取り込み。
+ *
+ * 1. PDFをGoogleドライブの変換機能（PDF→Googleドキュメント、日本語OCR）でテキスト化する。
+ * 2. 「物件名」「号室名」「所在地」「交通」「駐車場」「設備」などの見出しを固定ルール（正規表現）で読み取る。
+ *    AIによる推測・要約は行わない。読み取れなかった項目は空欄のまま残し、メモに記録する。
+ * 3. 物件シートの空欄だけを埋める（担当者の手入力は上書きしない）。チェックボックスはONにするだけで、OFFにはしない。
+ */
+
+// 見出し（RealNetPro形式のマイソクを基準。文字間の空白「設 備」も許容）
+var MYSOKU_LABELS = ['物件種目', '物件名', '号室名', '号室', '所在地', '交通', '建築構造', '間取タイプ', '間取',
+  '専有面積', '築年', '現況', '入居時期', '賃料', '共益費', '管理費', '敷金', '礼金', '保証金', '更新料', '契約期間',
+  '町内会費', '駐車場', '備考', '設備', '条件', '取引態様', '手数料', '特記事項'];
+
+function labelRegex_(label) {
+  return label.split('').join('\\s*');
+}
+
+/** 行が見出しで始まっていれば {label, rest} を返す */
+function matchLabel_(line) {
+  // 長い見出しを優先（「号室名」を「号室」より先に）
+  var labels = MYSOKU_LABELS.slice().sort(function (a, b) { return b.length - a.length; });
+  for (var i = 0; i < labels.length; i++) {
+    var m = line.match(new RegExp('^' + labelRegex_(labels[i]) + '(?![^\\s:：・])\\s*[:：]?\\s*(.*)$'));
+    if (m) return { label: labels[i], rest: m[1].trim() };
+    // 「共益費・管理費」のような複合見出し
+    var m2 = line.match(new RegExp('^' + labelRegex_(labels[i]) + '[・/][^\\s]*\\s+(.*)$'));
+    if (m2) return { label: labels[i], rest: m2[1].trim() };
+  }
+  return null;
+}
+
+/** テキストを見出しごとのブロックに分ける（同じ見出しは最初の1つ） */
+function splitMysokuSections_(text) {
+  var lines = nfkc_(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+  var sections = {};
+  var current = null;
+  lines.forEach(function (line) {
+    var lm = matchLabel_(line);
+    if (lm) {
+      current = sections[lm.label] ? null : lm.label; // 2回目以降の同名見出しは無視
+      if (current) sections[current] = lm.rest ? [lm.rest] : [];
+      return;
+    }
+    if (current) sections[current].push(line);
+  });
+  return sections;
+}
+
+function firstValue_(sections, label) {
+  var s = sections[label];
+  return s && s.length ? s[0] : '';
+}
+
+/**
+ * マイソクのテキストを解析する（純粋関数）。
+ * @return {{fields:Object, stations:Array, equipment:Object, notes:string[]}}
+ */
+function parseMysokuText_(text) {
+  var sec = splitMysokuSections_(text);
+  var notes = [];
+  var fields = {};
+
+  var name = firstValue_(sec, '物件名');
+  if (name) fields['物件名'] = name;
+
+  var room = firstValue_(sec, '号室名') || firstValue_(sec, '号室');
+  room = room.replace(/\(.*?\)/g, '').replace(/号室$/, '').trim();
+  if (room) fields['号室'] = room;
+
+  var kind = firstValue_(sec, '物件種目');
+  var kindM = kind.match(/マンション|アパート|一戸建|戸建/);
+  if (kindM) fields['物件種別'] = kindM[0] === 'マンション' || kindM[0] === 'アパート' ? kindM[0] : '一戸建て';
+  else if (kind) fields['物件種別'] = 'その他';
+
+  var postal = (sec['所在地'] || []).join(' ').match(/〒?\s*(\d{3})-?(\d{4})/);
+  if (postal) fields['郵便番号'] = postal[1] + '-' + postal[2];
+
+  var struct = (sec['建築構造'] || []).join(' ');
+  if (struct) {
+    var code = /鉄骨鉄筋|SRC/.test(struct) ? 'SRC' : /鉄筋コンクリート|RC/.test(struct) ? 'RC'
+      : /軽量鉄骨/.test(struct) ? '軽量鉄骨' : /鉄骨|S造/.test(struct) ? 'S' : /木造/.test(struct) ? '木造' : 'その他';
+    fields['建物構造'] = code;
+    var above = struct.match(/地上\s*(\d+)\s*階/) || struct.match(/(\d+)\s*階建/);
+    if (above) fields['地上階数'] = Number(above[1]);
+    var below = struct.match(/地下\s*(\d+)\s*階/);
+    fields['地下階数'] = below ? Number(below[1]) : (above ? 0 : '');
+    var units = struct.match(/総戸数\s*(\d+)\s*戸/);
+    if (units) fields['総戸数'] = Number(units[1]);
+  }
+  var built = firstValue_(sec, '築年').match(/(\d{4})\s*年\s*(\d{1,2})?/);
+  if (built) {
+    fields['築年'] = Number(built[1]);
+    if (built[2]) fields['築月'] = Number(built[2]);
+  }
+
+  var addrLines = (sec['所在地'] || []).filter(function (l) { return !/^〒?\s*\d{3}-?\d{4}$/.test(l); });
+  var addr = '';
+  for (var i = 0; i < addrLines.length; i++) {
+    if (/(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/.test(addrLines[i])) { addr = addrLines[i]; break; }
+  }
+  addr = addr.replace(/〒?\s*\d{3}-?\d{4}/, '').trim();
+  if (addr) fields['住所'] = addr;
+
+  // 交通: 「路線「駅」徒歩n分」形式。バス停（「停」「バス」を含む）は除外
+  var stations = [];
+  (sec['交通'] || []).forEach(function (line) {
+    var re = /([^\s「」\/]*?)\s*「([^」]+)」\s*(駅|停|停留所)?\s*(?:から)?\s*(?:徒歩|歩)\s*(\d+)\s*分/g;
+    var m;
+    while ((m = re.exec(line)) !== null) {
+      if (/停/.test(m[3] || '') || /バス/.test(m[1])) continue;
+      stations.push({ line: m[1].trim(), name: m[2].trim(), minutes: Number(m[4]) });
+    }
+  });
+  if (!stations.length) notes.push('交通（駅）を読み取れない');
+
+  // 駐車場
+  var parkingText = firstValue_(sec, '駐車場');
+  var parking = null;
+  if (/^(有|あり|空(き)?(有|あり)|敷地内)/.test(parkingText)) parking = true;
+  else if (/^(なし|無|無し|-)/.test(parkingText)) parking = false;
+  else if (parkingText) notes.push('駐車場の記載を確認: ' + parkingText);
+
+  // 設備（改行で単語が分かれることがあるので連結して判定）。角部屋などは備考にも書かれるため備考も対象
+  var equipText = (sec['設備'] || []).concat(sec['備考'] || []).join('');
+  var eq = {
+    '駐車場': parking === true,
+    'バストイレ別': /バス\s*[・･]?\s*トイレ\s*別/.test(equipText),
+    '独立洗面台': /洗面台\s*\(\s*独立\s*\)|独立洗面/.test(equipText),
+    '無料Wi-Fi': /インターネット(使用料)?無料|無料インターネット|Wi-?Fi\s*無料|無料\s*Wi-?Fi/i.test(equipText),
+    '角部屋': /角部屋/.test(equipText),
+    'リフォーム済': /リフォーム/.test(equipText),
+    'オートロック': /オートロック/.test(equipText),
+    'エレベーター': /エレベータ/.test(equipText),
+    '宅配BOX': /宅配\s*(ボックス|BOX|ロッカー)/i.test(equipText),
+    '自転車駐輪可能': /駐輪/.test(equipText),
+    '防犯カメラ': /防犯カメラ/.test(equipText),
+    'コンシェルジュ': /コンシェルジュ/.test(equipText),
+    '自動販売機': /自動販売機|自販機/.test(equipText),
+    'TVドアホン': /(TV|テレビ)\s*(モニター)?\s*(付き?)?\s*(インターホン|ドアホン)|モニター\s*付き?\s*(インターホン|ドアホン)/i.test(equipText),
+    'ゴミ捨て場': /(ゴミ|ごみ)\s*(置場|置き場|捨て場|ステーション)|24時間\s*(ゴミ|ごみ)出し/.test(equipText)
+  };
+  if (/USEN/i.test(equipText)) fields['Wi-Fiサービス名'] = 'USEN AIR';
+  if (!sec['設備']) notes.push('設備欄を読み取れない');
+
+  // 洋室の帖数（間取図が画像の場合は読み取れないことがある）
+  var maxJo = null;
+  var reJo = /洋(?:室)?\s*(\d+(?:\.\d+)?)\s*(?:帖|畳|J)/g;
+  var mj;
+  var all = nfkc_(text);
+  while ((mj = reJo.exec(all)) !== null) {
+    var v = Number(mj[1]);
+    if (maxJo == null || v > maxJo) maxJo = v;
+  }
+  if (maxJo != null) fields['最大洋室帖数'] = maxJo;
+  else notes.push('洋室の帖数を読み取れない（間取図を確認）');
+
+  return { fields: fields, stations: stations.slice(0, 3), equipment: eq, notes: notes };
+}
+
+/**
+ * 物件シートに反映する差分を作る（純粋関数）。空欄の項目だけを埋める。
+ * @return {{patch:Object, filled:string[], skipped:string[]}}
+ */
+function mysokuPatch_(prop, parsed) {
+  var patch = {};
+  var filled = [];
+  var skipped = [];
+  var isBlank = function (v) { return v === '' || v == null; };
+  var setIfBlank = function (col, val) {
+    if (val === '' || val == null) return;
+    if (isBlank(prop[col])) { patch[col] = val; filled.push(col); }
+    else if (String(prop[col]) !== String(val)) skipped.push(col + '（入力済: ' + prop[col] + ' / マイソク: ' + val + '）');
+  };
+  setIfBlank('物件名', parsed.fields['物件名']);
+  setIfBlank('建物名', parsed.fields['物件名']);
+  setIfBlank('号室', parsed.fields['号室']);
+  setIfBlank('住所', parsed.fields['住所']);
+  setIfBlank('最大洋室帖数', parsed.fields['最大洋室帖数']);
+  setIfBlank('Wi-Fiサービス名', parsed.fields['Wi-Fiサービス名']);
+  ['物件種別', '郵便番号', '建物構造', '地上階数', '地下階数', '総戸数', '築年', '築月'].forEach(function (k) {
+    setIfBlank(k, parsed.fields[k]);
+  });
+
+  var stationsBlank = [1, 2, 3].every(function (i) { return isBlank(prop['マイソク駅' + i + '_駅名']); });
+  if (stationsBlank && parsed.stations.length) {
+    parsed.stations.forEach(function (s, i) {
+      patch['マイソク駅' + (i + 1) + '_駅名'] = s.name;
+      patch['マイソク駅' + (i + 1) + '_路線'] = s.line;
+      patch['マイソク駅' + (i + 1) + '_徒歩分'] = s.minutes;
+    });
+    filled.push('マイソク駅' + parsed.stations.length + '件');
+  } else if (parsed.stations.length) {
+    skipped.push('マイソク駅（入力済）');
+  }
+
+  Object.keys(parsed.equipment).forEach(function (col) {
+    if (parsed.equipment[col] && !bool_(prop[col])) { patch[col] = true; filled.push(col); }
+  });
+  return { patch: patch, filled: filled, skipped: skipped };
+}
+
+/* ---------------- GAS（Drive） ---------------- */
+
+/** URL・ファイルIDの文字列からIDを取り出す */
+function driveFileId_(s) {
+  var str = String(s || '').trim();
+  var m = str.match(/\/d\/([-\w]{20,})/) || str.match(/[?&]id=([-\w]{20,})/);
+  if (m) return m[1];
+  return /^[-\w]{20,}$/.test(str) ? str : '';
+}
+
+/**
+ * PDFをGoogleドキュメントに変換してテキストを取り出し、一時ドキュメントは削除する。
+ * 要: 拡張サービス「Drive API (v3)」
+ */
+function pdfToText_(fileId) {
+  var file = DriveApp.getFileById(fileId);
+  var tmp = Drive.Files.create(
+    { name: '[一時]マイソク変換_' + file.getName(), mimeType: 'application/vnd.google-apps.document' },
+    file.getBlob(),
+    { ocrLanguage: 'ja', supportsAllDrives: true, fields: 'id' }
+  );
+  try {
+    return DocumentApp.openById(tmp.id).getBody().getText();
+  } finally {
+    try {
+      Drive.Files.remove(tmp.id, { supportsAllDrives: true });
+    } catch (e) {
+      DriveApp.getFileById(tmp.id).setTrashed(true);
+    }
+  }
+}
+
+/** 物件シートの1行にマイソクを取り込む */
+function importMysokuForRow_(prop) {
+  var fileId = driveFileId_(prop['マイソクPDF']);
+  if (!fileId) throw new Error('「マイソクPDF」列にPDFのURLまたはファイルIDがありません');
+  var text = pdfToText_(fileId);
+  var parsed = parseMysokuText_(text);
+  var r = mysokuPatch_(prop, parsed);
+  var memo = [];
+  if (r.filled.length) memo.push('反映: ' + r.filled.join('、'));
+  if (r.skipped.length) memo.push('入力済のため未反映: ' + r.skipped.join('、'));
+  if (parsed.notes.length) memo.push('要確認: ' + parsed.notes.join('、'));
+  r.patch['マイソク取込日時'] = formatJst_();
+  r.patch['マイソク取込メモ'] = memo.join(' / ') || '反映する項目なし';
+  updateRow_(SHEETS.PROPERTIES, prop._row, r.patch);
+  return r;
+}
+
+/** マイソクフォルダ内の未登録PDFを新しい物件行として追加し、取り込む */
+function importMysokuFolder_(settings, startMs) {
+  var folderId = driveFileId_(settings.mysoku_folder_id) || String(settings.mysoku_folder_id || '').trim();
+  var m = String(settings.mysoku_folder_id || '').match(/folders\/([-\w]{20,})/);
+  if (m) folderId = m[1];
+  if (!folderId) throw new Error('設定「mysoku_folder_id」にマイソクPDFを置くフォルダのURLまたはIDを入力してください');
+  var t = readTable_(SHEETS.PROPERTIES);
+  var known = {};
+  t.rows.forEach(function (r) { var id = driveFileId_(r['マイソクPDF']); if (id) known[id] = true; });
+  var it = DriveApp.getFolderById(folderId).getFilesByType('application/pdf');
+  var results = [];
+  while (it.hasNext()) {
+    if (Date.now() - startMs > MAX_EXEC_MS) { results.push('（時間切れのため中断。再実行してください）'); break; }
+    var f = it.next();
+    if (known[f.getId()]) continue;
+    var prop = addPropertyRowForFile_(f);
+    var rowNum = prop._row;
+    try {
+      importMysokuForRow_(prop);
+      results.push(f.getName() + ': 取込済');
+    } catch (e) {
+      updateRow_(SHEETS.PROPERTIES, rowNum, { 'マイソク取込メモ': 'エラー: ' + e.message });
+      results.push(f.getName() + ': エラー ' + e.message);
+    }
+  }
+  return results;
+}
+
+/** 物件シートの次の空き行（未チェックのチェックボックスだけの行は空き行とみなす） */
+function nextEmptyPropertyRow_() {
+  var rows = readTable_(SHEETS.PROPERTIES).rows;
+  var last = 1;
+  rows.forEach(function (r) { if (r._row > last) last = r._row; });
+  return last + 1;
+}
+
+/** PDFファイル1件分の物件行を追加（物件IDも採番） */
+function addPropertyRowForFile_(file) {
+  var sh = sheet_(SHEETS.PROPERTIES);
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  var rowNum = nextEmptyPropertyRow_();
+  var id = 'P' + ('0000' + rowNum).slice(-5);
+  var row = headers.map(function (h) {
+    if (h === 'マイソクPDF') return file.getUrl();
+    if (h === '物件ID') return id;
+    return (CHECKBOX_COLUMNS[SHEETS.PROPERTIES] || []).indexOf(h) >= 0 ? false : '';
+  });
+  sh.getRange(rowNum, 1, 1, headers.length).setValues([row]);
+  applyCheckboxes_(sh, headers, SHEETS.PROPERTIES, rowNum, 1);
+  var prop = { _row: rowNum };
+  headers.forEach(function (h, i) { prop[h] = row[i]; });
+  return prop;
+}
+
+/* ---- src/14_Wellmo.js ---- */
+/**
+ * 14_Wellmo.js
+ * ウェルモ「建物管理｜編集」画面への入力データ（JSON）を作る。
+ * キー名は画面の項目名に合わせている。自動入力ツール（ブラウザ側）はこのJSONだけを読む。
+ * 値が空の項目は含めない（画面の既存値を消さないため）。
+ */
+
+// ウェルモの「建物設備」ボタン名 → 物件シートの列名
+var WELLMO_EQUIPMENT = [
+  ['エレベーター', 'エレベーター'],
+  ['オートロック', 'オートロック'],
+  ['宅配ボックス', '宅配BOX'],
+  ['防犯カメラ', '防犯カメラ'],
+  ['コンシェルジュ', 'コンシェルジュ'],
+  ['駐輪場', '自転車駐輪可能'],
+  ['自動販売機', '自動販売機'],
+  ['TVドアホン', 'TVドアホン'],
+  ['ゴミ捨て場', 'ゴミ捨て場']
+];
+
+/**
+ * @param {Object} prop 物件シートの行
+ * @param {Object} out buildOutputRow_ の結果（タイトル・駅・アクセス・周辺施設）
+ * @param {Array} stRows 駅結果の行（枠順）
+ * @return {Object}
+ */
+function buildWellmoData_(prop, out, stRows) {
+  var d = {};
+  var put = function (k, v) { if (v !== '' && v != null) d[k] = v; };
+  put('マンスリー表示名', out['タイトル']);
+  put('ふりがな', String(prop['ふりがな'] || '').trim());
+  put('建物名', String(prop['建物名'] || '').trim());
+  put('物件種別', String(prop['物件種別'] || '').trim());
+  var addr = {};
+  if (prop['郵便番号']) addr['郵便番号'] = String(prop['郵便番号']);
+  if (prop['住所']) addr['住所'] = nfkc_(prop['住所']).trim();
+  if (Object.keys(addr).length) d['所在地'] = addr;
+  if (bool_(prop['起点確認済'])) {
+    put('緯度', toNum_(prop['起点緯度']));
+    put('経度', toNum_(prop['起点経度']));
+  }
+  put('周辺環境', out['周辺施設']);
+
+  var stations = [];
+  (stRows || []).slice().sort(function (a, b) { return toNum_(a['枠']) - toNum_(b['枠']); }).slice(0, 3).forEach(function (r, i) {
+    var walk = out['駅' + (i + 1) + '_徒歩分'];
+    stations.push({
+      '路線': String(r['路線'] || ''),
+      '駅': stationBaseName_(r['駅名']),
+      '徒歩': walk === '' ? '' : Number(walk),
+      'その他': out['駅' + (i + 1) + '_その他'] || ''
+    });
+  });
+  if (stations.length) d['最寄り駅'] = stations;
+  put('その他アクセス', out['その他アクセス']);
+  put('空港からのアクセス', out['空港からのアクセス']);
+
+  var eq = WELLMO_EQUIPMENT.filter(function (e) { return bool_(prop[e[1]]); }).map(function (e) { return e[0]; });
+  d['建物設備'] = eq; // ON にするボタンの一覧（一覧にないボタンは変更しない）
+
+  put('建物構造', String(prop['建物構造'] || '').trim());
+  if (prop['地上階数'] !== '' && prop['地上階数'] != null) {
+    d['建物階数'] = { '地上': toNum_(prop['地上階数']), '地下': toNum_(prop['地下階数']) || 0 };
+  }
+  if (prop['築年']) d['築年月'] = { '年': toNum_(prop['築年']), '月': toNum_(prop['築月']) };
+  put('総戸数', toNum_(prop['総戸数']));
+  return d;
+}
+
+</script>
+<script>
+/*
+ * デモ用バックエンド（ブラウザ内のメモリで動く）。
+ * 本番の google.script.run と同じ関数名・戻り値の形にしてある。
+ * 出力文・タイトル・ウェルモJSONの生成は本番と同じコード（src/*.js）を使う。
+ * 施設名・距離は架空のサンプル（実在の店舗・距離ではない）。
+ */
+(function () {
+  'use strict';
+
+  var SETTINGS = {};
+  DEFAULT_SETTINGS.forEach(function (d) { SETTINGS[d[0]] = d[1]; });
+  var CATEGORIES = DEFAULT_CATEGORIES.map(function (r) {
+    return { id: r[0], label: r[1], enabled: r[2], order: r[16] };
+  });
+
+  var MYSOKU_SAMPLE = [
+    '物件種目 [住居用] マンション', '物件名 ハイツ若宮（デモ取込）', '号室名 301（3階部分）',
+    '所在地 愛知県名古屋市千種区今池3丁目39-21', '〒464-0850',
+    '交通', '桜通線「吹上」徒歩7分', '東山線「今池」徒歩9分',
+    '建築構造 鉄筋コンクリート造 地上5階 総戸数12戸', '築年 1998年03月', '駐車場 なし',
+    '設 備', '【水廻り】 バス・トイレ別・洗面台（独立） 【セキュリティ】 オートロック・TVモニター付インターホン 【その他】 エレベーター・宅配ボックス・駐輪場・専用ごみ置場',
+    '条　件', '2人入居可能'
+  ].join('\n');
+
+  function blankProp(id) {
+    var p = {};
+    HEADERS[SHEETS.PROPERTIES].forEach(function (h) {
+      p[h] = (CHECKBOX_COLUMNS[SHEETS.PROPERTIES] || []).indexOf(h) >= 0 ? false : '';
+    });
+    p['物件ID'] = id;
+    return p;
+  }
+  function assign(o, patch) { Object.keys(patch).forEach(function (k) { o[k] = patch[k]; }); return o; }
+
+  /* ---------- サンプル物件 ---------- */
+  var DB = { props: [], fac: [], st: [], ac: [], out: {}, seq: 5 };
+
+  // 1. 調査済み・確認待ち
+  DB.props.push(assign(blankProp('P00002'), {
+    '物件名': '名信ビル', '建物名': '名信ビル', 'ふりがな': 'めいしんびる', '号室': '6', '物件種別': 'マンション',
+    '住所': '愛知県名古屋市千種区今池3丁目39-21', '郵便番号': '464-0850', 'エリア': '千種区',
+    'マイソク駅1_駅名': '吹上', 'マイソク駅1_路線': '桜通線', 'マイソク駅1_徒歩分': 7,
+    'マイソク駅2_駅名': '今池', 'マイソク駅2_路線': '東山線', 'マイソク駅2_徒歩分': 9,
+    'マイソク駅3_駅名': '千種', 'マイソク駅3_路線': '東山線', 'マイソク駅3_徒歩分': 14,
+    'バストイレ別': true, '独立洗面台': true, 'ゴミ捨て場': true,
+    '建物構造': 'RC', '地上階数': 4, '地下階数': 0, '総戸数': 9, '築年': 1969, '築月': 5,
+    '起点緯度': 35.164462, '起点経度': 136.933913, '起点確認済': true, 'Geocode種別': 'ROOFTOP',
+    'ステータス': '調査済', '最終調査日時': '2026/11/05 10:12',
+    'マイソク取込日時': '2026/11/05 10:05',
+    'マイソク取込メモ': '反映: 物件名、建物名、号室、住所、物件種別、郵便番号、建物構造、地上階数、地下階数、総戸数、築年、築月、マイソク駅3件、バストイレ別、独立洗面台、ゴミ捨て場 / 要確認: 洋室の帖数を読み取れない（間取図を確認）'
+  }));
+  // 2. 完了（ウェルモの画面例を基にした物件）
+  DB.props.push(assign(blankProp('P00003'), {
+    '物件名': 'サンコーレジデンス', '建物名': 'サンコーレジデンス', 'ふりがな': 'さんこーれじでんす', '物件種別': 'マンション',
+    '住所': '愛知県名古屋市天白区鴻の巣1丁目703', '郵便番号': '468-0003', 'エリア': '天白区',
+    'マイソク駅1_駅名': '塩釜口', 'マイソク駅1_路線': '鶴舞線', 'マイソク駅2_駅名': '植田', 'マイソク駅2_路線': '鶴舞線',
+    'マイソク駅3_駅名': '原', 'マイソク駅3_路線': '鶴舞線',
+    '駐車場': true, '無料Wi-Fi': true, '自転車駐輪可能': true, 'ゴミ捨て場': true, 'その他アピール': '植田ICまで車で3分',
+    '建物構造': 'RC', '地上階数': 5, '地下階数': 0, '総戸数': 9, '築年': 1988, '築月': 7,
+    '起点緯度': 35.143826, '起点経度': 136.997531, '起点確認済': true, 'Geocode種別': 'ROOFTOP',
+    'ステータス': '調査済', '最終調査日時': '2026/11/04 16:10'
+  }));
+  // 3. 取り込み直後（位置の確認から試せる）
+  DB.props.push(assign(blankProp('P00004'), {
+    '物件名': 'グランシエル高岳', '建物名': 'グランシエル高岳', '物件種別': 'マンション',
+    '住所': '愛知県名古屋市東区泉1丁目21-27', '郵便番号': '461-0001',
+    'マイソク駅1_駅名': '高岳', 'マイソク駅1_路線': '桜通線', 'マイソク駅1_徒歩分': 4,
+    'オートロック': true, 'エレベーター': true, '宅配BOX': true, 'バストイレ別': true, '最大洋室帖数': 7.5,
+    '建物構造': 'RC', '地上階数': 10, '地下階数': 0, '総戸数': 40, '築年': 2006, '築月': 2,
+    'マイソク取込日時': '2026/11/05 11:40',
+    'マイソク取込メモ': '反映: 物件名、建物名、住所、物件種別、郵便番号、建物構造、地上階数、地下階数、総戸数、築年、築月、マイソク駅1件、オートロック、エレベーター、宅配BOX、バストイレ別、最大洋室帖数'
+  }));
+  var GEO = {
+    'P00004': { lat: 35.177214, lng: 136.913842, type: 'RANGE_INTERPOLATED', addr: '日本、〒461-0001 愛知県名古屋市東区泉１丁目２１−２７' }
+  };
+
+  /* ---------- 架空の調査結果 ---------- */
+  function rnd(seed) { var x = 0; for (var i = 0; i < seed.length; i++) x = (x * 31 + seed.charCodeAt(i)) % 2147483647; return function () { x = (x * 48271) % 2147483647; return x / 2147483647; }; }
+
+  var FAKE = {
+    supermarket: ['フレッシュ市場', 'まちかどスーパー', 'グリーンマート'],
+    drugstore: ['あおば薬局ドラッグ', 'ヘルスプラス', 'くすりのミドリ'],
+    convenience: ['デイリーステーション', 'サンライズマート', 'ハッピー24'],
+    hundred_yen: ['プチプライス100'],
+    mall: ['ショッピングプラザ'],
+    clinic: ['さくら内科クリニック', 'みなみ内科'],
+    hospital: ['市民総合病院'],
+    post_office: ['郵便局'],
+    park: ['中央公園'],
+    chain_restaurant: ['うどん処まるや', 'バーガーステーション', '牛丼たかはし', 'ファミリーダイニング']
+  };
+
+  function makeResults(p) {
+    var id = p['物件ID'];
+    var r = rnd(id + p['住所']);
+    var town = (String(p['住所']).match(/(?:区|市)([^\d０-９]+?)\d/) || [])[1] || '駅前';
+    var now = formatJst_();
+    var fac = [];
+    CATEGORIES.forEach(function (c) {
+      var names = FAKE[c.id] || [];
+      names.forEach(function (base, i) {
+        var road = Math.round(120 + r() * (c.id === 'drugstore' && i === 0 ? 1900 : 900) + i * 180);
+        var walk = walkMinutes_(road, 80);
+        var straight = Math.round(road * (0.7 + r() * 0.25));
+        var limit = { supermarket: 10, drugstore: 10, convenience: 10, hundred_yen: 10, mall: 15, hospital: 15, park: 10, chain_restaurant: 10 }[c.id];
+        var adopted = limit ? walk <= limit || i === 0 : i === 0;
+        if (c.id === 'chain_restaurant') adopted = i < 3 || walk <= 10;
+        var flags = [];
+        if (c.id === 'clinic') flags.push('内科系の診療科か確認');
+        if (c.id === 'mall') flags.push('大型ショッピングモール・商業施設に該当するか確認');
+        if (c.id === 'hospital') flags.push('総合病院（複数診療科）に該当するか確認');
+        if (c.id === 'park') flags.push('面積はviewport（外接矩形）による概算');
+        if (c.id === 'convenience' && i === 1) { straight = road + 40; flags.push('道路距離が直線距離より短い（起点/施設の位置ずれの可能性）'); }
+        var car = walk > 20 ? Math.max(3, Math.round(road / 400)) : '';
+        var name = c.id === 'post_office' ? town + '郵便局' : base + ' ' + town + '店';
+        if (c.id === 'park' || c.id === 'hospital' || c.id === 'clinic') name = c.id === 'park' ? town + base : base;
+        fac.push({
+          '物件ID': id, '実行ID': 'DEMO', 'カテゴリID': c.id, 'カテゴリ': c.label, '採否': adopted ? '採用' : '候補',
+          '採用理由': adopted ? (limit && walk <= limit ? '圏内（徒歩' + limit + '分以内）' : '最寄り') : '', '順位': i + 1,
+          '名称': name, 'ブランド': base, '道路距離m': road, '徒歩分': walk, '車所要分': car, '車距離m': car ? road + 200 : '',
+          '直線距離m': straight, '住所': '愛知県名古屋市' + town + '（架空）', '緯度': '', '経度': '', 'place_id': 'demo-' + id + '-' + c.id + '-' + i,
+          '営業状態': 'OPERATIONAL', '面積概算m2': c.id === 'park' ? 18000 : '', '要確認理由': flags.join(' / '),
+          '確認済': false, '掲載': adopted && !flags.length, '備考': '', '取得日時': now
+        });
+      });
+    });
+    var st = [];
+    var ms = [1, 2, 3].map(function (i) {
+      return { name: p['マイソク駅' + i + '_駅名'], line: p['マイソク駅' + i + '_路線'], min: n(p['マイソク駅' + i + '_徒歩分']) };
+    }).filter(function (x) { return x.name; });
+    var extra = [{ name: '新栄町', line: '' }, { name: '車道', line: '' }, { name: '市役所', line: '' }];
+    while (ms.length < 3) ms.push(assign({ min: null, google: true }, extra[ms.length - 1] || extra[0]));
+    ms.forEach(function (m, i) {
+      var road = Math.round(380 + i * 330 + r() * 200);
+      var g = walkMinutes_(road, 80);
+      var adopt = adoptStationMinutes_(m.min, g);
+      var flags = [];
+      if (adopt.from.indexOf('Google') === 0) flags.push('駅の座標は代表点。駅出入口までの距離か地図で確認');
+      if (!m.line) flags.push('路線を入力（複数路線の場合は利用者の多い路線）');
+      st.push({
+        '物件ID': id, '実行ID': 'DEMO', '枠': i + 1, '出典': m.google ? 'Google' : 'マイソク', '駅名': m.name + (m.google ? '駅' : ''), '路線': m.line || '',
+        'マイソク徒歩分': m.min == null ? '' : m.min, '道路距離m': road, 'Google徒歩分': g, '採用徒歩分': adopt.minutes, '採用元': adopt.from,
+        '代替手段': '', '代替所要分': '', '代替距離m': '', '代替有料道路': '', '代替詳細': '',
+        '要確認理由': flags.join(' / '), '確認済': false, '備考': '', 'place_id': 'demo-st-' + i, '緯度': '', '経度': '', '取得日時': now
+      });
+    });
+    var ac = [
+      { '種別': 'バス停', '名称': town, '運行会社': '', '道路距離m': 210, '徒歩分': 3, '採用': true, '要確認理由': '運行会社（○○バス）を入力', 'place_id': 'demo-bs-1' },
+      { '種別': 'バス停', '名称': town + '二丁目', '運行会社': '', '道路距離m': 390, '徒歩分': 5, '採用': false, '要確認理由': '', 'place_id': 'demo-bs-2' },
+      { '種別': '空港', '名称': '中部国際空港', '車所要分': 41, '車距離m': 47200, '有料道路': 'あり', '採用': false, '詳細': '出発 03:00想定 / 道路距離47.2km / 有料道路利用', '要確認理由': '' },
+      { '種別': '空港', '名称': '県営名古屋空港', '車所要分': 22, '車距離m': 13100, '有料道路': 'あり', '採用': true, '詳細': '出発 03:00想定 / 道路距離13.1km / 有料道路利用', '要確認理由': '' }
+    ].map(function (x) { return assign({ '物件ID': id, '実行ID': 'DEMO', '確認済': false, '備考': '', '車所要分': '', '車距離m': '', '有料道路': '', '詳細': '', '取得日時': now }, x); });
+    return { fac: fac, st: st, ac: ac };
+  }
+
+  function n(v) { return toNum_(v); }
+  function rowsOf(list, id) { return list.filter(function (r) { return r['物件ID'] === id; }); }
+  function setResults(id, res) {
+    DB.fac = DB.fac.filter(function (r) { return r['物件ID'] !== id; }).concat(res.fac);
+    DB.st = DB.st.filter(function (r) { return r['物件ID'] !== id; }).concat(res.st);
+    DB.ac = DB.ac.filter(function (r) { return r['物件ID'] !== id; }).concat(res.ac);
+  }
+  function regen(id) {
+    var p = findProp(id);
+    if (!rowsOf(DB.fac, id).length) { delete DB.out[id]; return; }
+    DB.out[id] = buildOutputRow_(p, rowsOf(DB.fac, id), rowsOf(DB.st, id), rowsOf(DB.ac, id), CATEGORIES, SETTINGS);
+  }
+  function findProp(id) {
+    var p = DB.props.filter(function (x) { return x['物件ID'] === id; })[0];
+    if (!p) throw new Error('物件（' + id + '）が見つかりません');
+    return p;
+  }
+  function stage(p) {
+    var f = rowsOf(DB.fac, p['物件ID']), s = rowsOf(DB.st, p['物件ID']), a = rowsOf(DB.ac, p['物件ID']);
+    var pending = countUnconfirmed_(f, s, a);
+    var has = f.length + s.length + a.length > 0;
+    if (!String(p['住所'] || '').trim()) return { stage: 1, label: '物件情報の入力待ち', pending: pending };
+    if (!bool_(p['起点確認済'])) return { stage: 2, label: '位置の確認待ち', pending: pending };
+    if (!has || p['ステータス'] === '要再調査') return { stage: 3, label: '調査待ち', pending: pending };
+    if (pending > 0) return { stage: 4, label: '確認が' + pending + '件残っています', pending: pending };
+    return { stage: 5, label: 'ウェルモ入力の準備ができました', pending: pending };
+  }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  // サンプルの初期結果
+  setResults('P00002', makeResults(DB.props[0]));
+  (function () {
+    var res = makeResults(DB.props[1]);
+    var real = [['supermarket', 'アミカ 高針店', 520], ['supermarket', 'イオンスタイル高針原', 540], ['supermarket', 'フィールRISE やき山店', 610]];
+    res.fac = res.fac.filter(function (r) { return r['カテゴリID'] !== 'supermarket'; });
+    real.forEach(function (x, i) {
+      res.fac.unshift({ '物件ID': 'P00003', '実行ID': 'DEMO', 'カテゴリID': x[0], 'カテゴリ': 'スーパー', '採否': '採用', '採用理由': '圏内（徒歩10分以内）', '順位': 3 - i,
+        '名称': x[1], 'ブランド': x[1], '道路距離m': x[2], '徒歩分': walkMinutes_(x[2], 80), '車所要分': '', '車距離m': '', '直線距離m': Math.round(x[2] * 0.8),
+        '住所': '', 'place_id': 'demo-p3-s' + i, '営業状態': 'OPERATIONAL', '要確認理由': '', '確認済': false, '掲載': true, '取得日時': '2026/11/04 16:10' });
+    });
+    res.st.forEach(function (s, i) {
+      var road = [2500, 1950, 2300][i];
+      assign(s, { '出典': 'マイソク', '駅名': ['塩釜口', '植田', '原'][i], '路線': '名古屋市鶴舞線', '道路距離m': road * 1.1, 'Google徒歩分': 34 + i, 'マイソク徒歩分': 36 + i,
+        '採用徒歩分': 34 + i, '採用元': 'Google（マイソクより短い）', '代替手段': 'バス', '代替所要分': [26, 24, 25][i],
+        '代替詳細': '出発 10:00想定 / 名古屋市交通局 「植田大久手」→「' + ['塩釜口', '植田', '原'][i] + '」 / 徒歩区間を含む', '要確認理由': '' });
+    });
+    res.ac[0]['名称'] = '植田大久手'; res.ac[0]['運行会社'] = '名古屋市営バス'; res.ac[0]['徒歩分'] = 4;
+    res.ac[3]['車所要分'] = 24;
+    [res.fac, res.st, res.ac].forEach(function (list) { list.forEach(function (r) { r['確認済'] = true; if (r['採否'] === '採用') r['掲載'] = true; }); });
+    setResults('P00003', res);
+  })();
+  regen('P00002'); regen('P00003');
+
+  /* ---------- 地図（デモ用の簡易地図。実際は Google Maps Static API） ---------- */
+  function demoMap(lat, lng, zoom) {
+    var W = 640, H = 400, s = 256 * Math.pow(2, zoom);
+    var proj = function (la, ln) { var sin = Math.sin(la * Math.PI / 180); return { x: (ln + 180) / 360 * s, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * s }; };
+    var c = proj(lat, lng);
+    var px = function (la, ln) { var p = proj(la, ln); return { x: p.x - c.x + W / 2, y: p.y - c.y + H / 2 }; };
+    var step = 0.0008, svg = [];
+    svg.push('<svg xmlns="http://www.w3.org/2000/svg" width="' + W * 2 + '" height="' + H * 2 + '" viewBox="0 0 ' + W + ' ' + H + '">');
+    svg.push('<rect width="' + W + '" height="' + H + '" fill="#ece8df"/>');
+    var tl = { lat: lat + 0.01, lng: lng - 0.012 };
+    var lat0 = Math.floor(lat / step) * step, lng0 = Math.floor(lng / step) * step;
+    for (var i = -14; i <= 14; i++) {
+      for (var j = -14; j <= 14; j++) {
+        var a = px(lat0 + i * step, lng0 + j * step), bb = px(lat0 + (i + 1) * step, lng0 + (j + 1) * step);
+        var hue = (Math.abs(i * 7 + j * 13) % 9 === 0) ? '#cfe5c4' : '#f8f6f1';
+        svg.push('<rect x="' + (Math.min(a.x, bb.x) + 3) + '" y="' + (Math.min(a.y, bb.y) + 3) + '" width="' + Math.max(0, Math.abs(bb.x - a.x) - 6) + '" height="' + Math.max(0, Math.abs(bb.y - a.y) - 6) + '" fill="' + hue + '" stroke="#d9d3c6"/>');
+        if (zoom >= 18 && Math.abs(i) < 8 && Math.abs(j) < 8 && (i + j) % 2 === 0) {
+          var cx = (a.x + bb.x) / 2, cy = (a.y + bb.y) / 2, w = Math.abs(bb.x - a.x) * 0.3, h = Math.abs(bb.y - a.y) * 0.3;
+          svg.push('<rect x="' + (cx - w) + '" y="' + (cy - h) + '" width="' + w * 1.6 + '" height="' + h * 1.4 + '" fill="#e2dccf" stroke="#cbc3b2"/>');
+        }
+      }
+    }
+    var main = px(lat0 + 2 * step, lng0), main2 = px(lat0, lng0 - 3 * step);
+    svg.push('<rect x="0" y="' + (main.y - 6) + '" width="' + W + '" height="12" fill="#ffe08a" stroke="#e8c45a"/>');
+    svg.push('<rect x="' + (main2.x - 6) + '" y="0" width="12" height="' + H + '" fill="#ffffff" stroke="#d9d3c6"/>');
+    svg.push('<text x="12" y="' + (H - 12) + '" font-size="12" fill="#8a8170" font-family="sans-serif">デモ用の簡易地図（実際はGoogleマップ）</text>');
+    svg.push('</svg>');
+    void tl;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.join(''));
+  }
+
+  /* ---------- API ---------- */
+  var api = {
+    api_listProperties: function () {
+      return DB.props.map(function (p) {
+        var s = stage(p);
+        return { id: p['物件ID'], name: p['建物名'] || p['物件名'], address: p['住所'], stage: s.stage, stageLabel: s.label, pending: s.pending, updated: p['最終調査日時'] || p['マイソク取込日時'] };
+      });
+    },
+    api_getProperty: function (id) {
+      var p = findProp(id), s = stage(p);
+      return {
+        prop: clone(p), facilities: clone(rowsOf(DB.fac, id)), stations: clone(rowsOf(DB.st, id)), access: clone(rowsOf(DB.ac, id)),
+        output: DB.out[id] ? clone(DB.out[id]) : null,
+        categories: CATEGORIES.map(function (c) { return { id: c.id, label: c.label, order: c.order }; }),
+        stage: s.stage, stageLabel: s.label, pending: s.pending,
+        config: { titleMax: 60, welmoLimit: 30, hasApiKey: true }
+      };
+    },
+    api_saveProperty: function (id, patch) {
+      var p = findProp(id);
+      if ('住所' in patch && String(patch['住所']) !== String(p['住所']) && p['起点緯度'] !== '') {
+        assign(patch, { '起点緯度': '', '起点経度': '', '起点確認済': false, 'ステータス': rowsOf(DB.fac, id).length ? '要再調査' : '' });
+        delete GEO[id];
+      }
+      assign(p, patch);
+      if (DB.out[id]) regen(id);
+      return api.api_getProperty(id);
+    },
+    api_uploadMysoku: function (fileName) {
+      var id = 'P' + ('0000' + (++DB.seq)).slice(-5);
+      var p = blankProp(id);
+      p['マイソクPDF'] = fileName;
+      DB.props.push(p);
+      var r = mysokuPatch_(p, parseMysokuText_(MYSOKU_SAMPLE));
+      assign(p, r.patch);
+      p['マイソク取込日時'] = formatJst_();
+      p['マイソク取込メモ'] = 'デモのため、選んだPDFではなくサンプルの内容を読み取りました / 反映: ' + r.filled.join('、');
+      return { id: id, filled: r.filled, notes: [] };
+    },
+    api_reimportMysoku: function (id) { return { filled: [], skipped: [], data: api.api_getProperty(id) }; },
+    api_createProperty: function (name) {
+      var id = 'P' + ('0000' + (++DB.seq)).slice(-5);
+      DB.props.push(assign(blankProp(id), { '物件名': name, '建物名': name }));
+      return { id: id };
+    },
+    api_locate: function (id) {
+      var p = findProp(id);
+      var warnings = [];
+      if (n(p['起点緯度']) == null) {
+        if (!p['住所']) throw new Error('住所が入力されていません。「物件情報」で住所を入力してください。');
+        var g = GEO[id] || { lat: 35.1657 + Math.random() * 0.004, lng: 136.9352 + Math.random() * 0.004, type: 'ROOFTOP', addr: '日本、' + p['住所'] };
+        assign(p, { '起点緯度': Math.round(g.lat * 1e6) / 1e6, '起点経度': Math.round(g.lng * 1e6) / 1e6, 'Geocode種別': g.type, 'Geocode住所': g.addr,
+          'エリア': p['エリア'] || areaFromGeocode_([], g.addr, { wardCities: ['名古屋市'] }) });
+      }
+      if (p['Geocode種別'] && p['Geocode種別'] !== 'ROOFTOP') warnings.push('住所から求めた位置の精度が建物単位ではありません（' + p['Geocode種別'] + '）');
+      return { lat: n(p['起点緯度']), lng: n(p['起点経度']), confirmed: bool_(p['起点確認済']), geocodedAddress: p['Geocode住所'], warnings: warnings };
+    },
+    api_mapImage: function (lat, lng, zoom) {
+      return { dataUrl: demoMap(lat, lng, zoom), lat: lat, lng: lng, zoom: zoom, width: 640, height: 400 };
+    },
+    api_confirmOrigin: function (id, lat, lng) {
+      var p = findProp(id);
+      var moved = n(p['起点緯度']) !== lat || n(p['起点経度']) !== lng;
+      assign(p, { '起点緯度': lat, '起点経度': lng, '起点確認済': true });
+      if (moved && rowsOf(DB.fac, id).length) p['ステータス'] = '要再調査';
+      return api.api_getProperty(id);
+    },
+    api_runSurvey: function (id) {
+      var p = findProp(id);
+      var old = { fac: rowsOf(DB.fac, id), st: rowsOf(DB.st, id), ac: rowsOf(DB.ac, id) };
+      var res = makeResults(p);
+      // 本番と同じく、担当者の入力は引き継ぐ
+      res.fac.forEach(function (r) { var o = old.fac.filter(function (x) { return x['place_id'] === r['place_id']; })[0]; if (o) { r['掲載'] = o['掲載']; r['確認済'] = o['確認済']; } });
+      res.st.forEach(function (r) { var o = old.st.filter(function (x) { return x['枠'] === r['枠']; })[0]; if (o && !r['路線']) r['路線'] = o['路線']; });
+      res.ac.forEach(function (r) { var o = old.ac.filter(function (x) { return x['place_id'] && x['place_id'] === r['place_id']; })[0]; if (o) r['運行会社'] = o['運行会社']; });
+      setResults(id, res);
+      assign(p, { 'ステータス': '調査済', '最終調査日時': formatJst_(), 'メッセージ': '結果の「要確認」を確認し、掲載する施設を選んでください。' });
+      regen(id);
+      return { status: '調査済', message: p['メッセージ'] + '（デモ：架空のサンプル結果です）', apiCalls: 0, data: api.api_getProperty(id) };
+    },
+    api_updateResult: function (kind, id, key, patch) {
+      var list = kind === 'facility' ? DB.fac : kind === 'station' ? DB.st : DB.ac;
+      var keyOf = kind === 'facility' ? function (r) { return r['カテゴリID'] + '|' + (r['place_id'] || r['採否']); }
+        : kind === 'station' ? function (r) { return String(r['枠']); } : function (r) { return r['種別'] + '|' + (r['place_id'] || r['名称']); };
+      var row = list.filter(function (r) { return r['物件ID'] === id && keyOf(r) === key; })[0];
+      if (!row) throw new Error('対象の行が見つかりません');
+      assign(row, patch);
+      if (kind === 'access' && patch['採用'] === true) list.forEach(function (r) { if (r !== row && r['物件ID'] === id && r['種別'] === row['種別']) r['採用'] = false; });
+      regen(id);
+      return api.api_getProperty(id);
+    }
+  };
+
+  var DELAY = { api_runSurvey: 2600, api_uploadMysoku: 1400, api_locate: 500, api_mapImage: 300 };
+  window.DEMO_BACKEND = {
+    call: function (fn) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () {
+          try { resolve(clone(api[fn].apply(null, args))); } catch (e) { reject(e); }
+        }, DELAY[fn] || 160);
+      });
+    }
+  };
+})();
+
+</script>
+<script>
+(function () {
+  'use strict';
+
+  /* ================= サーバー呼び出し（GAS / デモ） ================= */
+  var API = window.DEMO_BACKEND || {
+    call: function (fn) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      return new Promise(function (resolve, reject) {
+        var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+          reject(e instanceof Error ? e : new Error(String(e && e.message || e)));
+        });
+        r[fn].apply(r, args);
+      });
+    }
+  };
+  if (window.DEMO_BACKEND) document.getElementById('demo-band').hidden = false;
+
+  /* ================= 定数 ================= */
+  var STEPS = [
+    { n: 1, t: '物件情報', d: 'マイソクの内容を確認' },
+    { n: 2, t: '位置', d: '建物の出入口を指定' },
+    { n: 3, t: '調査', d: '周辺施設・駅を調べる' },
+    { n: 4, t: '確認', d: '掲載する施設を選ぶ' },
+    { n: 5, t: '出力', d: 'ウェルモへ入力' }
+  ];
+  var KINDS = ['マンション', 'アパート', '一戸建て', 'その他'];
+  var STRUCTS = [['RC', 'RC（鉄筋コンクリート）'], ['SRC', 'SRC（鉄骨鉄筋コンクリート）'], ['S', 'S（鉄骨）'], ['軽量鉄骨', '軽量鉄骨'], ['木造', '木造'], ['その他', 'その他']];
+  var EQUIP_TITLE = [['駐車場', '駐車場'], ['無料Wi-Fi', '無料Wi-Fi'], ['角部屋', '角部屋'], ['バストイレ別', 'バストイレ別'], ['独立洗面台', '独立洗面台'],
+    ['全居室6帖以上', '全居室6帖以上'], ['リフォーム済', 'リフォーム済'], ['オートロック', 'オートロック'], ['エレベーター', 'エレベーター'],
+    ['宅配BOX', '宅配ボックス'], ['自転車駐輪可能', '駐輪場']];
+  var EQUIP_WELLMO = [['防犯カメラ', '防犯カメラ'], ['コンシェルジュ', 'コンシェルジュ'], ['自動販売機', '自動販売機'], ['TVドアホン', 'TVドアホン'], ['ゴミ捨て場', 'ゴミ捨て場']];
+  var MAP_W = 640, MAP_H = 400;
+
+  /* ================= 状態 ================= */
+  var S = {
+    list: [], filter: 'all', query: '',
+    id: null, data: null, step: 1, tab: 'facility', onlyPending: false,
+    map: null, busy: '', surveyResult: null, error: '', addOpen: false, forceStep: 0
+  };
+
+  /* ================= 小道具 ================= */
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function b(v) { return v === true || v === 'TRUE' || v === 'true'; }
+  function n(v) { if (v === '' || v == null) return null; var x = Number(String(v).normalize('NFKC').replace(/[^\d.\-]/g, '')); return isNaN(x) ? null : x; }
+  function has(v) { return v !== '' && v != null; }
+  var toastTimer;
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2600);
+  }
+  function errorText(e) { return (e && e.message) ? e.message : String(e); }
+  function copyText(text, label) {
+    var done = function () { toast((label || '内容') + 'をコピーしました'); };
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove();
+      if (ok) done(); else toast('コピーできませんでした。内容を選択してコピーしてください');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  }
+
+  /* 確認待ちの件数（サーバーの countUnconfirmed_ と同じ規則） */
+  function pendingCount(d) {
+    if (!d) return 0;
+    var c = 0;
+    d.facilities.forEach(function (r) { if (['採用', '該当なし', 'エラー'].indexOf(r['採否']) >= 0 && r['要確認理由'] && !b(r['確認済'])) c++; });
+    d.stations.forEach(function (r) { if (r['要確認理由'] && !b(r['確認済'])) c++; });
+    d.access.forEach(function (r) { if (b(r['採用']) && r['要確認理由'] && !b(r['確認済'])) c++; });
+    return c;
+  }
+  function hasResults(d) { return d && (d.facilities.length + d.stations.length + d.access.length) > 0; }
+  function maxStep(d) {
+    if (!d) return 1;
+    // 住所を入力した直後（保存の応答前）でも位置の確認へ進めるようにする
+    if (d.stage < 2 && String(d.prop['住所'] || '').trim()) return 2;
+    // 確認が残っていても出力は見られる（出力画面で残件数を知らせる）
+    if (d.stage === 4) return 5;
+    return d.stage;
+  }
+
+  /* ================= 物件一覧 ================= */
+  function loadList(selectId) {
+    return API.call('api_listProperties').then(function (list) {
+      S.list = list || [];
+      renderList();
+      var target = selectId || S.id || (S.list[0] && S.list[0].id);
+      if (target) openProperty(target, !selectId && S.id === target);
+      else renderWork();
+    }).catch(function (e) { S.error = errorText(e); renderWork(); });
+  }
+
+  function renderList() {
+    var q = S.query.normalize('NFKC').toLowerCase();
+    var items = S.list.filter(function (p) {
+      if (S.filter === 'todo' && p.stage === 5) return false;
+      if (S.filter === 'done' && p.stage !== 5) return false;
+      if (q && (p.name + ' ' + p.address).normalize('NFKC').toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    $('q-list').innerHTML = items.length ? items.map(function (p) {
+      return '<li><button type="button" class="q-item" data-open="' + esc(p.id) + '" aria-current="' + (p.id === S.id) + '">' +
+        '<span class="q-name">' + esc(p.name || '（建物名未入力）') + '</span>' +
+        '<span class="q-addr">' + esc(p.address || '住所未入力') + '</span>' +
+        pill(p.stage, p.stageLabel) + '</button></li>';
+    }).join('') : '<li class="q-empty">' + (S.list.length ? '条件に合う物件はありません' : 'まだ物件がありません。「マイソクPDFを追加」から始めましょう。') + '</li>';
+  }
+
+  function pill(stage, label) {
+    var mark = stage === 5 ? '✓' : stage === 4 ? '!' : String(stage);
+    return '<span class="pill s' + stage + '"><span class="dot" aria-hidden="true">' + mark + '</span>' + esc(label) + '</span>';
+  }
+
+  /* ================= 物件を開く ================= */
+  function openProperty(id, keepStep) {
+    var changed = S.id !== id;
+    S.id = id; S.error = '';
+    if (changed) { S.data = null; S.map = null; S.surveyResult = null; S.tab = 'facility'; S.onlyPending = false; }
+    renderList();
+    renderWork();
+    return API.call('api_getProperty', id).then(function (d) {
+      S.data = d;
+      if (S.forceStep) { S.step = S.forceStep; S.forceStep = 0; }
+      else if (changed || !keepStep) S.step = Math.min(d.stage, 5);
+      renderWork();
+      if (window.innerWidth <= 900) setQueueOpen(false);
+    }).catch(function (e) { S.error = errorText(e); renderWork(); });
+  }
+
+  function applyData(d) {
+    S.data = d;
+    var item = S.list.filter(function (p) { return p.id === S.id; })[0];
+    if (item) {
+      item.stage = d.stage; item.stageLabel = d.stageLabel; item.pending = d.pending;
+      item.name = String(d.prop['建物名'] || d.prop['物件名'] || ''); item.address = String(d.prop['住所'] || '');
+      renderList();
+    }
+  }
+
+  /* ================= 作業面 ================= */
+  function renderWork() {
+    var w = $('work');
+    if (S.error && !S.data) {
+      w.innerHTML = '<div class="work-scroll"><div class="work-inner"><div class="note err"><span class="ic">×</span><p>' + esc(S.error) + '</p></div></div></div>';
+      return;
+    }
+    if (!S.id) {
+      w.innerHTML = '<div class="work-scroll"><div class="empty-state"><h2>マイソクPDFを追加して始めましょう</h2>' +
+        '<p>PDFを左上のボタンから選ぶか、この画面にドラッグ＆ドロップしてください。<br>物件名・所在地・交通・設備を自動で読み取ります。</p></div></div>';
+      return;
+    }
+    if (!S.data) { w.innerHTML = '<div class="work-scroll"><p class="loading">読み込み中…</p></div>'; return; }
+    var d = S.data, p = d.prop;
+    var body = S.step === 1 ? stepInfo(d) : S.step === 2 ? stepMap(d) : S.step === 3 ? stepSurvey(d) : S.step === 4 ? stepReview(d) : stepOutput(d);
+    w.innerHTML =
+      '<div class="work-scroll"><div class="work-inner">' +
+        '<div class="prop-head"><div><h1>' + esc(p['建物名'] || p['物件名'] || '（建物名未入力）') + '</h1>' +
+        '<div class="sub">' + esc(p['住所'] || '住所未入力') + '</div></div>' + pill(d.stage, d.stageLabel) + '</div>' +
+        stepper(d) + body +
+      '</div></div>' + actionBar(d);
+    afterRender();
+  }
+
+  function stepper(d) {
+    var max = maxStep(d);
+    return '<nav aria-label="作業の手順"><ol class="steps">' + STEPS.map(function (s) {
+      var cls = s.n === S.step ? 'current' : s.n < max ? 'done' : '';
+      var disabled = s.n > max;
+      return '<li class="step ' + cls + '"><button type="button" data-step="' + s.n + '"' + (disabled ? ' disabled title="前の手順を終えると進めます"' : '') +
+        (s.n === S.step ? ' aria-current="step"' : '') + '><span class="n" aria-hidden="true">' + (cls === 'done' ? '✓' : s.n) + '</span>' +
+        '<span class="t"><b>' + s.t + '</b><small>' + s.d + '</small></span></button></li>';
+    }).join('') + '</ol></nav>';
+  }
+
+  /* 下部の固定バー：その手順で次にやることを1つだけ大きく */
+  function actionBar(d) {
+    var back = S.step > 1 ? '<button class="btn" type="button" data-step="' + (S.step - 1) + '">← 戻る</button>' : '';
+    var msg = '', primary = '';
+    var p = d.prop;
+    if (S.step === 1) {
+      var missing = [];
+      if (!String(p['建物名'] || '').trim()) missing.push('建物名');
+      if (!String(p['住所'] || '').trim()) missing.push('住所');
+      msg = missing.length ? missing.join('・') + 'を入力すると次へ進めます' : '<span class="saved" id="save-state">入力は自動で保存されます</span>';
+      primary = '<button class="btn primary big" type="button" data-step="2"' + (missing.length ? ' disabled' : '') + '>位置の確認へ →</button>';
+    } else if (S.step === 2) {
+      msg = '地図をクリックして、ピンを建物の出入口に合わせてください';
+      primary = '<button class="btn primary big" type="button" data-act="confirm-origin"' + (S.map && S.map.pinLat != null ? '' : ' disabled') + '>この位置で確定 →</button>';
+    } else if (S.step === 3) {
+      if (S.busy === 'survey') { msg = '調査中です。画面を閉じずにお待ちください'; primary = '<button class="btn primary big" type="button" disabled>調査中…</button>'; }
+      else if (hasResults(d) && d.stage >= 4) { msg = '調査は完了しています'; primary = '<button class="btn primary big" type="button" data-step="4">結果の確認へ →</button>'; }
+      else { msg = '1物件あたり1〜2分かかります'; primary = '<button class="btn primary big" type="button" data-act="survey">調査を開始する</button>'; }
+    } else if (S.step === 4) {
+      var pc = pendingCount(d);
+      msg = pc ? '<b style="color:var(--warn)">確認が' + pc + '件残っています</b>（出力は確認後に作り直されます）' : '<span style="color:var(--ok)">✓ すべて確認しました</span>';
+      primary = '<button class="btn primary big" type="button" data-step="5">出力を確認する →</button>';
+    } else {
+      msg = '内容を確認したら、ウェルモの編集画面に貼り付けます';
+      primary = '<button class="btn primary big" type="button" data-act="copy-json"' + (d.output ? '' : ' disabled') + '>ウェルモ用データをコピー</button>';
+    }
+    return '<div class="actionbar"><div class="actionbar-inner">' + back + '<div class="msg">' + msg + '</div>' + primary + '</div></div>';
+  }
+
+  /* ---------- 手順1：物件情報 ---------- */
+  function txt(field, label, opt) {
+    opt = opt || {};
+    var v = S.data.prop[field];
+    var missing = opt.required && !String(v || '').trim();
+    return '<div class="field"><label for="f-' + esc(field) + '">' + esc(label) + (opt.required ? '<span class="req">必須</span>' : '') + '</label>' +
+      '<input class="input' + (missing ? ' missing' : '') + (opt.num ? ' num' : '') + '" id="f-' + esc(field) + '" data-field="' + esc(field) + '" value="' + esc(v) + '"' +
+      (opt.num ? ' inputmode="numeric"' : '') + (opt.ph ? ' placeholder="' + esc(opt.ph) + '"' : '') + '>' +
+      (opt.help ? '<div class="help">' + esc(opt.help) + '</div>' : '') + '</div>';
+  }
+  function unit(field, label, suffix) {
+    return '<div class="field"><label for="f-' + esc(field) + '">' + esc(label) + '</label><div class="unit">' +
+      '<input class="input num" id="f-' + esc(field) + '" data-field="' + esc(field) + '" inputmode="numeric" value="' + esc(S.data.prop[field]) + '"><span>' + esc(suffix) + '</span></div></div>';
+  }
+  function chips(list) {
+    return '<div class="chips">' + list.map(function (e) {
+      var on = b(S.data.prop[e[0]]);
+      return '<button type="button" class="chip" data-toggle="' + esc(e[0]) + '" aria-pressed="' + on + '"><span class="ck" aria-hidden="true">✓</span>' + esc(e[1]) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function stepInfo(d) {
+    var p = d.prop;
+    var memo = String(p['マイソク取込メモ'] || '');
+    var memoNote = memo ? '<div class="note ' + (/要確認|エラー/.test(memo) ? 'warn' : 'info') + '"><span class="ic">i</span><div><p><b>マイソクの読み取り結果</b>（' + esc(p['マイソク取込日時'] || '') + '）</p><p>' + esc(memo) + '</p></div>' +
+      (p['マイソクPDF'] ? '<button class="btn small" type="button" data-act="reimport" style="margin-left:auto">再読み取り</button>' : '') + '</div>' : '';
+    var kind = String(p['物件種別'] || '');
+    var stations = [1, 2, 3].map(function (i) {
+      var k = 'マイソク駅' + i;
+      return '<div class="station-row"><span class="idx">' + i + '</span>' +
+        '<input class="input" aria-label="駅' + i + 'の路線" data-field="' + k + '_路線" placeholder="路線（例：東山線）" value="' + esc(p[k + '_路線']) + '">' +
+        '<input class="input" aria-label="駅' + i + 'の駅名" data-field="' + k + '_駅名" placeholder="駅名（例：今池）" value="' + esc(p[k + '_駅名']) + '">' +
+        '<div class="unit walk"><input class="input num" aria-label="駅' + i + 'の徒歩分" data-field="' + k + '_徒歩分" inputmode="numeric" placeholder="徒歩" value="' + esc(p[k + '_徒歩分']) + '"><span>分</span></div></div>';
+    }).join('');
+    return memoNote +
+      '<section class="card"><h2>基本情報</h2><div class="grid2">' +
+        txt('建物名', '建物名', { required: true }) +
+        txt('ふりがな', 'ふりがな', { required: true, ph: 'ひらがなで入力', help: 'ウェルモの必須項目です。マイソクにないため手入力してください' }) +
+        '<div class="field"><span class="lbl">物件種別</span><div class="seg" role="group" aria-label="物件種別">' +
+          KINDS.map(function (k) { return '<button type="button" data-set="物件種別" data-value="' + k + '" aria-pressed="' + (kind === k) + '">' + k + '</button>'; }).join('') + '</div></div>' +
+        txt('郵便番号', '郵便番号', { num: true, ph: '例：464-0850' }) +
+      '</div>' + txt('住所', '所在地', { required: true, ph: '例：愛知県名古屋市千種区今池3丁目39-21' }) +
+      '<div class="grid2">' + txt('エリア', 'エリア（タイトル用）', { help: '位置の確認で自動入力されます。例：千種区／愛知県豊田市' }) +
+        txt('その他アピール', 'その他アピール（タイトル用）', { ph: '例：mozoワンダーシティ徒歩5分', help: '近くに有名な施設があるときに入力' }) + '</div></section>' +
+      '<section class="card"><h2>交通 <span class="hint">マイソクの記載。足りない駅は調査で補います</span></h2>' + stations + '</section>' +
+      '<section class="card"><h2>設備 <span class="hint">押すとON/OFFが切り替わります</span></h2>' +
+        '<div class="field"><span class="lbl">タイトル・ウェルモ共通</span>' + chips(EQUIP_TITLE) + '</div>' +
+        '<div class="field"><span class="lbl">ウェルモの建物設備のみ</span>' + chips(EQUIP_WELLMO) + '</div>' +
+        '<div class="grid3">' + unit('最大洋室帖数', '最も広い洋室', '帖') +
+          txt('Wi-Fiサービス名', 'Wi-Fiサービス名', { help: 'USEN AIR はタイトルの「無料Wi-Fi」に含めません' }) + '</div></section>' +
+      '<section class="card"><h2>建物情報</h2><div class="grid3">' +
+        '<div class="field"><label for="f-建物構造">建物構造</label><select class="select" id="f-建物構造" data-field="建物構造"><option value="">選択してください</option>' +
+          STRUCTS.map(function (s) { return '<option value="' + s[0] + '"' + (String(p['建物構造']) === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select></div>' +
+        unit('地上階数', '地上', '階') + unit('地下階数', '地下', '階') + unit('築年', '築年', '年') + unit('築月', '築月', '月') + unit('総戸数', '総戸数', '戸') +
+      '</div></section>';
+  }
+
+  /* 自動保存（入力をやめて0.6秒後） */
+  var pending = {}, saveTimer = null, saving = false;
+  function queueSave(field, value) {
+    pending[field] = value;
+    S.data.prop[field] = value;
+    refreshActionBar();
+    setSaveState('保存中…');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 600);
+  }
+  function flushSave() {
+    if (saving || !Object.keys(pending).length) return;
+    var patch = pending; pending = {}; saving = true;
+    var id = S.id;
+    API.call('api_saveProperty', id, patch).then(function (d) {
+      saving = false;
+      if (S.id !== id) return;
+      var stepBefore = S.step;
+      var stageChanged = d.stage !== S.data.stage;
+      // 入力中の値は画面のものを優先（保存中に打った文字を消さない）
+      Object.keys(pending).forEach(function (k) { d.prop[k] = pending[k]; });
+      applyData(d);
+      if ('住所' in patch) S.map = null;
+      // 入力中のフォームは描き直さない（フォーカスと入力位置を守る）。見出し・手順・操作バーだけ更新
+      if (stageChanged && stepBefore !== 1) renderWork(); else refreshChrome();
+      setSaveState('✓ 保存しました', true);
+      if (Object.keys(pending).length) flushSave();
+    }).catch(function (e) { saving = false; setSaveState('保存できませんでした：' + errorText(e)); });
+  }
+  function setSaveState(t, ok) { var el = $('save-state'); if (el) { el.textContent = t; el.className = 'saved' + (ok ? ' ok' : ''); } }
+  function refreshChrome() {
+    var nav = document.querySelector('nav[aria-label="作業の手順"]');
+    if (nav) { var t1 = document.createElement('div'); t1.innerHTML = stepper(S.data); nav.replaceWith(t1.firstChild); }
+    var pl = document.querySelector('.prop-head > .pill');
+    if (pl) { var t2 = document.createElement('div'); t2.innerHTML = pill(S.data.stage, S.data.stageLabel); pl.replaceWith(t2.firstChild); }
+    var h = document.querySelector('.prop-head h1');
+    if (h) h.textContent = S.data.prop['建物名'] || S.data.prop['物件名'] || '（建物名未入力）';
+    var sub = document.querySelector('.prop-head .sub');
+    if (sub) sub.textContent = S.data.prop['住所'] || '住所未入力';
+    refreshActionBar();
+  }
+  function refreshActionBar() {
+    var bar = document.querySelector('.actionbar');
+    if (bar) { var tmp = document.createElement('div'); tmp.innerHTML = actionBar(S.data); bar.replaceWith(tmp.firstChild); }
+  }
+
+  /* ---------- 手順2：位置 ---------- */
+  function project(lat, lng, z) {
+    var s = 256 * Math.pow(2, z), sin = Math.sin(lat * Math.PI / 180);
+    return { x: (lng + 180) / 360 * s, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * s };
+  }
+  function unproject(x, y, z) {
+    var s = 256 * Math.pow(2, z), k = Math.PI - 2 * Math.PI * y / s;
+    return { lat: 180 / Math.PI * Math.atan(0.5 * (Math.exp(k) - Math.exp(-k))), lng: x / s * 360 - 180 };
+  }
+
+  function stepMap(d) {
+    var m = S.map;
+    if (!m) { startMap(); return '<section class="card"><p class="loading">住所から位置を求めています…</p></section>'; }
+    if (m.error && m.lat == null) return '<section class="card"><div class="note err"><span class="ic">×</span><p>' + esc(m.error) + '</p></div></section>';
+    var warns = (m.warnings || []).map(function (w) { return '<div class="note warn"><span class="ic">!</span><p>' + esc(w) + '</p></div>'; }).join('');
+    var pinStyle = '';
+    if (m.img && m.pinLat != null) {
+      var c = project(m.img.lat, m.img.lng, m.img.zoom), p = project(m.pinLat, m.pinLng, m.img.zoom);
+      pinStyle = 'left:' + ((p.x - c.x + MAP_W / 2) / MAP_W * 100) + '%;top:' + ((p.y - c.y + MAP_H / 2) / MAP_H * 100) + '%';
+    }
+    var gmap = 'https://www.google.com/maps/search/?api=1&query=' + m.pinLat + ',' + m.pinLng;
+    return warns +
+      '<section class="card"><h2>建物の出入口を指定 <span class="hint">徒歩分は出入口から計算します（公正競争規約）</span></h2>' +
+      '<div class="map-wrap"><div>' +
+        '<div class="map" id="map" role="application" aria-label="地図。クリックした位置にピンを置きます">' +
+          (m.img && m.img.dataUrl ? '<img id="map-img" src="' + m.img.dataUrl + '" alt="物件周辺の地図">' : '') +
+          (m.img && !m.loading ? '<svg class="pin" style="' + pinStyle + '" viewBox="0 0 34 46" aria-hidden="true"><path d="M17 1C8.2 1 1 8 1 16.8 1 28.6 17 45 17 45s16-16.4 16-28.2C33 8 25.8 1 17 1z" fill="#d93025" stroke="#fff" stroke-width="2"/><circle cx="17" cy="17" r="6" fill="#fff"/></svg>' : '') +
+          (m.loading ? '<div class="map-loading">地図を読み込み中…</div>' : '') +
+          (m.img && m.img.error ? '<div class="map-loading">' + esc(m.img.error) + '</div>' : '') +
+          '<div class="map-tools"><button type="button" data-act="zoom-in" aria-label="拡大">＋</button><button type="button" data-act="zoom-out" aria-label="縮小">−</button></div>' +
+        '</div><p class="help">ピンの先端が<b>建物の出入口</b>に来るように、地図をクリックしてください。＋／−で拡大縮小できます。</p></div>' +
+        '<div class="field">' +
+          '<dl class="coord num"><dt>緯度</dt><dd>' + (m.pinLat != null ? m.pinLat.toFixed(6) : '—') + '</dd><dt>経度</dt><dd>' + (m.pinLng != null ? m.pinLng.toFixed(6) : '—') + '</dd><dt>拡大</dt><dd>' + (m.zoom) + '</dd></dl>' +
+          (m.geocodedAddress ? '<p class="help">住所の検索結果：' + esc(m.geocodedAddress) + '</p>' : '') +
+          '<a class="btn small" href="' + esc(gmap) + '" target="_blank" rel="noopener">Googleマップで周辺を見る ↗</a>' +
+          '<button class="btn small ghost" type="button" data-act="recenter">ピンを地図の中心にして再表示</button>' +
+          (b(d.prop['起点確認済']) ? '<div class="note ok"><span class="ic">✓</span><p>この物件の位置は確定済みです。変更した場合は再調査が必要です。</p></div>' : '') +
+        '</div></div></section>';
+  }
+
+  function startMap() {
+    var id = S.id;
+    S.map = { loading: true, zoom: 18 };
+    API.call('api_locate', id).then(function (loc) {
+      if (S.id !== id) return;
+      S.map = { lat: loc.lat, lng: loc.lng, pinLat: loc.lat, pinLng: loc.lng, zoom: 18, warnings: loc.warnings, geocodedAddress: loc.geocodedAddress, loading: true };
+      loadMapImage(loc.lat, loc.lng, 18);
+      // 住所から求めた位置を一覧の状態に反映
+      API.call('api_getProperty', id).then(function (d) { if (S.id === id) { applyData(d); } });
+    }).catch(function (e) { S.map = { error: errorText(e) }; renderWork(); });
+  }
+  function loadMapImage(lat, lng, zoom) {
+    var id = S.id;
+    S.map.loading = true; renderWork();
+    API.call('api_mapImage', lat, lng, zoom).then(function (img) {
+      if (S.id !== id || !S.map) return;
+      S.map.img = img; S.map.zoom = img.zoom || zoom; S.map.loading = false; renderWork();
+    }).catch(function (e) { S.map.img = { error: errorText(e), lat: lat, lng: lng, zoom: zoom }; S.map.loading = false; renderWork(); });
+  }
+  function onMapClick(ev) {
+    var m = S.map; if (!m || !m.img || m.img.error) return;
+    var box = $('map').getBoundingClientRect();
+    var lx = (ev.clientX - box.left) / box.width * MAP_W, ly = (ev.clientY - box.top) / box.height * MAP_H;
+    var c = project(m.img.lat, m.img.lng, m.img.zoom);
+    var p = unproject(c.x + lx - MAP_W / 2, c.y + ly - MAP_H / 2, m.img.zoom);
+    m.pinLat = Math.round(p.lat * 1e6) / 1e6; m.pinLng = Math.round(p.lng * 1e6) / 1e6;
+    renderWork();
+  }
+
+  /* ---------- 手順3：調査 ---------- */
+  function stepSurvey(d) {
+    var cats = d.categories.slice().sort(function (a, c) { return a.order - c.order; }).map(function (c) { return c.label; });
+    var res = S.surveyResult;
+    var resultNote = '';
+    if (res) {
+      resultNote = res.error
+        ? '<div class="note err"><span class="ic">×</span><div><p><b>調査できませんでした</b></p><p>' + esc(res.error) + '</p></div></div>'
+        : '<div class="note ' + (/エラー/.test(res.status) ? 'warn' : 'ok') + '"><span class="ic">' + (/エラー/.test(res.status) ? '!' : '✓') + '</span><div><p><b>' + esc(res.status) + '</b>（Google API ' + esc(res.apiCalls) + '回）</p><p>' + esc(res.message) + '</p></div></div>';
+    }
+    var running = S.busy === 'survey'
+      ? '<div class="card"><h2>調査中…</h2><div class="progress" role="progressbar" aria-label="調査中"><i></i></div><p class="help">Googleから施設・駅・経路を取得し、道路距離から徒歩分（80m＝1分）を計算しています。</p></div>' : '';
+    var again = hasResults(d) && S.busy !== 'survey'
+      ? '<div class="note info"><span class="ic">i</span><div><p>この物件は調査済みです。もう一度調査すると結果を最新にします（掲載のON/OFF・路線などの入力は引き継ぎます）。</p>' +
+        '<p><button class="btn small" type="button" data-act="survey" style="margin-top:8px">もう一度調査する</button></p></div></div>' : '';
+    return resultNote + running +
+      '<section class="card"><h2>調べる内容</h2><div class="plan">' +
+        '<div><b>周辺施設</b><span>' + esc(cats.join('・')) + '</span></div>' +
+        '<div><b>最寄り駅 3駅</b><span>マイソク記載駅＋Googleで近い順。徒歩30分以上はバス／車の所要時間</span></div>' +
+        '<div><b>その他アクセス</b><span>最寄りバス停からの徒歩分</span></div>' +
+        '<div><b>空港からのアクセス</b><span>中部国際空港・県営名古屋空港のうち近い方（深夜の車移動）</span></div>' +
+      '</div><p class="help">距離はすべてGoogleの道路距離です。AIによる推定は行いません。</p></section>' + again;
+  }
+
+  function runSurvey() {
+    var id = S.id;
+    S.busy = 'survey'; S.surveyResult = null; renderWork();
+    API.call('api_runSurvey', id).then(function (r) {
+      S.busy = '';
+      if (S.id !== id) return;
+      S.surveyResult = r; applyData(r.data);
+      if (r.data.stage >= 4) { S.step = 4; toast('調査が完了しました。結果を確認してください'); }
+      renderWork();
+    }).catch(function (e) { S.busy = ''; S.surveyResult = { error: errorText(e) }; renderWork(); });
+  }
+
+  /* ---------- 手順4：確認 ---------- */
+  function distText(r) {
+    var car = n(r['車所要分']);
+    if (car != null) return '車 約' + car + '分<small>徒歩' + esc(r['徒歩分']) + '分・' + esc(r['道路距離m']) + 'm</small>';
+    if (!has(r['徒歩分'])) return '';
+    return '徒歩 ' + esc(r['徒歩分']) + '分<small>道路距離 ' + esc(r['道路距離m']) + 'm</small>';
+  }
+  function flagBox(kind, key, r) {
+    if (!r['要確認理由']) return '';
+    var done = b(r['確認済']);
+    return '<div class="r-flag' + (done ? ' done' : '') + '"><span>' + (done ? '✓ 確認済み：' : '! 要確認：') + esc(r['要確認理由']) + '</span>' +
+      '<button class="btn small" type="button" data-confirm="' + kind + '" data-key="' + esc(key) + '" data-val="' + (!done) + '">' + (done ? '確認を取り消す' : '確認した') + '</button></div>';
+  }
+  function facilityRow(r) {
+    var key = r['カテゴリID'] + '|' + (r['place_id'] || r['採否']);
+    if (r['採否'] === '該当なし' || r['採否'] === 'エラー') {
+      return '<div class="row flagged"><span></span><div class="r-main"><span class="r-name">' + esc(r['採否'] === 'エラー' ? '取得できませんでした' : '見つかりませんでした') + '</span></div><span></span>' + flagBox('facility', key, r) + '</div>';
+    }
+    var on = b(r['掲載']);
+    var flagged = r['要確認理由'] && !b(r['確認済']);
+    return '<div class="row' + (flagged ? ' flagged' : '') + (on ? '' : ' off') + '">' +
+      '<div class="switch-wrap"><button type="button" class="switch" role="switch" aria-checked="' + on + '" aria-label="' + esc(r['名称']) + 'を掲載" data-publish="' + esc(key) + '"></button><span>' + (on ? '掲載' : '非掲載') + '</span></div>' +
+      '<div class="r-main"><span class="r-name">' + esc(r['名称']) + '</span><span class="r-meta">' +
+        (r['採用理由'] ? '<span class="tag g">' + esc(r['採用理由']) + '</span>' : '') + (r['採否'] === '候補' ? '<span class="tag">候補</span>' : '') +
+        (r['住所'] ? '<span>' + esc(String(r['住所']).replace(/^日本、/, '')) + '</span>' : '') + '</span></div>' +
+      '<div class="r-dist">' + distText(r) + '</div>' + flagBox('facility', key, r) + '</div>';
+  }
+  function reviewFacilities(d) {
+    var cats = d.categories.slice().sort(function (a, c) { return a.order - c.order; });
+    var html = cats.map(function (c) {
+      var rows = d.facilities.filter(function (r) { return r['カテゴリID'] === c.id; });
+      var main = rows.filter(function (r) { return r['採否'] !== '候補'; });
+      var others = rows.filter(function (r) { return r['採否'] === '候補'; });
+      if (S.onlyPending) {
+        main = main.filter(function (r) { return r['要確認理由'] && !b(r['確認済']); });
+        if (!main.length) return '';
+        others = [];
+      }
+      var published = rows.filter(function (r) { return b(r['掲載']); }).length;
+      return '<section class="cat"><div class="cat-head"><h3>' + esc(c.label) + '</h3><span>掲載 ' + published + '件</span></div><div class="rows">' +
+        (main.length ? main.map(facilityRow).join('') : '<p class="help">条件に合う施設はありません（「あれば掲載」の項目です）</p>') + '</div>' +
+        (others.length ? '<details class="more"><summary>ほかの候補を表示（' + others.length + '件）</summary><div class="rows">' + others.map(facilityRow).join('') + '</div></details>' : '') +
+      '</section>';
+    }).join('');
+    return html || '<div class="note ok"><span class="ic">✓</span><p>確認が必要な施設はありません。</p></div>';
+  }
+  function reviewStations(d) {
+    var rows = d.stations.slice().sort(function (a, c) { return n(a['枠']) - n(c['枠']); });
+    if (S.onlyPending) rows = rows.filter(function (r) { return r['要確認理由'] && !b(r['確認済']); });
+    if (!rows.length) return '<div class="note ok"><span class="ic">✓</span><p>確認が必要な駅はありません。</p></div>';
+    return '<div class="rows">' + rows.map(function (r) {
+      var key = String(r['枠']);
+      var alt = has(r['代替所要分']) ? '<span class="tag g">' + esc(r['代替手段']) + 'で' + esc(r['代替所要分']) + '分</span>' : '';
+      return '<div class="row' + (r['要確認理由'] && !b(r['確認済']) ? ' flagged' : '') + '" style="grid-template-columns:minmax(0,1fr) auto">' +
+        '<div class="r-main"><span class="r-name">' + esc(r['枠']) + '. 「' + esc(String(r['駅名']).replace(/駅$/, '')) + '」駅 <span class="tag' + (r['出典'] === 'マイソク' ? '' : ' g') + '">' + esc(r['出典']) + '</span> ' + alt + '</span>' +
+          '<span class="r-meta">マイソク ' + (has(r['マイソク徒歩分']) ? esc(r['マイソク徒歩分']) + '分' : '—') + ' ／ Google ' + (has(r['Google徒歩分']) ? esc(r['Google徒歩分']) + '分（' + esc(r['道路距離m']) + 'm）' : '—') + ' → 採用：' + esc(r['採用元']) + '</span>' +
+          '<div class="field" style="margin-top:6px;max-width:360px"><label for="line-' + key + '">路線<span class="help">（複数ある場合は利用者の多い路線）</span></label>' +
+          '<input class="input' + (String(r['路線'] || '').trim() ? '' : ' missing') + '" id="line-' + key + '" data-line="' + esc(key) + '" value="' + esc(r['路線']) + '" placeholder="例：名古屋市東山線"></div></div>' +
+        '<div class="r-dist">' + (has(r['採用徒歩分']) ? '徒歩 ' + esc(r['採用徒歩分']) + '分' : '—') + (has(r['代替詳細']) ? '<small style="max-width:220px;white-space:normal">' + esc(r['代替詳細']) + '</small>' : '') + '</div>' +
+        flagBox('station', key, r).replace('class="r-flag', 'style="grid-column:1/-1" class="r-flag') + '</div>';
+    }).join('') + '</div>';
+  }
+  function reviewAccess(d) {
+    var bus = d.access.filter(function (r) { return r['種別'] === 'バス停'; });
+    var air = d.access.filter(function (r) { return r['種別'] === '空港'; });
+    var busHtml = bus.map(function (r) {
+      var key = r['種別'] + '|' + (r['place_id'] || r['名称']);
+      var on = b(r['採用']);
+      if (!r['名称']) return '<div class="row flagged"><span></span><div class="r-main"><span class="r-name">バス停が見つかりませんでした</span></div><span></span>' + flagBox('access', key, r) + '</div>';
+      return '<div class="row' + (on && r['要確認理由'] && !b(r['確認済']) ? ' flagged' : '') + (on ? '' : ' off') + '">' +
+        '<div class="switch-wrap"><button type="button" class="switch" role="switch" aria-checked="' + on + '" aria-label="' + esc(r['名称']) + 'を使う" data-usebus="' + esc(key) + '"></button><span>' + (on ? '使う' : '—') + '</span></div>' +
+        '<div class="r-main"><span class="r-name">「' + esc(r['名称']) + '」停</span>' +
+          (on ? '<div class="field" style="margin-top:6px;max-width:360px"><label for="op-' + esc(r['place_id']) + '">運行会社</label><input class="input' + (String(r['運行会社'] || '').trim() ? '' : ' missing') + '" id="op-' + esc(r['place_id']) + '" data-operator="' + esc(key) + '" value="' + esc(r['運行会社']) + '" placeholder="例：名古屋市営バス"></div>' : '') +
+        '</div><div class="r-dist">徒歩 ' + esc(r['徒歩分']) + '分<small>' + esc(r['道路距離m']) + 'm</small></div>' + (on ? flagBox('access', key, r) : '') + '</div>';
+    }).join('');
+    var airHtml = air.map(function (r) {
+      var on = b(r['採用']);
+      return '<div class="row' + (on ? '' : ' off') + '" style="grid-template-columns:minmax(0,1fr) auto"><div class="r-main"><span class="r-name">' + esc(r['名称']) + (on ? ' <span class="tag g">近い方を採用</span>' : '') + '</span>' +
+        '<span class="r-meta">' + esc(r['詳細'] || r['要確認理由']) + '</span></div><div class="r-dist">' + (has(r['車所要分']) ? '車 約' + esc(r['車所要分']) + '分' : '—') + (r['有料道路'] ? '<small>有料道路あり</small>' : '') + '</div></div>';
+    }).join('');
+    return '<section class="cat"><div class="cat-head"><h3>最寄りバス停</h3><span>「その他アクセス」に使うバス停を1つ選びます</span></div><div class="rows">' + (busHtml || '<p class="help">データがありません</p>') + '</div></section>' +
+      '<section class="cat"><div class="cat-head"><h3>空港からのアクセス</h3><span>深夜の車移動で計算</span></div><div class="rows">' + (airHtml || '<p class="help">データがありません</p>') + '</div></section>';
+  }
+  function stepReview(d) {
+    var cf = d.facilities.filter(function (r) { return ['採用', '該当なし', 'エラー'].indexOf(r['採否']) >= 0 && r['要確認理由'] && !b(r['確認済']); }).length;
+    var cs = d.stations.filter(function (r) { return r['要確認理由'] && !b(r['確認済']); }).length;
+    var ca = d.access.filter(function (r) { return b(r['採用']) && r['要確認理由'] && !b(r['確認済']); }).length;
+    var tab = function (id, label, c) {
+      return '<button type="button" class="tab" role="tab" id="tab-' + id + '" aria-selected="' + (S.tab === id) + '" aria-controls="panel" data-tab="' + id + '">' + label + '<span class="count' + (c ? '' : ' zero') + '">' + (c ? '要確認 ' + c : '✓') + '</span></button>';
+    };
+    var body = S.tab === 'facility' ? reviewFacilities(d) : S.tab === 'station' ? reviewStations(d) : reviewAccess(d);
+    return '<section class="card"><div class="tabs" role="tablist" aria-label="確認する内容">' + tab('facility', '周辺施設', cf) + tab('station', '最寄り駅', cs) + tab('access', 'バス・空港', ca) + '</div>' +
+      '<div class="review-tools"><p class="help" style="margin:0">「掲載」をONにした施設だけが周辺環境に載ります。注意が出ている行は内容を確かめて「確認した」を押してください。</p>' +
+      '<button class="btn small" type="button" data-act="only-pending" aria-pressed="' + S.onlyPending + '">' + (S.onlyPending ? 'すべて表示' : '要確認だけ表示') + '</button></div>' +
+      '<div id="panel" role="tabpanel" aria-labelledby="tab-' + S.tab + '" style="display:grid;gap:18px">' + body + '</div></section>';
+  }
+
+  function updateResult(kind, key, patch) {
+    var id = S.id;
+    // 先に画面へ反映（押した手応えをすぐ返す）
+    var list = kind === 'facility' ? S.data.facilities : kind === 'station' ? S.data.stations : S.data.access;
+    var keyOf = kind === 'facility' ? function (r) { return r['カテゴリID'] + '|' + (r['place_id'] || r['採否']); }
+      : kind === 'station' ? function (r) { return String(r['枠']); } : function (r) { return r['種別'] + '|' + (r['place_id'] || r['名称']); };
+    var row = list.filter(function (r) { return keyOf(r) === key; })[0];
+    if (row) {
+      Object.keys(patch).forEach(function (k) { row[k] = patch[k]; });
+      if (kind === 'access' && patch['採用'] === true) list.forEach(function (r) { if (r !== row && r['種別'] === row['種別']) r['採用'] = false; });
+    }
+    var y = document.querySelector('.work-scroll') ? document.querySelector('.work-scroll').scrollTop : 0;
+    var rerender = !('路線' in patch || '運行会社' in patch);
+    if (rerender) { renderWork(); restoreScroll(y); } else refreshActionBar();
+    return API.call('api_updateResult', kind, id, key, patch).then(function (d) {
+      if (S.id !== id) return;
+      applyData(d);
+      if (rerender) { var y2 = document.querySelector('.work-scroll').scrollTop; renderWork(); restoreScroll(y2); } else refreshActionBar();
+    }).catch(function (e) { toast('保存できませんでした：' + errorText(e)); openProperty(id, true); });
+  }
+  function restoreScroll(y) { var el = document.querySelector('.work-scroll'); if (el) el.scrollTop = y; }
+
+  /* ---------- 手順5：出力 ---------- */
+  function outItem(label, value, copyLabel, extra) {
+    var empty = !String(value || '').trim();
+    return '<div class="out-item"><div class="out-label">' + esc(label) + '</div><div class="out-val' + (empty ? ' empty' : '') + '">' + (empty ? '（なし）' : esc(value)) + (extra || '') + '</div>' +
+      (empty ? '<span></span>' : '<button class="btn small" type="button" data-copy="' + esc(copyLabel || label) + '" data-text="' + esc(value) + '">コピー</button>') + '</div>';
+  }
+  function stepOutput(d) {
+    var o = d.output;
+    if (!o) return '<section class="card"><div class="note info"><span class="ic">i</span><p>調査が終わると、ここにウェルモへ入力する内容が表示されます。</p></div></section>';
+    var len = n(o['タイトル文字数']) || 0, max = d.config.titleMax;
+    var meter = '<div class="meter"><div class="meter-bar"><i class="' + (len > max ? 'over' : '') + '" style="width:' + Math.min(100, len / max * 100) + '%"></i></div>' +
+      '<small class="num">' + len + ' / ' + max + '文字' + (o['タイトル注記'] ? '　' + esc(o['タイトル注記']) : '') + '</small></div>';
+    var stations = [1, 2, 3].map(function (i) {
+      var label = o['駅' + i];
+      if (!label) return '';
+      var walk = has(o['駅' + i + '_徒歩分']) && String(o['駅' + i + '_徒歩分']) !== '' ? ' 徒歩' + o['駅' + i + '_徒歩分'] + '分' : '';
+      var other = o['駅' + i + '_その他'] ? ' ' + o['駅' + i + '_その他'] : '';
+      return outItem('最寄り駅' + i, label + walk + other, '最寄り駅' + i);
+    }).join('');
+    var pc = pendingCount(d);
+    var equip = EQUIP_TITLE.concat(EQUIP_WELLMO).filter(function (e) { return ['エレベーター', 'オートロック', '宅配BOX', '防犯カメラ', 'コンシェルジュ', '自転車駐輪可能', '自動販売機', 'TVドアホン', 'ゴミ捨て場'].indexOf(e[0]) >= 0 && b(d.prop[e[0]]); })
+      .map(function (e) { return e[1]; }).join('・');
+    return (pc ? '<div class="note warn"><span class="ic">!</span><div><p><b>確認が' + pc + '件残っています。</b>このまま入力することもできますが、先に確認すると安心です。</p>' +
+        '<p><button class="btn small" type="button" data-step="4" style="margin-top:8px">確認に戻る</button></p></div></div>' : '') +
+      '<section class="card"><h2>ウェルモに入力する内容 <span class="hint">項目名はウェルモの画面と同じです</span></h2><div>' +
+        outItem('マンスリー表示名', o['タイトル'], 'タイトル', meter) +
+        outItem('周辺環境', o['周辺施設'], '周辺環境') +
+        stations +
+        outItem('その他アクセス', o['その他アクセス']) +
+        outItem('空港からのアクセス', o['空港からのアクセス']) +
+        outItem('建物設備', equip, '建物設備') +
+      '</div></section>' +
+      '<section class="card"><h2>ウェルモへの入力手順</h2><div class="handoff"><ol class="howto">' +
+        '<li>下の「ウェルモ用データをコピー」を押す</li><li>ウェルモの「建物管理｜編集」画面を開く</li>' +
+        '<li>ブックマークの「ウェルモ自動入力」を押して貼り付ける</li><li>右上の結果を見て、赤字の項目だけ手で直してから保存</li></ol>' +
+        '<button class="btn primary" type="button" data-act="copy-json">ウェルモ用データをコピー</button></div>' +
+        '<p class="help">出典表記：' + esc(o['出典表記'] || '') + '</p></section>';
+  }
+
+  /* ================= 描画後の処理・イベント ================= */
+  function afterRender() {
+    var map = $('map');
+    if (map) map.addEventListener('click', onMapClick);
+  }
+
+  function go(step) {
+    step = Math.max(1, Math.min(5, step));
+    if (S.data && step > maxStep(S.data)) return;
+    flushSave();
+    S.step = step;
+    if (step === 2 && S.map && S.map.error) S.map = null;
+    renderWork();
+    var sc = document.querySelector('.work-scroll'); if (sc) sc.scrollTop = 0;
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest('button, a');
+    if (!t) return;
+    var ds = t.dataset;
+    if (ds.open) { flushSave(); openProperty(ds.open); return; }
+    if (ds.filter) {
+      S.filter = ds.filter;
+      Array.prototype.forEach.call(document.querySelectorAll('#q-filter button'), function (x) { x.setAttribute('aria-pressed', x === t); });
+      renderList(); return;
+    }
+    if (ds.step) { go(Number(ds.step)); return; }
+    if (ds.toggle) {
+      var on = !b(S.data.prop[ds.toggle]);
+      t.setAttribute('aria-pressed', on); queueSave(ds.toggle, on); return;
+    }
+    if (ds.set) {
+      Array.prototype.forEach.call(t.parentNode.querySelectorAll('button'), function (x) { x.setAttribute('aria-pressed', x === t); });
+      queueSave(ds.set, ds.value); return;
+    }
+    if (ds.tab) { S.tab = ds.tab; renderWork(); return; }
+    if (ds.publish) { var r = S.data.facilities.filter(function (x) { return x['カテゴリID'] + '|' + (x['place_id'] || x['採否']) === ds.publish; })[0]; updateResult('facility', ds.publish, { '掲載': !b(r && r['掲載']) }); return; }
+    if (ds.confirm) { updateResult(ds.confirm, ds.key, { '確認済': ds.val === 'true' }); return; }
+    if (ds.usebus) { updateResult('access', ds.usebus, { '採用': true }); return; }
+    if (ds.copy) { copyText(ds.text, ds.copy); return; }
+    switch (ds.act) {
+      case 'survey': runSurvey(); break;
+      case 'only-pending': S.onlyPending = !S.onlyPending; renderWork(); break;
+      case 'copy-json': if (S.data.output) copyText(S.data.output['ウェルモJSON'], 'ウェルモ用データ'); break;
+      case 'zoom-in': case 'zoom-out':
+        var z = S.map.zoom + (ds.act === 'zoom-in' ? 1 : -1);
+        if (z < 14 || z > 20) return;
+        S.map.zoom = z; loadMapImage(S.map.pinLat, S.map.pinLng, z); break;
+      case 'recenter': loadMapImage(S.map.pinLat, S.map.pinLng, S.map.zoom); break;
+      case 'confirm-origin':
+        var id = S.id;
+        t.disabled = true;
+        API.call('api_confirmOrigin', id, S.map.pinLat, S.map.pinLng).then(function (d) {
+          applyData(d); S.step = 3; toast('位置を確定しました'); renderWork();
+        }).catch(function (e) { toast('確定できませんでした：' + errorText(e)); t.disabled = false; });
+        break;
+      case 'reimport':
+        t.disabled = true; t.textContent = '読み取り中…';
+        API.call('api_reimportMysoku', S.id).then(function (r) { applyData(r.data); toast(r.filled.length ? r.filled.length + '項目を反映しました' : '新しく反映する項目はありませんでした'); renderWork(); })
+          .catch(function (e) { toast('読み取れませんでした：' + errorText(e)); t.disabled = false; t.textContent = '再読み取り'; });
+        break;
+      case 'manual-add': S.addOpen = !S.addOpen; renderManualAdd(); break;
+    }
+  });
+
+  document.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (el.id === 'q-search') { S.query = el.value; renderList(); return; }
+    if (el.dataset.field && el.tagName !== 'SELECT') { el.classList.remove('missing'); queueSave(el.dataset.field, el.value); }
+  });
+  document.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (el.dataset.field && el.tagName === 'SELECT') queueSave(el.dataset.field, el.value);
+    if (el.dataset.line) updateResult('station', el.dataset.line, { '路線': el.value.trim() });
+    if (el.dataset.operator) updateResult('access', el.dataset.operator, { '運行会社': el.value.trim() });
+    if (el.id === 'file-input' && el.files[0]) { uploadFile(el.files[0]); el.value = ''; }
+  });
+
+  /* ---------- マイソクの追加 ---------- */
+  $('btn-upload').addEventListener('click', function () { $('file-input').click(); });
+  function renderManualAdd() {
+    $('manual-add').innerHTML = S.addOpen
+      ? '<form class="inline-form" id="add-form"><label class="sr" for="add-name">建物名</label><input class="input" id="add-name" placeholder="建物名" required><button class="btn" type="submit">追加</button></form>'
+      : '<button class="btn small ghost" type="button" data-act="manual-add">マイソクがない物件を手入力で追加</button>';
+    var f = $('add-form');
+    if (f) {
+      $('add-name').focus();
+      f.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var name = $('add-name').value.trim(); if (!name) return;
+        API.call('api_createProperty', name).then(function (r) { S.addOpen = false; renderManualAdd(); S.forceStep = 1; return loadList(r.id); });
+      });
+    }
+  }
+  renderManualAdd();
+
+  function uploadFile(file) {
+    if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { toast('PDFファイルを選んでください'); return; }
+    var btn = $('btn-upload'); btn.disabled = true; btn.textContent = '読み取り中…';
+    var reader = new FileReader();
+    reader.onload = function () {
+      var b64 = String(reader.result).split(',')[1];
+      API.call('api_uploadMysoku', file.name, b64).then(function (r) {
+        toast('マイソクを読み取りました。内容を確認してください');
+        S.forceStep = 1;
+        return loadList(r.id);
+      }).catch(function (e) { toast('読み取れませんでした：' + errorText(e)); })
+        .then(function () { btn.disabled = false; btn.textContent = '＋ マイソクPDFを追加'; });
+    };
+    reader.readAsDataURL(file);
+  }
+  var dragDepth = 0;
+  window.addEventListener('dragenter', function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') >= 0) { dragDepth++; $('drop').hidden = false; } });
+  window.addEventListener('dragleave', function () { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('drop').hidden = true; });
+  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('drop', function (e) {
+    e.preventDefault(); dragDepth = 0; $('drop').hidden = true;
+    var f = e.dataTransfer && e.dataTransfer.files[0]; if (f) uploadFile(f);
+  });
+
+  /* ---------- 狭い画面：物件一覧の開閉 ---------- */
+  function setQueueOpen(open) {
+    $('queue').classList.toggle('collapsed', !open);
+    $('queue-toggle').setAttribute('aria-expanded', open);
+  }
+  $('queue-toggle').addEventListener('click', function () { setQueueOpen($('queue').classList.contains('collapsed')); });
+
+  window.addEventListener('beforeunload', flushSave);
+  loadList();
+})();
+</script>

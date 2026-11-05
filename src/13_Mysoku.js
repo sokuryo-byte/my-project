@@ -261,18 +261,12 @@ function importMysokuFolder_(settings, startMs) {
   t.rows.forEach(function (r) { var id = driveFileId_(r['マイソクPDF']); if (id) known[id] = true; });
   var it = DriveApp.getFolderById(folderId).getFilesByType('application/pdf');
   var results = [];
-  var sh = t.sheet;
-  var headers = t.headers;
   while (it.hasNext()) {
     if (Date.now() - startMs > MAX_EXEC_MS) { results.push('（時間切れのため中断。再実行してください）'); break; }
     var f = it.next();
     if (known[f.getId()]) continue;
-    var rowNum = Math.max(sh.getLastRow(), 1) + 1;
-    var row = headers.map(function (h) { return h === 'マイソクPDF' ? f.getUrl() : ''; });
-    sh.getRange(rowNum, 1, 1, headers.length).setValues([row]);
-    applyCheckboxes_(sh, headers, SHEETS.PROPERTIES, rowNum, 1);
-    var prop = { _row: rowNum, 'マイソクPDF': f.getUrl() };
-    headers.forEach(function (h, i) { if (!(h in prop)) prop[h] = row[i]; });
+    var prop = addPropertyRowForFile_(f);
+    var rowNum = prop._row;
     try {
       importMysokuForRow_(prop);
       results.push(f.getName() + ': 取込済');
@@ -282,4 +276,30 @@ function importMysokuFolder_(settings, startMs) {
     }
   }
   return results;
+}
+
+/** 物件シートの次の空き行（未チェックのチェックボックスだけの行は空き行とみなす） */
+function nextEmptyPropertyRow_() {
+  var rows = readTable_(SHEETS.PROPERTIES).rows;
+  var last = 1;
+  rows.forEach(function (r) { if (r._row > last) last = r._row; });
+  return last + 1;
+}
+
+/** PDFファイル1件分の物件行を追加（物件IDも採番） */
+function addPropertyRowForFile_(file) {
+  var sh = sheet_(SHEETS.PROPERTIES);
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  var rowNum = nextEmptyPropertyRow_();
+  var id = 'P' + ('0000' + rowNum).slice(-5);
+  var row = headers.map(function (h) {
+    if (h === 'マイソクPDF') return file.getUrl();
+    if (h === '物件ID') return id;
+    return (CHECKBOX_COLUMNS[SHEETS.PROPERTIES] || []).indexOf(h) >= 0 ? false : '';
+  });
+  sh.getRange(rowNum, 1, 1, headers.length).setValues([row]);
+  applyCheckboxes_(sh, headers, SHEETS.PROPERTIES, rowNum, 1);
+  var prop = { _row: rowNum };
+  headers.forEach(function (h, i) { prop[h] = row[i]; });
+  return prop;
 }
