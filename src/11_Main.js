@@ -8,6 +8,9 @@
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('周辺調査')
+    .addItem('⓪ マイソクフォルダから新規物件を取り込み', 'menuImportMysokuFolder')
+    .addItem('⓪ 選択した物件のマイソクPDFを取り込み', 'menuImportMysokuSelected')
+    .addSeparator()
     .addItem('① 選択した物件を調査', 'menuSurveySelected')
     .addItem('② 未調査の物件をまとめて調査', 'menuSurveyPending')
     .addItem('③ 出力を再生成（結果シートの編集を反映）', 'menuRegenerateOutput')
@@ -59,6 +62,43 @@ function menuRegenerateOutput() {
 function menuPurgeExpired() {
   var n = purgeExpired_();
   SpreadsheetApp.getUi().alert('保存期限切れの行を' + n + '件削除しました。該当物件は「要再調査」になっています。');
+}
+
+/* ---------------- マイソク取り込み ---------------- */
+
+function selectedPropertyRows_() {
+  var sh = SpreadsheetApp.getActiveSheet();
+  if (sh.getName() !== SHEETS.PROPERTIES) return null;
+  var rows = {};
+  sh.getActiveRangeList().getRanges().forEach(function (r) {
+    for (var i = r.getRow(); i < r.getRow() + r.getNumRows(); i++) if (i >= 2) rows[i] = true;
+  });
+  return rows;
+}
+
+function menuImportMysokuSelected() {
+  var rows = selectedPropertyRows_();
+  if (!rows) {
+    SpreadsheetApp.getUi().alert('「' + SHEETS.PROPERTIES + '」シートで行を選択してから実行してください。');
+    return;
+  }
+  var start = Date.now();
+  var msgs = [];
+  readTable_(SHEETS.PROPERTIES).rows.filter(function (p) { return rows[p._row] && p['マイソクPDF']; }).forEach(function (p) {
+    if (Date.now() - start > MAX_EXEC_MS) return;
+    try {
+      var r = importMysokuForRow_(p);
+      msgs.push((p['物件名'] || p._row + '行目') + ': 反映 ' + (r.filled.join('、') || 'なし'));
+    } catch (e) {
+      msgs.push(p._row + '行目: エラー ' + e.message);
+    }
+  });
+  SpreadsheetApp.getUi().alert(msgs.join('\n') || '「マイソクPDF」列が入力された行がありません。');
+}
+
+function menuImportMysokuFolder() {
+  var res = importMysokuFolder_(loadSettings_(), Date.now());
+  SpreadsheetApp.getUi().alert(res.length ? res.join('\n') : '新しいPDFはありません。');
 }
 
 /* ---------------- 調査 ---------------- */

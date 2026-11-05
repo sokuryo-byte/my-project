@@ -111,6 +111,7 @@ function buildOutputRow_(prop, facRows, stRows, acRows, categories, settings) {
   out['タイトル文字数'] = t.length;
   out['タイトル注記'] = t.notes.join(' / ');
   out['未確認の要確認件数'] = countUnconfirmed_(facRows, stRows, acRows);
+  out['ウェルモJSON'] = JSON.stringify(buildWellmoData_(prop, out, st));
   out['生成日時'] = formatJst_();
   return out;
 }

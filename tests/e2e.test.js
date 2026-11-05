@@ -119,6 +119,8 @@ function dist(a, b) {
 }
 const ORIGIN_LL = { latitude: ORIGIN.lat, longitude: ORIGIN.lng };
 const calls = [];
+const driveOps = [];
+const MYSOKU_TEXT = require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'mysoku_realnetpro.txt'), 'utf8');
 function resp(obj, code = 200) {
   return { getResponseCode: () => code, getContentText: () => JSON.stringify(obj) };
 }
@@ -171,7 +173,13 @@ const g = loadGas({
   },
   PropertiesService: { getScriptProperties: () => ({ getProperty: () => 'TEST_KEY', setProperty: () => {} }) },
   LockService: { getDocumentLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
-  Utilities: { sleep: () => {}, formatDate: () => '03:00' }
+  Utilities: { sleep: () => {}, formatDate: () => '03:00' },
+  DriveApp: { getFileById: (id) => ({ getName: () => 'mysoku.pdf', getBlob: () => ({}), setTrashed: () => {} }) },
+  Drive: { Files: {
+    create: (meta, blob, opt) => { driveOps.push(['create', meta.mimeType, opt.ocrLanguage]); return { id: 'tmpdoc' }; },
+    remove: (id) => driveOps.push(['remove', id])
+  } },
+  DocumentApp: { openById: () => ({ getBody: () => ({ getText: () => MYSOKU_TEXT }) }) }
 });
 
 function table(name) {
@@ -254,6 +262,13 @@ test('E2E: セットアップ → 起点確認待ち → 調査 → 出力', () 
   assert.equal(out['タイトル'], '【千種区/大曽根駅徒歩10分/バストイレ別/オートロック】テストハイツ 101');
   assert.doesNotMatch(out['周辺施設'], /クリニック/); // 未承認は出力しない
   assert.ok(out['未確認の要確認件数'] > 0);
+  const w = JSON.parse(out['ウェルモJSON']);
+  assert.equal(w['マンスリー表示名'], out['タイトル']);
+  assert.equal(w['周辺環境'], out['周辺施設']);
+  assert.equal(w['緯度'], ORIGIN.lat);
+  eq(w['最寄り駅'][0], { '路線': '地下鉄名城線', '駅': '砂田橋', '徒歩': 15, 'その他': '' });
+  eq(w['建物設備'], ['オートロック']);
+  assert.equal(w['空港からのアクセス'], out['空港からのアクセス']);
 
   // 担当者が路線・運行会社・掲載を編集 → 再調査しても引き継がれる
   const stSheet = g.readTable_('駅結果');
@@ -286,4 +301,24 @@ test('E2E: APIキーをログに残さない', () => {
   } finally {
     UrlFetchApp.fetch = orig;
   }
+});
+
+test('E2E: マイソクPDF取り込み → 物件シートの空欄に反映', () => {
+  const prop = ss.getSheetByName('物件');
+  const H = g.readTable_('物件').headers;
+  const row = H.map((h) => (h === 'マイソクPDF' ? 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view' : ''));
+  const r = prop.getLastRow() + 1;
+  prop.getRange(r, 1, 1, H.length).setValues([row]);
+  const p = g.readTable_('物件').rows.find((x) => x._row === r);
+  g.importMysokuForRow_(p);
+  const after = g.readTable_('物件').rows.find((x) => x._row === r);
+  assert.equal(after['建物名'], '名信ビル');
+  assert.equal(after['号室'], '6');
+  assert.equal(after['住所'], '愛知県名古屋市千種区今池3丁目39-21');
+  assert.equal(after['マイソク駅1_駅名'], '吹上');
+  assert.equal(after['マイソク駅3_徒歩分'], 14);
+  assert.equal(after['バストイレ別'], true);
+  assert.equal(after['建物構造'], 'RC');
+  assert.match(after['マイソク取込メモ'], /要確認: .*帖数/);
+  eq(driveOps, [['create', 'application/vnd.google-apps.document', 'ja'], ['remove', 'tmpdoc']]); // 一時ドキュメントは削除
 });
