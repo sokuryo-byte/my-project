@@ -109,6 +109,7 @@ var DEFAULT_SETTINGS = [
   ['airport_2_name', '県営名古屋空港', '空港2の表示名'],
   ['airport_2_address', '県営名古屋空港 愛知県西春日井郡豊山町', '空港2の検索用住所（Routes APIで解決）'],
   ['retention_days', '30', 'Google由来データの保存日数。超過分は「保存期限切れデータの整理」で削除'],
+  ['route_candidates_max', '8', 'カテゴリごとに道路距離を計算する候補の最大数（直線距離の近い順。API費用の節約）'],
   ['max_unselected_saved', '5', 'カテゴリごとに保存する不採用候補の最大数（担当者の差し替え用）'],
   ['attribution', '周辺施設・距離：Google Maps Platformのデータを基に算出', '周辺施設の出力末尾に付ける出典表記'],
   ['api_retries', '3', 'API一時エラー時のリトライ回数'],

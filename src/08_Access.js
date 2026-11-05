@@ -25,7 +25,7 @@ function surveyBusStop_(ctx, origin) {
     return true;
   }).map(function (p) {
     return { place: p, straightM: Math.round(haversineM_(origin, p)), roadM: null, minutes: null };
-  }).sort(function (a, b) { return a.straightM - b.straightM; }).slice(0, 10);
+  }).sort(function (a, b) { return a.straightM - b.straightM; }).slice(0, 5);
 
   var now = formatJst_();
   if (!cands.length) {

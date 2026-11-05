@@ -114,6 +114,26 @@ function searchCategory_(ctx, cat, origin, radius) {
   return { places: r2, capped: r2.length >= PLACES_MAX_RESULTS };
 }
 
+/**
+ * 道路距離を計算する候補を絞る（API費用の節約。純粋関数）。
+ * 掲載候補になるのは近い数件だけなので、直線距離の近い順に最大 cap 件。
+ * 「他社のみ」のカテゴリは同じブランドの2店目以降を、「チェーン辞書必須」は辞書外を除く。
+ */
+function pickForRouting_(cands, cat, cap) {
+  var list = cands.filter(function (c) { return !cat.chainRequired || c.fromDict; })
+    .slice().sort(function (a, b) { return a.straightM - b.straightM; });
+  if (cat.distinctBrand) {
+    var seen = {};
+    list = list.filter(function (c) {
+      var k = normKey_(c.brand);
+      if (seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
+  }
+  return list.slice(0, Math.max(0, cap));
+}
+
 /** 1カテゴリを調査し、施設結果シート用の行を返す */
 function surveyCategory_(ctx, cat, origin) {
   var mPerMin = ctx.mPerMin;
@@ -122,6 +142,7 @@ function surveyCategory_(ctx, cat, origin) {
   var order = [];
   var selected = [];
   var capped = false;
+  var routedCount = 0;
   for (var ri = 0; ri < radii.length; ri++) {
     var s = searchCategory_(ctx, cat, origin, radii[ri]);
     if (ri === 0) capped = s.capped;
@@ -141,7 +162,9 @@ function surveyCategory_(ctx, cat, origin) {
       fresh.push(c);
     });
     // チェーン辞書必須のカテゴリは辞書外を経路計算しない（API費用の節約）
-    var toRoute = fresh.filter(function (c) { return !cat.chainRequired || c.fromDict; });
+    var cap = toNum_(ctx.settings.route_candidates_max) || 8;
+    var toRoute = pickForRouting_(fresh, cat, Math.max(0, cap - routedCount));
+    routedCount += toRoute.length;
     if (toRoute.length) {
       var routes = walkMatrix_(ctx, origin, toRoute.map(function (c) { return c.place; }));
       toRoute.forEach(function (c, i) {

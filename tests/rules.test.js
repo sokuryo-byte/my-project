@@ -223,3 +223,14 @@ test('TRANSIT要約: バス区間がなければnull', () => {
   assert.equal(s.walkMeters, 450);
   assert.match(s.detail, /名古屋市交通局 幹名駅1 「A」→「B」乗車15分/);
 });
+
+test('費用節約: 距離計算は直線距離の近い順に上限まで・同一ブランドは最寄りのみ', () => {
+  const cands = [
+    { placeId: 'a', brand: 'A', straightM: 500, fromDict: true }, { placeId: 'b', brand: 'A', straightM: 100, fromDict: true },
+    { placeId: 'c', brand: 'B', straightM: 300, fromDict: true }, { placeId: 'd', brand: 'C', straightM: 200, fromDict: false },
+    { placeId: 'e', brand: 'D', straightM: 900, fromDict: true }
+  ];
+  eq(g.pickForRouting_(cands, { distinctBrand: true }, 3).map((c) => c.placeId), ['b', 'd', 'c']);
+  eq(g.pickForRouting_(cands, { distinctBrand: false, chainRequired: true }, 2).map((c) => c.placeId), ['b', 'c']);
+  eq(g.pickForRouting_(cands, {}, 0), []);
+});

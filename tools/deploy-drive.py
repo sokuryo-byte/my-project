@@ -9,7 +9,8 @@ Google ドライブに本番環境を作る（または更新する）。
 
 使い方:
   ACCESS_TOKEN=$(gcloud auth print-access-token) python3 tools/deploy-drive.py          # 新規作成
-  ACCESS_TOKEN=... python3 tools/deploy-drive.py --update <scriptFileId>                # プログラムだけ更新
+  ACCESS_TOKEN=... python3 tools/deploy-drive.py --recreate   # プログラムを最新版で作り直す（初回実行前に使う）
+  ACCESS_TOKEN=... python3 tools/deploy-drive.py --update <scriptFileId>   # 内容だけ更新（drive.scripts 権限が必要）
 結果（各ID・URL）は dist/deploy.json に保存する（.gitignore 対象）。
 """
 import json
@@ -61,6 +62,18 @@ def build_script_files(bootstrap):
 def main():
     state_path = os.path.join(ROOT, 'dist', 'deploy.json')
     state = json.load(open(state_path)) if os.path.exists(state_path) else {}
+    if '--recreate' in sys.argv:
+        # 内容の更新には drive.scripts 権限が要るため、古いプログラムをゴミ箱に移して作り直す
+        api('PATCH', 'https://www.googleapis.com/drive/v3/files/%s' % state['scriptId'], {'trashed': True})
+        files = build_script_files({'spreadsheetId': state['spreadsheetId'], 'mysokuFolderId': state['mysokuFolderId']})
+        script = api('POST', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+                     multipart=({'name': 'マンスリー周辺調査（プログラム）', 'mimeType': 'application/vnd.google-apps.script', 'parents': [state['folderId']]},
+                                json.dumps(files, ensure_ascii=False), 'application/vnd.google-apps.script+json'))
+        state['scriptId'] = script['id']
+        state['scriptUrl'] = 'https://script.google.com/d/%s/edit' % script['id']
+        json.dump(state, open(state_path, 'w'), ensure_ascii=False, indent=2)
+        print('プログラムを作り直しました:', state['scriptUrl'])
+        return
     if '--update' in sys.argv:
         sid = sys.argv[sys.argv.index('--update') + 1]
         files = build_script_files({'spreadsheetId': state['spreadsheetId'], 'mysokuFolderId': state['mysokuFolderId']})
