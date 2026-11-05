@@ -44,17 +44,17 @@
 </div>
 <dl id="tmpRow"><dt class="title">最寄り駅</dt><dd><select name="use_stations[station_codes][]" id="tmpStationSelect" class="stations"><option value="">沿線を選択してください</option></select></dd>
   <dt class="title">徒歩</dt><dd><input type="number" name="use_stations[walk_minutes][]"> 分 <input type="text" name="use_stations[info][]"></dd></dl>
-<p><button type="button" class="btn-add-station" id="addStation">+</button></p>
+<div class="add-wrap"><span class="addBtn" id="addStation" style="display:inline-block;width:52px;height:52px;border-radius:50%;background:#ccc;cursor:pointer"><i class="icon"></i></span></div>
 <dl><dt class="title">その他アクセス</dt><dd><input type="text" name="access_other"></dd></dl>
 <dl><dt class="title">空港からのアクセス</dt><dd><input type="text" name="access_airport"></dd></dl>
 
 <h3>建物設備</h3>
-<ul class="facilities">
-  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="1"><span class="name">エレベーター</span></label></li>
-  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="2"><span class="name">オートロック</span></label></li>
-  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="3"><span class="name">宅配ボックス</span></label></li>
-  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="6" checked><span class="name">駐輪場</span></label></li>
-  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="9"><span class="name">ゴミ捨て場</span></label></li>
+<ul class="itemlist facility-icons">
+  <li class="item"><input type="checkbox" class="hidden-input" id="fc1" name="facilities[]" value="1"><label for="fc1"><span class="name">エレベーター</span></label></li>
+  <li class="item"><input type="checkbox" class="hidden-input" id="fc2" name="facilities[]" value="2"><label for="fc2"><span class="name">オートロック</span></label></li>
+  <li class="item"><input type="checkbox" class="hidden-input" id="fc3" name="facilities[]" value="3"><label for="fc3"><span class="name">宅配ボックス</span></label></li>
+  <li class="item"><input type="checkbox" class="hidden-input" id="fc6" name="facilities[]" value="6" checked><label for="fc6"><span class="name">駐輪場</span></label></li>
+  <li class="item"><input type="checkbox" class="hidden-input" id="fc9" name="facilities[]" value="9"><label for="fc9"><span class="name">ゴミ捨て場</span></label></li>
 </ul>
 <dl><dt class="title">その他の設備</dt><dd><textarea name="facility_memo"></textarea></dd></dl>
 <h3>その他建物情報</h3>

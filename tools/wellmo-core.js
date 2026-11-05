@@ -8,7 +8,7 @@
  */
 (function () {
   'use strict';
-  var VERSION = '0.3.0';
+  var VERSION = '0.3.1';
   var PANEL_ID = 'wm-autofill-panel';
 
   var norm = function (s) {
@@ -203,21 +203,50 @@
     };
   }
 
-  /** 最寄り駅の「＋」（行の追加）ボタンを探す */
-  function findAddStationButton() {
+  /**
+   * 最寄り駅の「＋」（行の追加）ボタンを探す。
+   * ウェルモの「＋」は文字のない丸いボタン（アイコン）なので、
+   * 「最後の駅の行」と「その他アクセス」の間にある、押せる小さな要素を探す（行の中の「−」は除く）。
+   */
+  function stationAddRegion() {
+    var sels = Array.prototype.filter.call(document.querySelectorAll('select[name="use_stations[station_codes][]"]'), function (x) { return x.id !== 'tmpStationSelect'; });
     var labels = findLabelEls('最寄り駅');
-    if (!labels.length) return null;
-    var last = labels[labels.length - 1];
-    var stop = findLabelEls('その他アクセス')[0];
-    var cands = document.querySelectorAll('button, a, span, i, div');
-    for (var i = 0; i < cands.length; i++) {
-      var x = cands[i];
-      if (!(last.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
-      if (stop && !(x.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING)) break;
-      var t = norm(x.textContent), cls = String(x.className || '');
-      if ((t === '+' || t === '＋' || /(^|[-_ ])(plus|add)([-_ ]|$)/i.test(cls) || /追加/.test(x.getAttribute('aria-label') || x.title || '')) && x.children.length <= 2) return x;
-    }
-    return null;
+    var start = sels.length ? rowOf(sels[sels.length - 1]) : labels[labels.length - 1];
+    var stop = document.querySelector('[name="access_other"]') || findLabelEls('その他アクセス')[0];
+    if (!start) return null;
+    var rows = sels.map(rowOf).concat([document.getElementById('tmpStationSelect') ? rowOf(document.getElementById('tmpStationSelect')) : null]).filter(Boolean);
+    var list = Array.prototype.filter.call(document.querySelectorAll('a, button, span, div, i, img, svg, p, input[type=button]'), function (x) {
+      if (!(start.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+      if (start.contains(x)) return false;
+      if (stop && !(x.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+      if (stop && x.contains(stop)) return false;
+      if (rows.some(function (r) { return r.contains(x); })) return false;
+      return shown(x);
+    });
+    return list;
+  }
+  function findAddStationButton() {
+    var list = stationAddRegion();
+    if (!list || !list.length) return null;
+    var score = function (x) {
+      var t = norm(x.textContent), id = (String(x.className && x.className.baseVal != null ? x.className.baseVal : x.className) + ' ' + (x.id || '') + ' ' + (x.getAttribute('onclick') || '') + ' ' + (x.getAttribute('aria-label') || '') + ' ' + (x.title || '')).toLowerCase();
+      var r = x.getBoundingClientRect();
+      var small = r.width > 0 && r.width <= 120 && r.height <= 120;
+      var pointer = getComputedStyle(x).cursor === 'pointer';
+      var sc = 0;
+      if (t === '+' || t === '＋') sc += 5;
+      if (/add|plus|append|more|tsuika|追加/.test(id)) sc += 4;
+      if (pointer) sc += 3;
+      if (x.tagName === 'BUTTON' || x.tagName === 'A' || x.getAttribute('role') === 'button') sc += 2;
+      if (small) sc += 1;
+      if (t.length > 3) sc -= 5;
+      return sc;
+    };
+    var best = null, bestScore = 3;
+    list.forEach(function (x) { var sc = score(x); if (sc > bestScore || (sc === bestScore && best && best.contains(x))) { best = x; bestScore = sc; } });
+    // 押せる要素の内側（アイコン）が選ばれたら、押せる外側を使う
+    if (best) { var up = best.closest('a, button, [role=button]'); if (up && !up.contains(document.querySelector('[name="access_other"]'))) best = up; }
+    return best;
   }
 
   /** 駅の行が足りなければ「＋」を押して増やす（画面の更新を待つため Promise） */
@@ -545,12 +574,18 @@
       var el = findLabelEls(nm)[0];
       var chain = [], x = el;
       for (var k = 0; k < 4 && x; k++, x = x.parentElement) chain.push(x.tagName.toLowerCase() + '.' + String(x.className || '').slice(0, 40));
-      var holder = el ? el.closest('label, li, a, button') || (el.parentElement && el.parentElement.parentElement) : null;
+      var holder = el ? el.closest('li') || el.closest('label, a, button') || (el.parentElement && el.parentElement.parentElement) : null;
       var ins = holder ? Array.prototype.map.call(holder.querySelectorAll('input'), function (i) { return { type: i.type, name: i.name, checked: !!i.checked }; }) : [];
-      return { name: nm, chain: chain, inputs: ins };
+      var lab = el ? el.closest('label') : null;
+      return { name: nm, chain: chain, inputs: ins, labelFor: lab ? lab.getAttribute('for') || '' : '', liClass: el && el.closest('li') ? el.closest('li').className : '' };
     });
     var add = findAddStationButton();
-    out.addButton = add ? { tag: add.tagName.toLowerCase(), cls: String(add.className || '').slice(0, 60), text: norm(add.textContent) } : null;
+    out.addButton = add ? { tag: add.tagName.toLowerCase(), cls: String(add.className && add.className.baseVal != null ? add.className.baseVal : add.className || '').slice(0, 60), text: norm(add.textContent) } : null;
+    out.addRegion = (stationAddRegion() || []).slice(0, 20).map(function (x) {
+      var r = x.getBoundingClientRect();
+      return x.tagName.toLowerCase() + '.' + String(x.className && x.className.baseVal != null ? x.className.baseVal : x.className || '').slice(0, 40) + (x.id ? '#' + x.id : '') +
+        ' [' + Math.round(r.width) + 'x' + Math.round(r.height) + (getComputedStyle(x).cursor === 'pointer' ? ' pointer' : '') + (x.getAttribute('onclick') ? ' onclick' : '') + '] 「' + norm(x.textContent).slice(0, 6) + '」';
+    });
     var structSel = findLabelEls('建物構造')[0];
     var ss = structSel ? fieldsAfter(structSel, 'select', true)[0] : null;
     out.structureOptions = ss ? Array.prototype.map.call(ss.options, function (o) { return o.text; }) : null;
