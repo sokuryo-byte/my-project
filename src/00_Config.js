@@ -69,7 +69,7 @@ HEADERS[SHEETS.OUTPUT] = [
 HEADERS[SHEETS.CATEGORIES] = [
   'カテゴリID', '表示名', '有効', '検索方法', 'includedTypes', '検索語',
   '名称に含む', '名称に含まない', '圏内上限分', '最低件数', '最大件数',
-  '他社のみ', 'チェーン辞書必須', '面積下限m2', '常に要確認', '要確認メモ', '出力順'
+  '他社のみ', 'チェーン辞書必須', '面積下限m2', '常に要確認', '要確認メモ', '出力順', '必須の種別'
 ];
 HEADERS[SHEETS.BRANDS] = ['ブランド名', '照合キーワード', '対象カテゴリID'];
 HEADERS[SHEETS.SETTINGS] = ['キー', '値', '説明'];
@@ -117,18 +117,20 @@ var DEFAULT_SETTINGS = [
 ];
 
 // [ID, 表示名, 有効, 検索方法, includedTypes, 検索語, 名称に含む, 名称に含まない,
-//  圏内上限分, 最低件数, 最大件数, 他社のみ, チェーン辞書必須, 面積下限m2, 常に要確認, 要確認メモ, 出力順]
+//  圏内上限分, 最低件数, 最大件数, 他社のみ, チェーン辞書必須, 面積下限m2, 常に要確認, 要確認メモ, 出力順, 必須の種別]
+// 必須の種別：Googleの分類（types）にこのいずれかを含む施設だけを残す（例: 食料品店や調剤薬局を除く）。
+// 最大件数：掲載の上限（近い順）。公園は面積の大きい順に優先する。
 var DEFAULT_CATEGORIES = [
-  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, '', true, false, '', false, '', 1],
-  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, '', true, false, '', false, '', 2],
-  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, '', true, false, '', false, '', 3],
-  ['hundred_yen', '100円ショップ', true, 'text', '', '100円ショップ', 'ダイソー,DAISO,セリア,Seria,キャンドゥ,Can★Do,ワッツ,Watts,meets,シルク', '', 10, 0, '', true, false, '', false, '', 4],
-  ['mall', '大型商業施設', true, 'nearby', 'shopping_mall,department_store,electronics_store,home_improvement_store', '', '', '', 15, 0, '', true, false, '', true, '大型ショッピングモール・商業施設に該当するか確認', 5],
-  ['clinic', '内科系クリニック', true, 'text', '', '内科', '', '歯科,眼科,皮膚科,整形外科,耳鼻,動物,美容,形成外科', '', 1, 1, false, false, '', true, '内科系の診療科か確認', 6],
-  ['hospital', '総合病院', true, 'nearby', 'hospital', '', '病院', '動物,歯科', 15, 0, '', false, false, '', true, '総合病院（複数診療科）に該当するか確認', 7],
-  ['post_office', '郵便局', true, 'nearby', 'post_office', '', '郵便局', 'ATM,ゆうちょ銀行', '', 1, 1, false, false, '', false, '', 8],
-  ['park', '公園', true, 'nearby', 'park', '', '', '', 10, 0, '', false, false, 10000, false, '', 9],
-  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, '', true, true, '', false, '', 10]
+  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, 3, true, false, '', false, '', 1, 'supermarket'],
+  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, 3, true, false, '', false, '', 2, 'drugstore'],
+  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, 3, true, false, '', false, '', 3, 'convenience_store'],
+  ['hundred_yen', '100円ショップ', true, 'text', '', '100円ショップ', 'ダイソー,DAISO,セリア,Seria,キャンドゥ,Can★Do,ワッツ,Watts,meets,シルク', '', 10, 0, 2, true, false, '', false, '', 4, ''],
+  ['mall', '大型商業施設', true, 'nearby', 'shopping_mall,department_store', '', '', '', 15, 0, 2, true, false, '', true, '大型ショッピングモール・商業施設に該当するか確認', 5, 'shopping_mall,department_store'],
+  ['clinic', '内科系クリニック', true, 'text', '', '内科', '', '歯科,眼科,皮膚科,整形外科,耳鼻,動物,美容,形成外科', '', 1, 1, false, false, '', true, '内科系の診療科か確認', 6, ''],
+  ['hospital', '総合病院', true, 'nearby', 'hospital', '', '病院', '動物,歯科,デイケア', 15, 0, 2, false, false, '', true, '総合病院（複数診療科）に該当するか確認', 7, 'hospital'],
+  ['post_office', '郵便局', true, 'nearby', 'post_office', '', '郵便局', 'ATM,ゆうちょ銀行', '', 1, 1, false, false, '', false, '', 8, ''],
+  ['park', '公園', true, 'nearby', 'park', '', '', 'ひろば,広場,児童遊園,遊園地,ちびっこ', 10, 0, 2, false, false, 10000, false, '', 9, 'park'],
+  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, 5, true, true, '', false, '', 10, '']
 ];
 
 // [ブランド名, 照合キーワード(カンマ区切り), 対象カテゴリID(空欄=全カテゴリ)]
@@ -154,6 +156,15 @@ var DEFAULT_BRANDS = [
   ['業務スーパー', '業務スーパー', 'supermarket'],
   ['ライフ', 'ライフ', 'supermarket'],
   ['八百鮮', '八百鮮', 'supermarket'],
+  ['フランテ', 'フランテ', 'supermarket'],
+  ['アオキスーパー', 'アオキスーパー', 'supermarket'],
+  ['ヨシヅヤ', 'ヨシヅヤ', 'supermarket'],
+  ['ユーストア', 'ユーストア', 'supermarket'],
+  ['ナフコ不二屋', 'ナフコ不二屋', 'supermarket'],
+  ['生鮮館やまひこ', 'やまひこ', 'supermarket'],
+  ['タチヤ', 'タチヤ', 'supermarket'],
+  ['パワーズ', 'パワーズ', 'supermarket'],
+  ['MEGAドン・キホーテUNY', 'ドン・キホーテUNY,ドンキホーテUNY', 'supermarket'],
   ['ドン・キホーテ', 'ドン・キホーテ,ドンキホーテ,MEGAドン・キホーテ', ''],
   // ドラッグストア
   ['スギ薬局', 'スギ薬局,スギドラッグ', 'drugstore'],

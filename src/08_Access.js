@@ -39,8 +39,12 @@ function surveyBusStop_(ctx, origin) {
       c.minutes = walkMinutes_(c.roadM, ctx.mPerMin);
     }
   });
+  // 同じ名前のバス停（上り・下りなど）は近い1つにまとめる
+  var seenName = {};
   cands = cands.filter(function (c) { return c.roadM != null; })
-    .sort(function (a, b) { return a.roadM - b.roadM; }).slice(0, 3);
+    .sort(function (a, b) { return a.roadM - b.roadM; })
+    .filter(function (c) { var k = cleanBusStopName_(c.place.name); if (seenName[k]) return false; seenName[k] = true; return true; })
+    .slice(0, 3);
   return cands.map(function (c, idx) {
     var flags = distanceFlags_(c.roadM, c.straightM, toNum_(ctx.settings.detour_ratio_max));
     if (idx === 0) addFlag_(flags, '運行会社（○○バス）を入力');

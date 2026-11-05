@@ -31,9 +31,19 @@ function matchLabel_(line) {
   return null;
 }
 
+/**
+ * Googleドキュメント変換では、表の複数の項目が1行に並ぶことがある
+ * （例:「物件種目 [住居用] マンション 物件名 名信ビル」）。行の途中の見出しの前で改行を入れる。
+ */
+function breakInlineLabels_(text) {
+  var labels = MYSOKU_LABELS.slice().sort(function (a, b) { return b.length - a.length; }).map(labelRegex_);
+  var re = new RegExp('[ \\t\u3000]+(' + labels.join('|') + ')(?=[ \\t\u3000:：]|$)', 'gm');
+  return text.replace(re, '\n$1');
+}
+
 /** テキストを見出しごとのブロックに分ける（同じ見出しは最初の1つ） */
 function splitMysokuSections_(text) {
-  var lines = nfkc_(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+  var lines = breakInlineLabels_(nfkc_(text)).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l; });
   var sections = {};
   var current = null;
   lines.forEach(function (line) {
@@ -74,7 +84,8 @@ function parseMysokuText_(text) {
   if (kindM) fields['物件種別'] = kindM[0] === 'マンション' || kindM[0] === 'アパート' ? kindM[0] : '一戸建て';
   else if (kind) fields['物件種別'] = 'その他';
 
-  var postal = (sec['所在地'] || []).join(' ').match(/〒?\s*(\d{3})-?(\d{4})/);
+  // 郵便番号は所在地の前の行に出ることもあるので、所在地欄→本文全体の順に探す
+  var postal = (sec['所在地'] || []).join(' ').match(/〒?\s*(\d{3})-?(\d{4})/) || nfkc_(text).match(/〒\s*(\d{3})-?(\d{4})/);
   if (postal) fields['郵便番号'] = postal[1] + '-' + postal[2];
 
   var struct = (sec['建築構造'] || []).join(' ');
@@ -100,12 +111,15 @@ function parseMysokuText_(text) {
   for (var i = 0; i < addrLines.length; i++) {
     if (/(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/.test(addrLines[i])) { addr = addrLines[i]; break; }
   }
-  addr = addr.replace(/〒?\s*\d{3}-?\d{4}/, '').trim();
+  addr = addr.replace(/〒?\s*\d{3}-?\d{4}/, '')
+    .replace(/\s+\S*「[^」]+」.*$/, '') // 交通の行が同じ行に入り込んだ場合は除く
+    .trim();
   if (addr) fields['住所'] = addr;
 
   // 交通: 「路線「駅」徒歩n分」形式。バス停（「停」「バス」を含む）は除外
   var stations = [];
-  (sec['交通'] || []).forEach(function (line) {
+  // 交通の1行目が所在地の行に入り込むことがあるので、所在地欄も対象にする（文書の順）
+  (sec['所在地'] || []).concat(sec['交通'] || []).forEach(function (line) {
     var re = /([^\s「」\/]*?)\s*「([^」]+)」\s*(駅|停|停留所)?\s*(?:から)?\s*(?:徒歩|歩)\s*(\d+)\s*分/g;
     var m;
     while ((m = re.exec(line)) !== null) {

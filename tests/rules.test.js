@@ -234,3 +234,11 @@ test('費用節約: 距離計算は直線距離の近い順に上限まで・同
   eq(g.pickForRouting_(cands, { distinctBrand: false, chainRequired: true }, 2).map((c) => c.placeId), ['b', 'c']);
   eq(g.pickForRouting_(cands, {}, 0), []);
 });
+
+test('必須の種別：Googleの分類が一致するか、チェーン辞書の店なら対象', () => {
+  const cat = { requiredTypes: ['supermarket'] };
+  assert.equal(g.typeAllowed_({ types: ['supermarket', 'grocery_store'] }, cat, { fromDict: false }), true);
+  assert.equal(g.typeAllowed_({ types: ['grocery_store'] }, cat, { fromDict: true }), true, '食料品店に分類されたマックスバリュ');
+  assert.equal(g.typeAllowed_({ types: ['grocery_store'] }, cat, { fromDict: false }), false, '個人の食料品店');
+  assert.equal(g.typeAllowed_({ types: ['restaurant'] }, {}, { fromDict: false }), true, '指定なしは全部');
+});

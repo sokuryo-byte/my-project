@@ -72,3 +72,20 @@ test('タイトル: マイソク取込後の例（名信ビル）', () => {
   const t = g.buildTitle_(p, { name: '吹上', minutes: 7 }, '', { title_max_length: '60', title_station_walk_max_min: '10', title_room_format: '{建物名}' });
   assert.equal(t.title, '【千種区/吹上駅徒歩7分/バストイレ別・独立洗面台】名信ビル');
 });
+
+test('マイソク解析: Googleドキュメント変換の実データ（1行に複数項目が並ぶ）', () => {
+  const t = fs.readFileSync(path.join(__dirname, 'fixtures', 'mysoku_realnetpro_drive.txt'), 'utf8');
+  const r = g.parseMysokuText_(t);
+  assert.equal(r.fields['物件名'], '名信ビル');
+  assert.equal(r.fields['号室'], '6');
+  assert.equal(r.fields['郵便番号'], '464-0850');
+  assert.equal(r.fields['住所'], '愛知県名古屋市千種区今池3丁目39-21');
+  eq(r.stations.map((s) => s.line + '「' + s.name + '」' + s.minutes), ['桜通線「吹上」7', '東山線「今池」9', '東山線「千種」14']);
+  assert.equal(r.fields['建物構造'], 'RC');
+  assert.equal(r.fields['総戸数'], 9);
+  assert.equal(r.fields['築年'], 1969);
+  assert.equal(r.equipment['バストイレ別'], true);
+  assert.equal(r.equipment['独立洗面台'], true);
+  assert.equal(r.equipment['ゴミ捨て場'], true);
+  assert.equal(r.equipment['駐車場'], false);
+});

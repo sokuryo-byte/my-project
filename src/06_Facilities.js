@@ -23,8 +23,16 @@ function parseCategory_(o) {
     minAreaM2: toNum_(o['面積下限m2']),
     alwaysCheck: bool_(o['常に要確認']),
     checkMemo: nfkc_(o['要確認メモ']).trim(),
-    order: toNum_(o['出力順']) || 999
+    order: toNum_(o['出力順']) || 999,
+    requiredTypes: splitList_(o['必須の種別'])
   };
+}
+
+/** 「必須の種別」：Googleの分類がいずれかに一致するか、チェーン辞書の店なら対象（純粋関数） */
+function typeAllowed_(p, cat, brand) {
+  if (!cat.requiredTypes || !cat.requiredTypes.length) return true;
+  if ((p.types || []).some(function (t) { return cat.requiredTypes.indexOf(t) >= 0; })) return true;
+  return !!(brand && brand.fromDict);
 }
 
 /** 名称・営業状態・面積による候補の足切り（純粋関数） */
@@ -81,7 +89,15 @@ function selectFacilities_(cands, cat) {
     selected.push({ cand: c, reason: cat.limitMin != null ? '圏外だが最低件数(' + cat.minCount + ')のため最寄りを採用' : '最寄り' });
   }
   selected.sort(function (a, b) { return a.cand.roadM - b.cand.roadM; });
-  if (cat.maxCount) selected = selected.slice(0, cat.maxCount);
+  if (cat.maxCount && selected.length > cat.maxCount) {
+    if (cat.minAreaM2) {
+      // 面積の条件があるカテゴリ（公園）は、上限内で面積の大きいものを優先し、表示は距離順
+      selected = selected.slice().sort(function (a, b) { return (b.cand.area || 0) - (a.cand.area || 0); })
+        .slice(0, cat.maxCount).sort(function (a, b) { return a.cand.roadM - b.cand.roadM; });
+    } else {
+      selected = selected.slice(0, cat.maxCount);
+    }
+  }
   return selected;
 }
 
@@ -152,6 +168,8 @@ function surveyCategory_(ctx, cat, origin) {
       var f = filterPlace_(p, cat);
       if (!f.ok) return;
       var b = resolveBrand_(p.name, cat.id, ctx.brandDict);
+      // Googleの分類が対象外でも、チェーン辞書にある店（例: 食料品店に分類されたマックスバリュ）は残す
+      if (!typeAllowed_(p, cat, b)) return;
       var c = {
         place: p, placeId: p.placeId, brand: b.brand, fromDict: b.fromDict,
         straightM: Math.round(haversineM_(origin, p)), area: f.area, flags: f.flags.slice(),
@@ -204,8 +222,10 @@ function surveyCategory_(ctx, cat, origin) {
     selIds[s.cand.placeId] = true;
     var flags = s.cand.flags.slice();
     if (cat.alwaysCheck && cat.checkMemo) addFlag_(flags, cat.checkMemo);
-    if (idx === 0 && capped && cat.limitMin != null) addFlag_(flags, '検索結果が上限20件に達したため、圏内の他施設が漏れている可能性');
-    rows.push(facilityRow_(ctx, cat, s.cand, '採用', s.reason, idx + 1, flags, now));
+    var row = facilityRow_(ctx, cat, s.cand, '採用', s.reason, idx + 1, flags, now);
+    // 検索の上限（20件）に達した注意は参考情報。掲載は止めない
+    if (idx === 0 && capped && cat.limitMin != null) row['備考'] = '検索結果が上限20件に達したため、圏内のほかの施設が漏れている可能性があります';
+    rows.push(row);
   });
   if (selected.length < cat.minCount) {
     rows.push({
