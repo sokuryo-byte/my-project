@@ -7,6 +7,7 @@
     "test:browser": "node tests/wellmo-filler.browser.js",
     "build:bookmarklet": "node tools/build-bookmarklet.js",
     "build:demo": "node tools/build-demo.js",
-    "test:app": "node tools/build-demo.js && node tests/app-demo.browser.js"
+    "test:app": "node tools/build-demo.js && node tests/app-demo.browser.js",
+    "build:setup": "node tools/build-setup.js"
   }
 }
