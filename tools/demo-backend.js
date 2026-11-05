@@ -58,7 +58,7 @@
     '駐車場': true, '無料Wi-Fi': true, '自転車駐輪可能': true, 'ゴミ捨て場': true, 'その他アピール': '植田ICまで車で3分',
     '建物構造': 'RC', '地上階数': 5, '地下階数': 0, '総戸数': 9, '築年': 1988, '築月': 7,
     '起点緯度': 35.143826, '起点経度': 136.997531, '起点確認済': true, 'Geocode種別': 'ROOFTOP',
-    'ステータス': '調査済', '最終調査日時': '2026/11/04 16:10'
+    'ステータス': '調査済', '最終調査日時': '2026/11/04 16:10', 'ウェルモ入力日時': '2026/11/04 16:16'
   }));
   // 3. 取り込み直後（位置の確認から試せる）
   DB.props.push(assign(blankProp('P00004'), {
@@ -178,6 +178,7 @@
     if (!bool_(p['起点確認済'])) return { stage: 2, label: '位置の確認待ち', pending: pending };
     if (!has || p['ステータス'] === '要再調査') return { stage: 3, label: '調査待ち', pending: pending };
     if (pending > 0) return { stage: 4, label: '確認が' + pending + '件残っています', pending: pending };
+    if (p['ウェルモ入力日時']) return { stage: 5, label: 'ウェルモ入力済（' + p['ウェルモ入力日時'] + '）', pending: pending };
     return { stage: 5, label: 'ウェルモ入力の準備ができました', pending: pending };
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -242,7 +243,8 @@
     api_listProperties: function () {
       return DB.props.map(function (p) {
         var s = stage(p);
-        return { id: p['物件ID'], name: p['建物名'] || p['物件名'], address: p['住所'], stage: s.stage, stageLabel: s.label, pending: s.pending, updated: p['最終調査日時'] || p['マイソク取込日時'] };
+        return { id: p['物件ID'], name: p['建物名'] || p['物件名'], address: p['住所'], stage: s.stage, stageLabel: s.label, pending: s.pending,
+          wellmoAt: p['ウェルモ入力日時'] || '', updated: p['最終調査日時'] || p['マイソク取込日時'] };
       });
     },
     api_getProperty: function (id) {
@@ -252,7 +254,7 @@
         output: DB.out[id] ? clone(DB.out[id]) : null,
         categories: CATEGORIES.map(function (c) { return { id: c.id, label: c.label, order: c.order }; }),
         stage: s.stage, stageLabel: s.label, pending: s.pending,
-        config: { titleMax: 60, welmoLimit: 30, hasApiKey: true }
+        config: { titleMax: 60, welmoLimit: 30, hasApiKey: true, webAppUrl: 'https://script.google.com/macros/s/（デモ）/exec' }
       };
     },
     api_saveProperty: function (id, patch) {
@@ -266,11 +268,12 @@
       return api.api_getProperty(id);
     },
     api_uploadMysoku: function (fileName) {
+      var name = String(fileName || '').replace(/\.pdf$/i, '');
       var id = 'P' + ('0000' + (++DB.seq)).slice(-5);
       var p = blankProp(id);
       p['マイソクPDF'] = fileName;
       DB.props.push(p);
-      var r = mysokuPatch_(p, parseMysokuText_(MYSOKU_SAMPLE));
+      var r = mysokuPatch_(p, parseMysokuText_(MYSOKU_SAMPLE.replace('ハイツ若宮（デモ取込）', 'ハイツ若宮（' + (name || 'デモ取込') + '）')));
       assign(p, r.patch);
       p['マイソク取込日時'] = formatJst_();
       p['マイソク取込メモ'] = 'デモのため、選んだPDFではなくサンプルの内容を読み取りました / 反映: ' + r.filled.join('、');

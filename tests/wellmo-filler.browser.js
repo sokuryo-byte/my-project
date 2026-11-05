@@ -4,7 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'tools', 'wellmo-filler.js'), 'utf8');
+const tool = (f) => fs.readFileSync(path.join(__dirname, '..', 'tools', f), 'utf8');
+// ブックマークレット（予備）＝共通部分＋貼り付け実行
+const SRC = tool('wellmo-core.js') + '\n' + tool('wellmo-bookmarklet-runner.js');
+const USERSCRIPT = path.join(__dirname, '..', 'dist', 'wellmo-autofill.user.js');
 const PAGE = fs.readFileSync(path.join(__dirname, 'fixtures', 'wellmo_mock.html'), 'utf8');
 const DATA = {
   'マンスリー表示名': '【千種区/吹上駅徒歩7分/バストイレ別・独立洗面台】名信ビル',
@@ -80,7 +83,45 @@ const DATA = {
     || await page2.evaluate(() => document.getElementById('wm-autofill-panel').innerText);
   assert.match(diag, /monthly_name|診断/);
   assert.doesNotMatch(diag, /旧データ/); // 入力値は出さない
-  await page.screenshot({ path: process.env.SHOT || '/dev/null', fullPage: true }).catch(() => {});
+
+  // ---- Tampermonkey版：一覧から選ぶ → 入力 → 保存で「入力済」を記録 ----
+  const page3 = await browser.newPage();
+  await page3.setContent(PAGE);
+  await page3.exposeFunction('__fakeApp', (url) => {
+    const q = new URL(url).searchParams;
+    if (q.get('api') === 'wellmo-list') return JSON.stringify({ ok: true, items: [
+      { id: 'P00009', name: '別の物件', address: '名古屋市中区', stage: 5, pending: 0, wellmoAt: '' },
+      { id: 'P00002', name: '名信ビル', address: '愛知県名古屋市千種区今池3丁目39-21', stage: 5, pending: 0, wellmoAt: '' }] });
+    if (q.get('api') === 'wellmo-data') return JSON.stringify({ ok: true, id: q.get('id'), name: '名信ビル', data: DATA, pending: 0 });
+    if (q.get('api') === 'wellmo-mark') { marks.push(q.get('id')); return JSON.stringify({ ok: true }); }
+    return JSON.stringify({ ok: false, error: 'unknown' });
+  });
+  const marks = [];
+  await page3.evaluate(() => {
+    const store = {};
+    window.GM_getValue = (k, d) => (k in store ? store[k] : d);
+    window.GM_setValue = (k, v) => { store[k] = v; };
+    window.GM_xmlhttpRequest = (o) => { window.__fakeApp(o.url).then((t) => o.onload({ responseText: t, status: 200 })); };
+  });
+  await page3.addScriptTag({ path: USERSCRIPT });
+  await page3.click('text=周辺調査から入力');
+  await page3.fill('#wm-url', 'https://script.google.com/macros/s/TEST/exec');
+  await page3.click('#wm-save');
+  await page3.waitForSelector('[data-id="P00002"]');
+  await page3.click('[data-id="P00002"]');
+  await page3.waitForSelector('#wm-autofill-panel');
+  assert.equal(await page3.$eval('[name="monthly_name"]', (e) => e.value), DATA['マンスリー表示名']);
+  assert.equal(await page3.$eval('[name="station[2]"]', (e) => e.value), '203');
+  assert.equal(await page3.evaluate(() => window.__saved), undefined); // 自動では保存しない
+  await page3.click('#wm-autofill-panel-close');
+  // 既存の建物を開き直すと、その建物が一覧の先頭に出る
+  await page3.click('text=周辺調査から入力');
+  await page3.waitForSelector('tr.wm-match [data-id="P00002"]');
+  await page3.click('#wm-survey-launcher [data-a=close]');
+  await page3.click('#save');
+  await page3.waitForTimeout(300);
+  assert.deepEqual(marks, ['P00002']); // 保存ボタンで入力済みを記録
+  if (process.env.SHOT) await page3.screenshot({ path: process.env.SHOT, fullPage: true });
   await browser.close();
-  console.log('wellmo-filler browser test: OK');
+  console.log('wellmo autofill browser test (bookmarklet + Tampermonkey): OK');
 })().catch((e) => { console.error(e); process.exit(1); });

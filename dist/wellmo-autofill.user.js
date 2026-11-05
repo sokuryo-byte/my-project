@@ -1,19 +1,29 @@
+// ==UserScript==
+// @name         ウェルモ自動入力（マンスリー周辺調査）
+// @namespace    monthly-nearby-survey
+// @version      0.2.0
+// @description  周辺調査アプリの結果を、ウェルモ「建物管理｜編集」画面に一括入力する（保存は担当者が押す）
+// @match        https://wm-system.com/build/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @connect      script.google.com
+// @connect      script.googleusercontent.com
+// @run-at       document-idle
+// @noframes
+// ==/UserScript==
+
 /*
- * ウェルモ「建物管理｜編集」画面 自動入力ツール（ブックマークレット）
+ * ウェルモ「建物管理｜編集」画面への入力処理（共通部分）。
+ * Tampermonkey用スクリプトとブックマークレットの両方に組み込まれる。
  *
- * 使い方:
- *   1. スプレッドシート「出力」シートの「ウェルモJSON」セルをコピー
- *   2. ウェルモの建物編集画面でこのブックマークを押し、貼り付けてOK
- *   3. 画面右上の結果を確認し、内容を目視確認してから担当者が「保存」を押す
- *      （このツールは保存ボタンを押さない・既存値を空にしない・設備はONにするだけ）
- *
- * 入力欄は画面の項目名（「マンスリー表示名」など）を手がかりに探す。
- * うまく入らない場合は、入力の代わりに「診断」と入れて実行すると、入力欄の構造（値は含まない）を
- * クリップボードにコピーするので、開発担当に渡す。
+ * - 入力欄は画面の項目名（「マンスリー表示名」など）を手がかりに探す
+ * - 保存ボタンは押さない・既存値を空にしない・建物設備はONにするだけ
+ * - window.WellmoAutofill.run(data) で入力し、結果（入力した項目／手動が必要な項目）を返す
  */
 (function () {
   'use strict';
-  var VERSION = '0.1.0';
+  var VERSION = '0.2.0';
   var PANEL_ID = 'wm-autofill-panel';
 
   var norm = function (s) {
@@ -95,19 +105,19 @@
     if (old) old.remove();
     var p = document.createElement('div');
     p.id = PANEL_ID;
-    p.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;width:380px;max-height:85vh;overflow:auto;' +
-      'background:#fff;border:2px solid #f08300;border-radius:8px;padding:12px;font:13px/1.6 sans-serif;color:#222;box-shadow:0 4px 16px rgba(0,0,0,.25)';
+    p.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;width:380px;max-height:calc(100vh - 110px);overflow:auto;' +
+      'background:#fff;border:1px solid #1c3a52;border-top:4px solid #1c3a52;border-radius:2px;padding:12px 14px;font:13px/1.6 sans-serif;color:#1d2a33;box-shadow:0 6px 20px rgba(0,0,0,.18)';
     var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
     var list = function (arr, color) {
       return arr.length ? '<ul style="margin:4px 0 8px 18px;padding:0;color:' + color + '">' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<div style="color:#888;margin:4px 0 8px">なし</div>';
     };
     p.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><b>' + esc(title) + '</b>' +
-      '<button type="button" id="' + PANEL_ID + '-close" style="border:0;background:#eee;border-radius:4px;padding:2px 8px;cursor:pointer">閉じる</button></div>' +
+      '<button type="button" id="' + PANEL_ID + '-close" style="border:1px solid #c8d1d7;background:#f4f6f8;border-radius:2px;padding:2px 10px;cursor:pointer">閉じる</button></div>' +
       (extraHtml || '') +
       (report.manual.length ? '<div style="margin-top:8px"><b style="color:#c00">⚠ 手動で入力・確認が必要</b>' + list(report.manual, '#c00') + '</div>' : '') +
       (report.info.length ? '<div><b>参考</b>' + list(report.info, '#333') + '</div>' : '') +
       '<div><b style="color:#080">✔ 入力した項目</b>' + list(report.done, '#080') + '</div>' +
-      '<div style="margin-top:8px;padding:6px;background:#fff4e5;border-radius:4px">内容を確認してから<b>「保存」は担当者が押してください</b>（このツールは保存しません）。 v' + VERSION + '</div>';
+      '<div style="margin-top:8px;padding:6px 8px;background:#fff6e0;border-left:3px solid #c98a00">内容を確認してから<b>ウェルモの「保存」を押してください</b>（このツールは保存しません）。 v' + VERSION + '</div>';
     document.body.appendChild(p);
     document.getElementById(PANEL_ID + '-close').onclick = function () { p.remove(); };
   }
@@ -296,7 +306,7 @@
     });
   }
 
-  /* ---------- 実行 ---------- */
+  /* ---------- 公開 ---------- */
   function parseInput(s) {
     var t = String(s || '').trim();
     try { return JSON.parse(t); } catch (e) { /* スプレッドシートのセルコピーで引用符が付いた場合 */ }
@@ -304,20 +314,201 @@
     throw new Error('JSONとして読めません');
   }
 
-  var input = window.prompt('ウェルモ自動入力 v' + VERSION + '\n「出力」シートの「ウェルモJSON」を貼り付けてOK\n（入力欄の診断は「診断」と入力）', '');
-  if (input == null || input.trim() === '') return;
-  if (input.trim() === '診断') return diagnose();
-  var data;
-  try {
-    data = parseInput(input);
-  } catch (e) {
-    window.alert('貼り付けた内容を読み取れませんでした：' + e.message);
-    return;
+  /** ウェルモの「保存」ボタン（自動では押さない。押されたことを検知するために使う） */
+  function findSaveButton() {
+    var cands = document.querySelectorAll('button, input[type=submit], input[type=button], a');
+    for (var i = 0; i < cands.length; i++) {
+      var t = norm(cands[i].textContent || cands[i].value);
+      if (t === '保存') return cands[i];
+    }
+    return null;
   }
-  try {
-    fill(data);
-  } catch (e) {
-    manual('処理エラー', e.message);
+
+  window.WellmoAutofill = {
+    VERSION: VERSION,
+    /** データを入力し、結果パネルを表示して結果を返す */
+    run: function (data, title) {
+      report = { done: [], manual: [], info: [] };
+      try { fill(data); } catch (e) { manual('処理エラー', e.message); }
+      showPanel(title || ('ウェルモ自動入力：' + (data['建物名'] || '')));
+      return report;
+    },
+    diagnose: function () { report = { done: [], manual: [], info: [] }; diagnose(); },
+    parseInput: parseInput,
+    findSaveButton: findSaveButton,
+    /** 画面の項目の現在値（例: 建物名）。見つからなければ空文字 */
+    valueOf: function (label) {
+      var els = findLabelEls(label);
+      var f = els.length ? fieldsAfter(els[0])[0] : null;
+      return f ? String(f.value || '') : '';
+    }
+  };
+})();
+
+/*
+ * Tampermonkey用：ウェルモ「建物管理」画面に「周辺調査から入力」パネルを出す。
+ * wellmo-core.js の後ろに連結して使う（ヘッダーは build-bookmarklet.js が付ける）。
+ *
+ * 流れ: パネルを開く → 入力できる物件の一覧（周辺調査アプリのウェブアプリURLから取得）
+ *       → 物件を選ぶ → 全項目を入力 → 担当者が内容を見て「保存」 → 押されたら「ウェルモ入力済」を記録
+ */
+(function () {
+  'use strict';
+  var W = window.WellmoAutofill;
+  var KEY_URL = 'webappUrl';
+  var KEY_PENDING = 'pendingMark';
+  var ROOT_ID = 'wm-survey-launcher';
+
+  var css = [
+    '#' + ROOT_ID + '{position:fixed;right:16px;bottom:16px;z-index:2147483646;font:13px/1.6 "BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic UI",Meiryo,sans-serif;color:#1d2a33}',
+    '#' + ROOT_ID + ' .wm-open{background:#1c3a52;color:#fff;border:0;border-radius:2px;padding:10px 16px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.22)}',
+    '#' + ROOT_ID + ' .wm-panel{width:440px;max-width:calc(100vw - 32px);max-height:70vh;display:flex;flex-direction:column;background:#fff;border:1px solid #1c3a52;border-top:4px solid #1c3a52;border-radius:2px;box-shadow:0 8px 24px rgba(0,0,0,.2)}',
+    '#' + ROOT_ID + ' .wm-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #d5dde2;font-weight:700}',
+    '#' + ROOT_ID + ' .wm-head span{flex:1}',
+    '#' + ROOT_ID + ' .wm-body{overflow:auto;padding:10px 12px;display:grid;gap:8px}',
+    '#' + ROOT_ID + ' button.wm-btn{border:1px solid #b9c5cc;background:#f4f6f8;border-radius:2px;padding:4px 10px;cursor:pointer;font:inherit}',
+    '#' + ROOT_ID + ' button.wm-primary{background:#1c3a52;border-color:#1c3a52;color:#fff;font-weight:700}',
+    '#' + ROOT_ID + ' input.wm-in{width:100%;box-sizing:border-box;border:1px solid #b9c5cc;border-radius:2px;padding:6px 8px;font:inherit}',
+    '#' + ROOT_ID + ' table{width:100%;border-collapse:collapse}',
+    '#' + ROOT_ID + ' td{border-top:1px solid #e3e8eb;padding:6px 4px;vertical-align:middle}',
+    '#' + ROOT_ID + ' tr.wm-match td{background:#eaf2f8}',
+    '#' + ROOT_ID + ' .wm-sub{color:#5b6b75;font-size:12px}',
+    '#' + ROOT_ID + ' .wm-tag{display:inline-block;font-size:11px;font-weight:700;padding:0 6px;border:1px solid currentColor;border-radius:2px}',
+    '#' + ROOT_ID + ' .wm-ok{color:#1f6f43}#' + ROOT_ID + ' .wm-warn{color:#8a5a00}#' + ROOT_ID + ' .wm-done{color:#5b6b75}',
+    '#' + ROOT_ID + ' .wm-msg{padding:8px 10px;background:#f4f6f8;border-left:3px solid #1c3a52}',
+    '#' + ROOT_ID + ' .wm-err{background:#fdecea;border-left-color:#b3261e}'
+  ].join('\n');
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function norm(s) { return String(s || '').normalize('NFKC').replace(/\s+/g, ''); }
+
+  /** 周辺調査アプリ（GASウェブアプリ）を呼ぶ。Googleのログイン状態をそのまま使う */
+  function callApp(params) {
+    var base = GM_getValue(KEY_URL, '');
+    var q = Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+    return new Promise(function (resolve, reject) {
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: base + (base.indexOf('?') >= 0 ? '&' : '?') + q,
+        timeout: 30000,
+        onload: function (res) {
+          var body;
+          try { body = JSON.parse(res.responseText); } catch (e) {
+            reject(new Error('周辺調査アプリから応答がありません。ブラウザでGoogle（部門アカウント）にログインしているか、ウェブアプリのURLが正しいか確認してください。'));
+            return;
+          }
+          if (!body.ok) { reject(new Error(body.error || '処理できませんでした')); return; }
+          resolve(body);
+        },
+        onerror: function () { reject(new Error('周辺調査アプリに接続できませんでした。')); },
+        ontimeout: function () { reject(new Error('周辺調査アプリの応答がタイムアウトしました。')); }
+      });
+    });
   }
-  showPanel('ウェルモ自動入力：' + (data['建物名'] || ''));
+
+  /* ---------- 画面 ---------- */
+  var root, state = { items: [], q: '', msg: '', err: false, busy: false };
+
+  function mount() {
+    if (document.getElementById(ROOT_ID)) return;
+    var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+    root = document.createElement('div'); root.id = ROOT_ID;
+    document.body.appendChild(root);
+    renderClosed();
+    retryPendingMark();
+  }
+  function renderClosed() {
+    root.innerHTML = '<button type="button" class="wm-open">周辺調査から入力</button>';
+    root.querySelector('.wm-open').onclick = openPanel;
+  }
+  function frame(title, body) {
+    root.innerHTML = '<div class="wm-panel" role="dialog" aria-label="' + esc(title) + '"><div class="wm-head"><span>' + esc(title) + '</span>' +
+      '<button type="button" class="wm-btn" data-a="settings">設定</button><button type="button" class="wm-btn" data-a="close">閉じる</button></div>' +
+      '<div class="wm-body">' + body + '</div></div>';
+    root.querySelector('[data-a=close]').onclick = renderClosed;
+    root.querySelector('[data-a=settings]').onclick = renderSettings;
+  }
+
+  function renderSettings() {
+    var url = GM_getValue(KEY_URL, '');
+    frame('周辺調査から入力：設定',
+      '<div>周辺調査アプリの<b>ウェブアプリURL</b>を貼り付けてください（アプリの「出力」画面に表示されています）。</div>' +
+      '<input class="wm-in" id="wm-url" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(url) + '">' +
+      '<div><button type="button" class="wm-btn wm-primary" id="wm-save">保存して一覧を表示</button></div>');
+    root.querySelector('#wm-save').onclick = function () {
+      var v = root.querySelector('#wm-url').value.trim();
+      if (!/^https:\/\/script\.google\.com\/.+\/exec/.test(v)) { alert('「https://script.google.com/…/exec」の形のURLを入力してください'); return; }
+      GM_setValue(KEY_URL, v);
+      openPanel();
+    };
+  }
+
+  // 編集画面の「建物名」欄の値（既存の建物を開いたとき、その物件を一覧の先頭に出す）
+  function currentBuildingName() { return W.valueOf('建物名'); }
+
+  function openPanel() {
+    if (!GM_getValue(KEY_URL, '')) { renderSettings(); return; }
+    state.busy = true; renderList();
+    callApp({ api: 'wellmo-list' }).then(function (r) {
+      state.items = r.items || []; state.busy = false; state.msg = ''; renderList();
+    }).catch(function (e) { state.busy = false; state.msg = e.message; state.err = true; renderList(); });
+  }
+
+  function renderList() {
+    var here = norm(currentBuildingName());
+    var q = norm(state.q).toLowerCase();
+    var items = state.items.filter(function (it) { return !q || norm(it.name + it.address).toLowerCase().indexOf(q) >= 0; })
+      .sort(function (a, b) {
+        var am = here && norm(a.name) === here ? 0 : 1, bm = here && norm(b.name) === here ? 0 : 1;
+        if (am !== bm) return am - bm;
+        if (!!a.wellmoAt !== !!b.wellmoAt) return a.wellmoAt ? 1 : -1;
+        return b.stage - a.stage;
+      });
+    var rows = items.map(function (it) {
+      var tag = it.wellmoAt ? '<span class="wm-tag wm-done">入力済 ' + esc(it.wellmoAt) + '</span>'
+        : it.pending ? '<span class="wm-tag wm-warn">要確認 ' + it.pending + '件</span>' : '<span class="wm-tag wm-ok">準備OK</span>';
+      return '<tr class="' + (here && norm(it.name) === here ? 'wm-match' : '') + '"><td><b>' + esc(it.name) + '</b><div class="wm-sub">' + esc(it.address) + '</div>' + tag + '</td>' +
+        '<td style="width:72px;text-align:right"><button type="button" class="wm-btn wm-primary" data-id="' + esc(it.id) + '">入力</button></td></tr>';
+    }).join('');
+    frame('周辺調査から入力',
+      (state.msg ? '<div class="wm-msg' + (state.err ? ' wm-err' : '') + '">' + esc(state.msg) + '</div>' : '') +
+      '<input class="wm-in" id="wm-q" placeholder="建物名・住所で絞り込み" value="' + esc(state.q) + '">' +
+      (state.busy ? '<div class="wm-sub">読み込み中…</div>' : rows ? '<table>' + rows + '</table>' : '<div class="wm-sub">入力できる物件がありません（周辺調査アプリで「確認」まで進めた物件が表示されます）</div>') +
+      '<div class="wm-sub">入力後、内容を確認してウェルモの「保存」を押すと、アプリ側に「ウェルモ入力済」と記録されます。</div>');
+    var qi = root.querySelector('#wm-q');
+    qi.oninput = function () { state.q = qi.value; var pos = qi.selectionStart; renderList(); var n = root.querySelector('#wm-q'); n.focus(); n.setSelectionRange(pos, pos); };
+    Array.prototype.forEach.call(root.querySelectorAll('[data-id]'), function (b) { b.onclick = function () { fillFor(b.dataset.id); }; });
+  }
+
+  function fillFor(id) {
+    state.msg = '入力しています…'; state.err = false; renderList();
+    callApp({ api: 'wellmo-data', id: id }).then(function (r) {
+      var rep = W.run(r.data, 'ウェルモ自動入力：' + (r.name || ''));
+      state.msg = r.name + 'を入力しました（' + rep.done.length + '項目' + (rep.manual.length ? '、手動が必要 ' + rep.manual.length + '項目' : '') + '）。内容を確認して「保存」を押してください。';
+      if (r.pending) state.msg += '　※アプリ側で未確認の項目が' + r.pending + '件あります。';
+      renderClosed();
+      watchSave(id);
+    }).catch(function (e) { state.msg = e.message; state.err = true; renderList(); });
+  }
+
+  /** 「保存」が押されたら入力済みを記録（ページ移動で送れなかった場合は次回表示時に再送） */
+  function watchSave(id) {
+    var btn = W.findSaveButton();
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      GM_setValue(KEY_PENDING, JSON.stringify({ id: id, at: Date.now() }));
+      callApp({ api: 'wellmo-mark', id: id }).then(function () { GM_setValue(KEY_PENDING, ''); }).catch(function () { /* 次回再送 */ });
+    }, { once: true });
+  }
+  function retryPendingMark() {
+    var raw = GM_getValue(KEY_PENDING, '');
+    if (!raw || !GM_getValue(KEY_URL, '')) return;
+    try {
+      var p = JSON.parse(raw);
+      if (Date.now() - p.at > 86400000) { GM_setValue(KEY_PENDING, ''); return; }
+      callApp({ api: 'wellmo-mark', id: p.id }).then(function () { GM_setValue(KEY_PENDING, ''); }).catch(function () {});
+    } catch (e) { GM_setValue(KEY_PENDING, ''); }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
 })();

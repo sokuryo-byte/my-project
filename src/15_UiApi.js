@@ -12,11 +12,47 @@ function menuOpenApp() {
   SpreadsheetApp.getUi().showModelessDialog(html, APP_TITLE);
 }
 
-/** ウェブアプリとして開く（ブラウザのタブ全体を使える。推奨） */
-function doGet() {
+/**
+ * ウェブアプリとして開く（ブラウザのタブ全体を使える。推奨）。
+ * ?api=… のときはウェルモ自動入力（Tampermonkey）向けのJSONを返す。
+ */
+function doGet(e) {
+  var api = e && e.parameter ? e.parameter.api : '';
+  if (api) return wellmoApi_(api, e.parameter);
   return HtmlService.createHtmlOutputFromFile('App')
     .setTitle(APP_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * ウェルモ自動入力からの呼び出し。
+ *  wellmo-list : 入力できる物件（確認まで進んだ物件）の一覧
+ *  wellmo-data : 1物件分のウェルモ入力データ
+ *  wellmo-mark : ウェルモで保存されたことを記録
+ * ウェブアプリのアクセス権（組織内のユーザー）で保護される。
+ */
+function wellmoApi_(api, p) {
+  var body;
+  try {
+    if (api === 'wellmo-list') {
+      body = { ok: true, items: api_listProperties().filter(function (it) { return it.stage >= 4; }) };
+    } else if (api === 'wellmo-data') {
+      var out = rowsOf_(SHEETS.OUTPUT, p.id)[0];
+      if (!out || !out['ウェルモJSON']) throw new Error('この物件はまだ出力ができていません。周辺調査アプリで調査を済ませてください。');
+      var prop = findProp_(p.id);
+      body = { ok: true, id: p.id, name: String(prop['建物名'] || prop['物件名'] || ''), data: JSON.parse(out['ウェルモJSON']),
+        pending: toNum_(out['未確認の要確認件数']) || 0 };
+    } else if (api === 'wellmo-mark') {
+      updateRow_(SHEETS.PROPERTIES, findProp_(p.id)._row, { 'ウェルモ入力日時': formatJst_() });
+      appendLog_('', p.id, 'ウェルモ入力', '保存', 0, '');
+      body = { ok: true };
+    } else {
+      throw new Error('不明な要求です: ' + api);
+    }
+  } catch (err) {
+    body = { ok: false, error: err.message };
+  }
+  return ContentService.createTextOutput(JSON.stringify(body)).setMimeType(ContentService.MimeType.JSON);
 }
 
 /* ---------------- 共通 ---------------- */
@@ -47,6 +83,7 @@ function stageOf_(p, hasResults, pending) {
   if (!bool_(p['起点確認済'])) return { stage: 2, label: '位置の確認待ち' };
   if (!hasResults || p['ステータス'] === '要再調査') return { stage: 3, label: '調査待ち' };
   if (pending > 0) return { stage: 4, label: '確認が' + pending + '件残っています' };
+  if (plain_(p['ウェルモ入力日時'])) return { stage: 5, label: 'ウェルモ入力済（' + plain_(p['ウェルモ入力日時']) + '）', entered: true };
   return { stage: 5, label: 'ウェルモ入力の準備ができました' };
 }
 
@@ -57,6 +94,10 @@ function ensureIds_() {
       updateRow_(SHEETS.PROPERTIES, p._row, { '物件ID': 'P' + ('0000' + p._row).slice(-5) });
     }
   });
+}
+
+function webAppUrl_() {
+  try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
 }
 
 /* ---------------- 一覧・詳細 ---------------- */
@@ -80,6 +121,7 @@ function api_listProperties() {
       stage: stg.stage,
       stageLabel: stg.label,
       pending: pending,
+      wellmoAt: String(plain_(p['ウェルモ入力日時']) || ''),
       updated: plain_(p['最終調査日時'] || p['マイソク取込日時'] || '')
     };
   });
@@ -108,14 +150,15 @@ function api_getProperty(id) {
     config: {
       titleMax: toNum_(settings.title_max_length) || 60,
       welmoLimit: toNum_(settings.welmo_walk_limit_min) || 30,
-      hasApiKey: !!PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY)
+      hasApiKey: !!PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY),
+      webAppUrl: webAppUrl_()
     }
   };
 }
 
 /* ---------------- 物件情報の編集 ---------------- */
 
-var UI_EDITABLE_EXCLUDE = ['物件ID', 'ステータス', '最終調査日時', 'メッセージ', 'マイソク取込日時', 'マイソク取込メモ',
+var UI_EDITABLE_EXCLUDE = ['物件ID', 'ステータス', '最終調査日時', 'メッセージ', 'ウェルモ入力日時', 'マイソク取込日時', 'マイソク取込メモ',
   'Geocode種別', 'Geocode部分一致', 'Geocode住所', 'Googleマップ', '起点緯度', '起点経度', '起点確認済'];
 
 function api_saveProperty(id, patch) {
