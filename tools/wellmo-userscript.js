@@ -11,6 +11,28 @@
   var KEY_URL = 'webappUrl';
   var KEY_PENDING = 'pendingMark';
   var ROOT_ID = 'wm-survey-launcher';
+  // 動作テスト用のサンプル（保存しない前提）
+  var SAMPLE = {
+    'マンスリー表示名': '【千種区/吹上駅徒歩7分/バストイレ別・独立洗面台】（テスト）名信ビル',
+    'ふりがな': 'てすとめいしんびる',
+    '建物名': '【テスト】名信ビル',
+    '物件種別': 'マンション',
+    '所在地': { '郵便番号': '464-0850', '住所': '愛知県名古屋市千種区今池3丁目39-21' },
+    '緯度': 35.164462, '経度': 136.933913,
+    '周辺環境': '（テスト）スーパーまで徒歩約5分\n（テスト）コンビニまで徒歩約2分',
+    '最寄り駅': [
+      { '路線': '桜通線', '駅': '吹上', '徒歩': 7, 'その他': '' },
+      { '路線': '東山線', '駅': '今池', '徒歩': 9, 'その他': '' },
+      { '路線': '東山線', '駅': '千種', '徒歩': '', 'その他': 'バスで31分' }
+    ],
+    'その他アクセス': '名古屋市営バス「今池」停から徒歩約3分',
+    '空港からのアクセス': '県営名古屋空港から車で約24分（有料道路あり）',
+    '建物設備': ['ゴミ捨て場'],
+    '建物構造': 'RC',
+    '建物階数': { '地上': 4, '地下': 0 },
+    '築年月': { '年': 1969, '月': 5 },
+    '総戸数': 9
+  };
 
   var css = [
     '#' + ROOT_ID + '{position:fixed;right:16px;bottom:16px;z-index:2147483646;font:13px/1.6 "BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic UI",Meiryo,sans-serif;color:#1d2a33}',
@@ -85,9 +107,18 @@
   function renderSettings() {
     var url = GM_getValue(KEY_URL, '');
     frame('周辺調査から入力：設定',
-      '<div>周辺調査アプリの<b>ウェブアプリURL</b>を貼り付けてください（アプリの「出力」画面に表示されています）。</div>' +
+      '<div>周辺調査アプリの<b>ウェブアプリURL</b>を貼り付けてください（アプリの「ウェルモ入力」画面に表示されています）。</div>' +
       '<input class="wm-in" id="wm-url" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(url) + '">' +
-      '<div><button type="button" class="wm-btn wm-primary" id="wm-save">保存して一覧を表示</button></div>');
+      '<div><button type="button" class="wm-btn wm-primary" id="wm-save">保存して一覧を表示</button></div>' +
+      '<div style="border-top:1px solid #d5dde2;padding-top:8px"><b>動作テスト</b>（アプリのURLがなくても使えます）</div>' +
+      '<div class="wm-sub">サンプルデータでこの画面に入力してみます。<b>テスト後は保存せず</b>「保存せずに戻る」で終えてください。</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="wm-btn" id="wm-test">サンプルで入力テスト</button>' +
+      '<button type="button" class="wm-btn" id="wm-diag">入力欄の診断をコピー</button></div>');
+    root.querySelector('#wm-test').onclick = function () {
+      W.run(SAMPLE, 'ウェルモ自動入力：テスト（保存しないでください）');
+      renderClosed();
+    };
+    root.querySelector('#wm-diag').onclick = function () { W.diagnose(); };
     root.querySelector('#wm-save').onclick = function () {
       var v = root.querySelector('#wm-url').value.trim();
       if (!/^https:\/\/script\.google\.com\/.+\/exec/.test(v)) { alert('「https://script.google.com/…/exec」の形のURLを入力してください'); return; }

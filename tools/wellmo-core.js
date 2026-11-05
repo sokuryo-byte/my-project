@@ -8,7 +8,7 @@
  */
 (function () {
   'use strict';
-  var VERSION = '0.2.0';
+  var VERSION = '0.2.1';
   var PANEL_ID = 'wm-autofill-panel';
 
   var norm = function (s) {
