@@ -48,7 +48,7 @@ def build_script_files(bootstrap):
     src = os.path.join(ROOT, 'src')
     names = sorted(f for f in os.listdir(src) if f.endswith('.js'))
     code = ''.join('/* ======== %s ======== */\n%s\n' % (f, open(os.path.join(src, f), encoding='utf-8').read()) for f in names)
-    marker = "var BOOTSTRAP = { spreadsheetId: '', mysokuFolderId: '' };"
+    marker = "var BOOTSTRAP = { spreadsheetId: '', mysokuFolderId: '', apiKey: '' };"
     assert marker in code, 'BOOTSTRAP の定義が見つかりません'
     code = code.replace(marker, 'var BOOTSTRAP = %s;' % json.dumps(bootstrap))
     header = '/**\n * マンスリー周辺調査（自動生成：tools/deploy-drive.py）\n * src/ の %d ファイルを1つにまとめたもの。修正は src/ で行い、再度 deploy すること。\n */\n\n' % len(names)
@@ -65,7 +65,7 @@ def main():
     if '--recreate' in sys.argv:
         # 内容の更新には drive.scripts 権限が要るため、古いプログラムをゴミ箱に移して作り直す
         api('PATCH', 'https://www.googleapis.com/drive/v3/files/%s' % state['scriptId'], {'trashed': True})
-        files = build_script_files({'spreadsheetId': state['spreadsheetId'], 'mysokuFolderId': state['mysokuFolderId']})
+        files = build_script_files({'spreadsheetId': state['spreadsheetId'], 'mysokuFolderId': state['mysokuFolderId'], 'apiKey': os.environ.get('MAPS_API_KEY', '')})
         script = api('POST', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
                      multipart=({'name': 'マンスリー周辺調査（プログラム）', 'mimeType': 'application/vnd.google-apps.script', 'parents': [state['folderId']]},
                                 json.dumps(files, ensure_ascii=False), 'application/vnd.google-apps.script+json'))

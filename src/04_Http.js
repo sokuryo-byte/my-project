@@ -4,7 +4,9 @@
  */
 
 function getApiKey_() {
-  var key = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY);
+  var props = PropertiesService.getScriptProperties();
+  var key = props.getProperty(SCRIPT_PROP_API_KEY);
+  if (!key && BOOTSTRAP.apiKey) { key = BOOTSTRAP.apiKey; props.setProperty(SCRIPT_PROP_API_KEY, key); } // 設置時に書き込んだキーを保存
   if (!key) throw new Error('APIキーが未設定です。メニュー「周辺調査 > APIキー設定」から登録してください。');
   return key;
 }

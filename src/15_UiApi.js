@@ -103,7 +103,7 @@ function webAppUrl_() {
 /** アプリ起動時の状態（APIキーの有無など） */
 function api_status() {
   return {
-    hasApiKey: !!PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY),
+    hasApiKey: !!(PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY) || BOOTSTRAP.apiKey),
     webAppUrl: webAppUrl_(),
     spreadsheetUrl: ss_().getUrl()
   };

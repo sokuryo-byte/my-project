@@ -27,6 +27,9 @@ function onOpen() {
 /** Apps Script の編集画面から1回実行する初期設定（スプレッドシートのメニューがない場合用） */
 function setup() {
   setupSheets_();
+  if (BOOTSTRAP.apiKey && !PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY)) {
+    PropertiesService.getScriptProperties().setProperty(SCRIPT_PROP_API_KEY, BOOTSTRAP.apiKey);
+  }
   Logger.log('初期設定が完了しました: ' + ss_().getUrl());
 }
 
