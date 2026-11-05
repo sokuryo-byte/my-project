@@ -13,6 +13,17 @@ function cleanBusStopName_(name) {
     .trim();
 }
 
+/** 所在地から運行会社の初期値を決める（設定 bus_operator_defaults: 「名古屋市=名古屋市営バス, …」。純粋関数） */
+function defaultBusOperator_(address, settings) {
+  var a = nfkc_(address);
+  var pairs = splitList_(settings && settings.bus_operator_defaults);
+  for (var i = 0; i < pairs.length; i++) {
+    var kv = pairs[i].split('=');
+    if (kv.length === 2 && kv[0].trim() && a.indexOf(kv[0].trim()) >= 0) return kv[1].trim();
+  }
+  return '';
+}
+
 function surveyBusStop_(ctx, origin) {
   var radius = toNum_(ctx.settings.bus_stop_radius_m) || 1000;
   var places = placesNearby_(ctx, origin, BUS_STOP_TYPES, radius);
@@ -47,10 +58,11 @@ function surveyBusStop_(ctx, origin) {
     .slice(0, 3);
   return cands.map(function (c, idx) {
     var flags = distanceFlags_(c.roadM, c.straightM, toNum_(ctx.settings.detour_ratio_max));
-    if (idx === 0) addFlag_(flags, '運行会社（○○バス）を入力');
+    var op = idx === 0 ? defaultBusOperator_(ctx.propertyAddress, ctx.settings) : '';
+    if (idx === 0) addFlag_(flags, op ? '運行会社は所在地から「' + op + '」としました。違う場合は修正' : '運行会社（例: 名古屋市営バス）を入力');
     return {
       '物件ID': ctx.propertyId, '実行ID': ctx.runId, '種別': 'バス停', '名称': cleanBusStopName_(c.place.name),
-      '運行会社': '', '道路距離m': c.roadM, '徒歩分': c.minutes, '車所要分': '', '車距離m': '', '有料道路': '',
+      '運行会社': op, '道路距離m': c.roadM, '徒歩分': c.minutes, '車所要分': '', '車距離m': '', '有料道路': '',
       '採用': idx === 0, '詳細': 'Places上の名称: ' + c.place.name,
       '要確認理由': flags.join(' / '), '確認済': false, '備考': '',
       'place_id': c.place.placeId, '緯度': c.place.lat, '経度': c.place.lng, '取得日時': now

@@ -82,14 +82,14 @@ function applyCheckboxes_(sh, headers, name, firstRow, numRows) {
  * @param {function(Object):string} keyFn 引継ぎ用キー
  * @param {string[]} preserveCols 引き継ぐ列（例: 路線, 確認済, 掲載, 備考）
  */
-function replacePropertyRows_(name, propertyId, newRows, keyFn, preserveCols) {
+function replacePropertyRows_(name, propertyId, newRows, keyFn, preserveCols, onlyIf) {
   var t = readTable_(name);
   var sh = t.sheet;
   var headers = t.headers;
   var kept = [];
   var preserved = {};
   t.rows.forEach(function (r) {
-    if (String(r['物件ID']) === String(propertyId)) {
+    if (String(r['物件ID']) === String(propertyId) && (!onlyIf || onlyIf(r))) {
       var k = keyFn(r);
       if (k) preserved[k] = r;
     } else {

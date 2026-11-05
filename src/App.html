@@ -223,6 +223,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .plan th, .plan td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .plan th { width: 170px; background: var(--band); font-size: 13px; }
 .plan td { color: var(--muted); font-size: 13px; }
+.survey-progress { display: grid; gap: 6px; }
+.survey-progress .ptop { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }
+.survey-progress .pct { color: var(--accent); }
+.survey-progress .bar { height: 10px; background: var(--accent-soft); border-radius: 999px; overflow: hidden; }
+.survey-progress .bar i { display: block; height: 100%; background: repeating-linear-gradient(45deg, var(--accent) 0 12px, color-mix(in srgb, var(--accent) 80%, white) 12px 24px); background-size: 34px 34px; animation: stripes 1s linear infinite; transition: width .4s ease; border-radius: 999px; }
+@keyframes stripes { to { background-position: 34px 0; } }
 .progress { height: 4px; background: var(--accent-soft); overflow: hidden; }
 .progress i { display: block; height: 100%; width: 35%; background: var(--accent); animation: slide 1.4s ease-in-out infinite; }
 @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
@@ -361,7 +367,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     { n: 2, t: '位置', d: '建物の出入口を指定' },
     { n: 3, t: '調査', d: '周辺施設・駅を調べる' },
     { n: 4, t: '確認', d: '掲載する施設を選ぶ' },
-    { n: 5, t: 'ウェルモ入力', d: '一覧から選んで入力' }
+    { n: 5, t: 'ウェルモ入力', d: '新規作成画面へ自動入力' }
   ];
   var KINDS = ['マンション', 'アパート', '一戸建て', 'その他'];
   var STRUCTS = [['RC', 'RC（鉄筋コンクリート）'], ['SRC', 'SRC（鉄骨鉄筋コンクリート）'], ['S', 'S（鉄骨）'], ['軽量鉄骨', '軽量鉄骨'], ['木造', '木造'], ['その他', 'その他']];
@@ -371,6 +377,9 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   var EQUIP_WELLMO = [['防犯カメラ', '防犯カメラ'], ['コンシェルジュ', 'コンシェルジュ'], ['自動販売機', '自動販売機'], ['TVドアホン', 'TVドアホン'], ['ゴミ捨て場', 'ゴミ捨て場']];
   var WELLMO_EQUIP_KEYS = ['エレベーター', 'オートロック', '宅配BOX', '防犯カメラ', 'コンシェルジュ', '自転車駐輪可能', '自動販売機', 'TVドアホン', 'ゴミ捨て場'];
   var WELLMO_URL = 'https://wm-system.com/';
+  // ウェルモ「物件・料金管理 > 建物の新規作成」。#wmfill=物件ID を付けると、Tampermonkeyのスクリプトが自動で入力する
+  var WELLMO_CREATE_URL = 'https://wm-system.com/build/create';
+  function wellmoCreateUrl(id) { return WELLMO_CREATE_URL + '#wmfill=' + encodeURIComponent(id); }
   var MAP_W = 640, MAP_H = 400;
 
   /* ================= 状態 ================= */
@@ -378,7 +387,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     list: [], filter: 'all', query: '',
     id: null, data: null, step: 1, tab: 'facility', onlyPending: false,
     map: null, busy: '', surveyResult: null, error: '', addOpen: false, forceStep: 0, uploading: false,
-    cache: {}, inflight: {}, confirmDelete: ''
+    cache: {}, inflight: {}, confirmDelete: '', edits: 0
   };
 
   /* ================= 小道具 ================= */
@@ -432,9 +441,12 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   }
 
   /* ================= 物件一覧 ================= */
+  /* 一覧と全物件の詳細を1回の通信でまとめて読む（以降のクリックはすぐ表示） */
   function loadList(selectId) {
-    return API.call('api_listProperties').then(function (list) {
-      S.list = list || [];
+    return API.call('api_bootstrap').then(function (r) {
+      S.list = r.list || [];
+      Object.keys(r.details || {}).forEach(function (k) { S.cache[k] = r.details[k]; });
+      if (r.status && !r.status.hasApiKey) $('setup-band').hidden = false;
       renderList();
       var target = selectId || S.id || (S.list[0] && S.list[0].id);
       if (target) return openProperty(target, !selectId && S.id === target);
@@ -491,16 +503,21 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     // 一度開いた物件は、前回の内容をすぐに表示してから最新に更新する
     var cached = changed && S.cache[id];
     if (cached) { S.data = cached; setStep(cached); }
+    var editsAtOpen = S.edits;
     renderList();
     renderWork();
     if (window.innerWidth <= 900) setQueueOpen(false);
     return fetchProperty(id).then(function (d) {
       if (S.id !== id) return;
       if (cached) {
-        if (JSON.stringify(d) === JSON.stringify(cached) || editing()) { if (!editing()) S.data = d; return; }
+        // 開いたあとに画面で変更（「確認した」など）していたら、古い内容で上書きしない
+        if (S.edits !== editsAtOpen || editing()) return;
+        if (JSON.stringify(d) === JSON.stringify(cached)) { S.data = d; return; }
         S.data = d; renderWork();
         return;
       }
+      // 表示中の物件をもう一度押した場合も、その間の画面の変更は上書きしない
+      if (S.data && S.edits !== editsAtOpen) return;
       S.data = d; setStep(d); renderWork();
     }).catch(function (e) { if (S.id === id) { S.error = errorText(e); renderWork(); } });
   }
@@ -598,8 +615,8 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       msg = pc ? '<b style="color:var(--warn)">確認が' + pc + '件残っています</b>（変更はすぐに出力へ反映されます）' : '<span style="color:var(--ok)">✓ すべて確認しました</span>';
       primary = '<button class="btn primary big" type="button" data-step="5">ウェルモ入力へ →</button>';
     } else {
-      msg = p['ウェルモ入力日時'] ? 'ウェルモ入力済（' + esc(p['ウェルモ入力日時']) + '）' : 'ウェルモの建物編集画面で「周辺調査から入力」を押し、この物件を選びます';
-      primary = '<a class="btn primary big" href="' + WELLMO_URL + '" target="_blank" rel="noopener">ウェルモを開く ↗</a>';
+      msg = p['ウェルモ入力日時'] ? 'ウェルモ入力済（' + esc(p['ウェルモ入力日時']) + '）' : '新規作成画面が開き、自動で入力されます。内容を確認して「保存」を押してください';
+      primary = '<a class="btn primary big" href="' + esc(wellmoCreateUrl(p['物件ID'])) + '" target="_blank" rel="noopener">ウェルモで新規作成して入力 ↗</a>';
     }
     return '<div class="actionbar"><div class="actionbar-inner">' + back + '<div class="msg">' + msg + '</div>' + primary + '</div></div>';
   }
@@ -675,6 +692,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   function queueSave(field, value) {
     pending[field] = value;
     S.data.prop[field] = value;
+    S.edits++;
     refreshActionBar();
     setSaveState('保存中…');
     clearTimeout(saveTimer);
@@ -763,7 +781,8 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       if (S.id !== id) return;
       S.map = { lat: loc.lat, lng: loc.lng, pinLat: loc.lat, pinLng: loc.lng, zoom: 18, warnings: loc.warnings, geocodedAddress: loc.geocodedAddress, loading: true };
       loadMapImage(loc.lat, loc.lng, 18);
-      API.call('api_getProperty', id).then(function (d) { if (S.id === id) applyData(d); });
+      var e0 = S.edits;
+      API.call('api_getProperty', id).then(function (d) { if (S.id === id && S.edits === e0) applyData(d); });
     }).catch(function (e) { S.map = { error: errorText(e) }; renderWork(); });
   }
   function loadMapImage(lat, lng, zoom) {
@@ -797,7 +816,12 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       resultNote = res.error ? note('err', '×', '<p><b>調査できませんでした</b></p><p>' + esc(res.error) + '</p>')
         : note(bad ? 'warn' : 'ok', bad ? '!' : '✓', '<p><b>' + esc(res.status) + '</b>（Google API ' + esc(res.apiCalls) + '回）</p><p>' + esc(res.message) + '</p>');
     }
-    var running = S.busy === 'survey' ? card('調査中', '', '<div class="progress" role="progressbar" aria-label="調査中"><i></i></div><p class="help" style="margin:0">Googleから施設・駅・経路を取得し、道路距離から徒歩分（80m＝1分）を計算しています。</p>') : '';
+    var pr = S.progress || { i: 0, n: 1, label: '準備しています' }, pct = Math.round(pr.i / pr.n * 100);
+    var running = S.busy === 'survey' ? card('調査中', '画面を閉じずにお待ちください',
+      '<div id="survey-progress" class="survey-progress" role="progressbar" aria-label="調査の進み具合" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '">' +
+        '<div class="ptop"><span class="ptext">' + (pr.i + 1) + ' / ' + pr.n + '　' + esc(pr.label) + '…</span><span class="pct num">' + pct + '%</span></div>' +
+        '<div class="bar"><i style="width:' + Math.max(4, pct) + '%"></i></div></div>' +
+      '<p class="help" style="margin:0">Googleから施設・駅・経路を取得し、道路距離から徒歩分（80m＝1分）を計算しています。</p>') : '';
     var again = hasResults(d) && S.busy !== 'survey'
       ? note('info', 'i', '<p>この物件は調査済みです。もう一度調査すると結果を最新にします（掲載のON/OFF・路線などの入力は引き継ぎます）。 <button class="btn small" type="button" data-act="survey">再調査する</button></p>') : '';
     return resultNote + running + card('調査する内容', '距離はすべてGoogleの道路距離。AIによる推定は行いません',
@@ -807,16 +831,45 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       '<tr><th>空港からのアクセス</th><td>中部国際空港・県営名古屋空港のうち近い方（渋滞の少ない深夜の車移動）</td></tr></table>') + again;
   }
 
+  /* 調査：工程（カテゴリ→駅→バス・空港→まとめ）を1つずつ実行し、本当の進み具合を表示する */
   function runSurvey() {
     var id = S.id;
-    S.busy = 'survey'; S.surveyResult = null; renderWork();
-    API.call('api_runSurvey', id).then(function (r) {
+    S.busy = 'survey'; S.surveyResult = null; S.progress = { i: 0, n: 1, label: '準備しています', started: Date.now(), calls: 0 };
+    renderWork();
+    API.call('api_surveyPart', id, 'plan').then(function (plan) {
+      var parts = plan.parts, i = 0;
+      S.progress.n = parts.length;
+      var next = function () {
+        if (S.id !== id) { S.busy = ''; return null; }
+        var p = parts[i];
+        S.progress.i = i; S.progress.label = p.part === 'finish' ? '結果をまとめています' : p.label + 'を調べています';
+        updateProgress();
+        return API.call('api_surveyPart', id, p.part, plan.runId).then(function (r) {
+          S.progress.calls += (r && r.apiCalls) || 0;
+          i++;
+          if (p.part === 'finish') return r;
+          return next();
+        });
+      };
+      return next();
+    }).then(function (r) {
       S.busy = '';
-      if (S.id !== id) return;
-      S.surveyResult = r; applyData(r.data);
-      if (r.data.stage >= 4) { S.step = 4; toast('調査が完了しました。結果を確認してください'); }
+      if (!r || S.id !== id) return;
+      var sec = Math.round((Date.now() - S.progress.started) / 1000);
+      S.surveyResult = { status: '調査済', message: '結果の「要確認」を確認し、掲載する施設を選んでください。（' + sec + '秒）', apiCalls: S.progress.calls };
+      applyData(r.data);
+      S.step = 4; toast('調査が完了しました。結果を確認してください');
       renderWork();
     }).catch(function (e) { S.busy = ''; S.surveyResult = { error: errorText(e) }; renderWork(); });
+  }
+  /* 進み具合の表示だけを書き換える（画面全体は描き直さない） */
+  function updateProgress() {
+    var el = $('survey-progress');
+    if (!el) { renderWork(); return; }
+    var pr = S.progress, pct = Math.round(pr.i / pr.n * 100);
+    el.querySelector('.bar i').style.width = Math.max(4, pct) + '%';
+    el.querySelector('.ptext').textContent = (pr.i + 1) + ' / ' + pr.n + '　' + pr.label + '…';
+    el.querySelector('.pct').textContent = pct + '%';
   }
 
   /* ---------- 手順4：確認 ---------- */
@@ -927,6 +980,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     var keyOf = kind === 'facility' ? function (r) { return r['カテゴリID'] + '|' + (r['place_id'] || r['採否']); }
       : kind === 'station' ? function (r) { return String(r['枠']); } : function (r) { return r['種別'] + '|' + (r['place_id'] || r['名称']); };
     var row = list.filter(function (r) { return keyOf(r) === key; })[0];
+    S.edits++;
     if (row) {
       Object.keys(patch).forEach(function (k) { row[k] = patch[k]; });
       if (kind === 'access' && patch['採用'] === true) list.forEach(function (r) { if (r !== row && r['種別'] === row['種別']) r['採用'] = false; });
@@ -934,12 +988,24 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     var y = scrollY();
     var rerender = !('路線' in patch || '運行会社' in patch);
     if (rerender) { renderWork(); setScroll(y); } else refreshActionBar();
-    return API.call('api_updateResult', kind, id, key, patch).then(function (d) {
-      if (S.id !== id) return;
+    if (S.cache[id]) S.cache[id] = S.data;
+    // 操作は1つずつ順番に送る。まだ送信待ちの操作がある間は、途中の返事で画面を書き換えない
+    updPending++;
+    updQueue = updQueue.then(function () { return API.call('api_updateResult', kind, id, key, patch); }).then(function (d) {
+      updPending--;
+      if (S.id !== id) { S.cache[id] = d; return; }
+      if (updPending > 0) return;
+      var changed = JSON.stringify(d) !== JSON.stringify(S.data);
       applyData(d);
-      if (rerender) { var y2 = scrollY(); renderWork(); setScroll(y2); } else refreshActionBar();
-    }).catch(function (e) { toast('保存できませんでした：' + errorText(e)); openProperty(id, true); });
+      if (changed && rerender && !editing()) { var y2 = scrollY(); renderWork(); setScroll(y2); } else refreshActionBar();
+    }, function (e) {
+      updPending--;
+      toast('保存できませんでした：' + errorText(e));
+      if (updPending === 0) { delete S.cache[id]; openProperty(id, true); }
+    });
+    return updQueue;
   }
+  var updQueue = Promise.resolve(), updPending = 0;
   function scrollY() { var el = document.querySelector('.work-scroll'); return el ? el.scrollTop : 0; }
   function setScroll(y) { var el = document.querySelector('.work-scroll'); if (el) el.scrollTop = y; }
 
@@ -971,11 +1037,12 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     var entered = p['ウェルモ入力日時'];
     var howto = card('ウェルモへの入力', entered ? '入力済（' + esc(entered) + '）' : 'コピー＆貼り付けは不要です',
       '<div class="handoff"><ol class="howto">' +
-        '<li>ウェルモで<b>建物管理の新規登録／編集画面</b>を開く</li>' +
-        '<li>右下の<b>「周辺調査から入力」</b>を押し、一覧から<b>' + esc(p['建物名'] || 'この物件') + '</b>の「入力」を押す</li>' +
-        '<li>全項目が入ります。右上の結果で赤字の項目（住所検索など）だけ手で直す</li>' +
+        '<li>右の<b>「ウェルモで新規作成して入力」</b>を押す</li>' +
+        '<li>ウェルモの「物件・料金管理」の<b>建物の新規作成画面</b>が開き、<b>' + esc(p['建物名'] || 'この物件') + '</b>の内容が自動で入力されます</li>' +
+        '<li>右上の結果で赤字の項目だけ手で直す</li>' +
         '<li>内容を確認して<b>「保存」</b>を押すと、ここに「ウェルモ入力済」と記録されます</li></ol>' +
-        '<a class="btn primary" href="' + WELLMO_URL + '" target="_blank" rel="noopener">ウェルモを開く ↗</a></div>' +
+        '<a class="btn primary" href="' + esc(wellmoCreateUrl(p['物件ID'])) + '" target="_blank" rel="noopener">ウェルモで新規作成して入力 ↗</a></div>' +
+        '<p class="help" style="margin:0">既存の建物を更新するときは、ウェルモの建物編集画面で右下の「周辺調査から入力」から選べます。</p>' +
       '<details class="more"><summary>はじめて使うときの設定（1回だけ）</summary><div style="display:grid;gap:8px;padding-top:6px">' +
         '<ol class="howto"><li>Chromeに拡張機能「Tampermonkey」を追加</li><li>ウェルモ自動入力スクリプト（wellmo-autofill.user.js）をTampermonkeyに追加</li>' +
         '<li>ウェルモで「周辺調査から入力」→「設定」を押し、次のURLを貼り付けて保存</li></ol>' +
@@ -1168,8 +1235,6 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   $('queue-toggle').addEventListener('click', function () { setQueueOpen($('queue').classList.contains('collapsed')); });
 
   window.addEventListener('beforeunload', flushSave);
-  // APIキーが未登録なら、画面上部で登録できるようにする
-  API.call('api_status').then(function (st) { if (!st.hasApiKey) $('setup-band').hidden = false; }).catch(function () {});
   $('key-form').addEventListener('submit', function (ev) {
     ev.preventDefault();
     $('key-msg').textContent = '登録中…';

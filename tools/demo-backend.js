@@ -240,6 +240,20 @@
 
   /* ---------- API ---------- */
   var api = {
+    api_bootstrap: function () {
+      var details = {};
+      DB.props.forEach(function (p) { details[p['物件ID']] = api.api_getProperty(p['物件ID']); });
+      return { list: api.api_listProperties(), details: details, status: { hasApiKey: true } };
+    },
+    api_surveyPart: function (id, part) {
+      if (part === 'plan') {
+        var parts = CATEGORIES.slice().sort(function (a, b) { return a.order - b.order; }).map(function (c) { return { part: 'fac:' + c.id, label: c.label }; });
+        parts.push({ part: 'stations', label: '最寄り駅' }, { part: 'access', label: 'バス停・空港' }, { part: 'finish', label: '結果のまとめ' });
+        return { runId: 'DEMO', parts: parts };
+      }
+      if (part === 'finish') { var r = api.api_runSurvey(id); return { ok: true, data: r.data }; }
+      return { ok: true, apiCalls: 2 };
+    },
     api_status: function () { return { hasApiKey: true, webAppUrl: '', spreadsheetUrl: '' }; },
     api_setApiKey: function () { return { hasApiKey: true }; },
     api_listProperties: function () {
@@ -342,7 +356,7 @@
     }
   };
 
-  var DELAY = { api_runSurvey: 2600, api_uploadMysoku: 1400, api_locate: 500, api_mapImage: 300 };
+  var DELAY = { api_runSurvey: 2600, api_surveyPart: 280, api_bootstrap: 400, api_uploadMysoku: 1400, api_locate: 500, api_mapImage: 300 };
   window.DEMO_BACKEND = {
     call: function (fn) {
       var args = Array.prototype.slice.call(arguments, 1);

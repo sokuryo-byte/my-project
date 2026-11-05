@@ -22,7 +22,7 @@ a { color: var(--accent); overflow-wrap: anywhere; }
 textarea { width: 100%; height: 80px; border: 1px solid var(--line); background: var(--code); color: var(--muted); font: 11.5px/1.4 ui-monospace, monospace; }
 :focus-visible { outline: 2px solid #e09a00; outline-offset: 2px; }
 </style>
-<header><h1>周辺調査プログラムの更新</h1><p>2026-11-05 19:13 版（調査エラーの修正・地図・処理中の表示・エリアとふりがな・一覧の表示を速く・物件の削除） ／ info@monthly-familia.com で作業</p></header>
+<header><h1>周辺調査プログラムの更新</h1><p>2026-11-05 19:45 版（一括読み込みで表示を速く・調査の進み具合・確認したの表示修正・掲載2件まで・ジャンル名・名古屋市営バス・新規作成へ自動入力） ／ info@monthly-familia.com で作業</p></header>
 <main>
 <section><h2><span class="no">1</span>プログラム（コード.gs）を貼り替える</h2><div class="body">
 <ol><li>プログラムを開く：<a href="https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com" target="_blank" rel="noopener">https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com</a></li>
@@ -80,7 +80,7 @@ HEADERS[SHEETS.PROPERTIES] = [
 ];
 HEADERS[SHEETS.FACILITIES] = [
   '物件ID', '実行ID', 'カテゴリID', 'カテゴリ', '採否', '採用理由', '順位',
-  '名称', 'ブランド', '道路距離m', '徒歩分', '車所要分', '車距離m', '直線距離m', '住所', '緯度', '経度',
+  '名称', 'ジャンル表示', 'ブランド', '道路距離m', '徒歩分', '車所要分', '車距離m', '直線距離m', '住所', '緯度', '経度',
   'place_id', '営業状態', '面積概算m2', '要確認理由', '確認済', '掲載', '備考', '取得日時'
 ];
 HEADERS[SHEETS.STATIONS] = [
@@ -150,6 +150,9 @@ var DEFAULT_SETTINGS = [
   ['max_unselected_saved', '5', 'カテゴリごとに保存する不採用候補の最大数（担当者の差し替え用）'],
   ['attribution', '周辺施設・距離：Google Maps Platformのデータを基に算出', '周辺施設の出力末尾に付ける出典表記'],
   ['api_retries', '3', 'API一時エラー時のリトライ回数'],
+  ['bus_operator_defaults', '名古屋市=名古屋市営バス', 'バス停の運行会社の初期値（所在地に含まれる地名=会社名、カンマ区切り）。違う場合は確認画面で修正'],
+  ['facility_genre_prefix', 'TRUE', 'TRUE: 店名だけでは分かりにくい施設の頭にジャンル名を付ける（例: スーパー タッチもとこい）'],
+  ['categories_version', '0', 'カテゴリ設定の版（自動更新用。変更しないこと）'],
   ['mysoku_folder_id', '', 'マイソクPDFを置くGoogleドライブのフォルダ（URLまたはID）。「フォルダから新規取り込み」で使用']
 ];
 
@@ -157,17 +160,28 @@ var DEFAULT_SETTINGS = [
 //  圏内上限分, 最低件数, 最大件数, 他社のみ, チェーン辞書必須, 面積下限m2, 常に要確認, 要確認メモ, 出力順, 必須の種別]
 // 必須の種別：Googleの分類（types）にこのいずれかを含む施設だけを残す（例: 食料品店や調剤薬局を除く）。
 // 最大件数：掲載の上限（近い順）。公園は面積の大きい順に優先する。
+// カテゴリ定義の版。上げると、次にアプリを開いたとき「カテゴリ設定」「チェーン辞書」シートを初期値で書き直す
+var CATEGORIES_VERSION = 3;
+
+// 店名だけでは何の店か分かりにくいときに頭に付けるジャンル名（チェーン辞書の店・名前にジャンルの語がある店には付けない）
+var GENRE_LABELS = {
+  supermarket: ['スーパー', /スーパー/], drugstore: ['ドラッグストア', /ドラッグ|薬局|薬品/], convenience: ['コンビニ', /コンビニ|マート|ストア/],
+  hundred_yen: ['100円ショップ', /100円|ダイソー|セリア|キャンドゥ/], mall: ['商業施設', /モール|ショッピング|百貨店|デパート|プラザ|センター|SC|イオン|アピタ/],
+  clinic: ['クリニック', /クリニック|医院|診療所|内科/], hospital: ['病院', /病院/], post_office: ['郵便局', /郵便局/],
+  park: ['公園', /公園|緑地|広場/], chain_restaurant: ['飲食店', /^$/]
+};
+
 var DEFAULT_CATEGORIES = [
-  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, 3, true, false, '', false, '', 1, 'supermarket'],
-  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, 3, true, false, '', false, '', 2, 'drugstore'],
-  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, 3, true, false, '', false, '', 3, 'convenience_store'],
+  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, 2, true, false, '', false, '', 1, 'supermarket'],
+  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, 2, true, false, '', false, '', 2, 'drugstore'],
+  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, 2, true, false, '', false, '', 3, 'convenience_store'],
   ['hundred_yen', '100円ショップ', true, 'text', '', '100円ショップ', 'ダイソー,DAISO,セリア,Seria,キャンドゥ,Can★Do,ワッツ,Watts,meets,シルク', '', 10, 0, 2, true, false, '', false, '', 4, ''],
   ['mall', '大型商業施設', true, 'nearby', 'shopping_mall,department_store', '', '', '', 15, 0, 2, true, false, '', true, '大型ショッピングモール・商業施設に該当するか確認', 5, 'shopping_mall,department_store'],
   ['clinic', '内科系クリニック', true, 'text', '', '内科', '', '歯科,眼科,皮膚科,整形外科,耳鼻,動物,美容,形成外科', '', 1, 1, false, false, '', true, '内科系の診療科か確認', 6, ''],
   ['hospital', '総合病院', true, 'nearby', 'hospital', '', '病院', '動物,歯科,デイケア', 15, 0, 2, false, false, '', true, '総合病院（複数診療科）に該当するか確認', 7, 'hospital'],
   ['post_office', '郵便局', true, 'nearby', 'post_office', '', '郵便局', 'ATM,ゆうちょ銀行', '', 1, 1, false, false, '', false, '', 8, ''],
   ['park', '公園', true, 'nearby', 'park', '', '', 'ひろば,広場,児童遊園,遊園地,ちびっこ', 10, 0, 2, false, false, 10000, false, '', 9, 'park'],
-  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, 5, true, true, '', false, '', 10, '']
+  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, 3, true, true, '', false, '', 10, '']
 ];
 
 // [ブランド名, 照合キーワード(カンマ区切り), 対象カテゴリID(空欄=全カテゴリ)]
@@ -1020,11 +1034,19 @@ function surveyCategory_(ctx, cat, origin) {
   return rows;
 }
 
+/** 店名だけでは何の店か分かりにくい場合のジャンル名（純粋関数）。チェーン辞書の店・名前にジャンル語がある店は空 */
+function genrePrefix_(cat, name, fromDict, settings) {
+  if (settings &amp;&amp; settings.facility_genre_prefix !== undefined &amp;&amp; !bool_(settings.facility_genre_prefix)) return '';
+  var g = GENRE_LABELS[cat.id];
+  if (!g || fromDict) return '';
+  return g[1].test(nfkc_(name)) ? '' : g[0];
+}
+
 function facilityRow_(ctx, cat, c, status, reason, rank, flags, now) {
   return {
     '物件ID': ctx.propertyId, '実行ID': ctx.runId, 'カテゴリID': cat.id, 'カテゴリ': cat.label,
     '採否': status, '採用理由': reason, '順位': rank,
-    '名称': c.place.name, 'ブランド': c.brand, '道路距離m': c.roadM, '徒歩分': c.minutes,
+    '名称': c.place.name, 'ジャンル表示': genrePrefix_(cat, c.place.name, c.fromDict, ctx.settings), 'ブランド': c.brand, '道路距離m': c.roadM, '徒歩分': c.minutes,
     '車所要分': c.driveMin != null ? c.driveMin : '', '車距離m': c.driveM != null ? c.driveM : '', '直線距離m': c.straightM,
     '住所': c.place.address, '緯度': c.place.lat, '経度': c.place.lng, 'place_id': c.placeId,
     '営業状態': c.place.businessStatus, '面積概算m2': c.area,
@@ -1245,6 +1267,17 @@ function cleanBusStopName_(name) {
     .trim();
 }
 
+/** 所在地から運行会社の初期値を決める（設定 bus_operator_defaults: 「名古屋市=名古屋市営バス, …」。純粋関数） */
+function defaultBusOperator_(address, settings) {
+  var a = nfkc_(address);
+  var pairs = splitList_(settings &amp;&amp; settings.bus_operator_defaults);
+  for (var i = 0; i &lt; pairs.length; i++) {
+    var kv = pairs[i].split('=');
+    if (kv.length === 2 &amp;&amp; kv[0].trim() &amp;&amp; a.indexOf(kv[0].trim()) >= 0) return kv[1].trim();
+  }
+  return '';
+}
+
 function surveyBusStop_(ctx, origin) {
   var radius = toNum_(ctx.settings.bus_stop_radius_m) || 1000;
   var places = placesNearby_(ctx, origin, BUS_STOP_TYPES, radius);
@@ -1279,10 +1312,11 @@ function surveyBusStop_(ctx, origin) {
     .slice(0, 3);
   return cands.map(function (c, idx) {
     var flags = distanceFlags_(c.roadM, c.straightM, toNum_(ctx.settings.detour_ratio_max));
-    if (idx === 0) addFlag_(flags, '運行会社（○○バス）を入力');
+    var op = idx === 0 ? defaultBusOperator_(ctx.propertyAddress, ctx.settings) : '';
+    if (idx === 0) addFlag_(flags, op ? '運行会社は所在地から「' + op + '」としました。違う場合は修正' : '運行会社（例: 名古屋市営バス）を入力');
     return {
       '物件ID': ctx.propertyId, '実行ID': ctx.runId, '種別': 'バス停', '名称': cleanBusStopName_(c.place.name),
-      '運行会社': '', '道路距離m': c.roadM, '徒歩分': c.minutes, '車所要分': '', '車距離m': '', '有料道路': '',
+      '運行会社': op, '道路距離m': c.roadM, '徒歩分': c.minutes, '車所要分': '', '車距離m': '', '有料道路': '',
       '採用': idx === 0, '詳細': 'Places上の名称: ' + c.place.name,
       '要確認理由': flags.join(' / '), '確認済': false, '備考': '',
       'place_id': c.place.placeId, '緯度': c.place.lat, '経度': c.place.lng, '取得日時': now
@@ -1368,7 +1402,8 @@ function formatStation_(row, limitMin, showDistance) {
 /** 例: ○○バス「△△」停から徒歩約n分 */
 function formatBusStop_(row) {
   if (!row || !row['名称']) return '';
-  var op = nfkc_(row['運行会社']).trim() || '○○バス';
+  // 運行会社が未入力なら「○○バス」とは出さず、停留所名だけにする
+  var op = nfkc_(row['運行会社']).trim();
   return op + '「' + row['名称'] + '」停から徒歩約' + row['徒歩分'] + '分';
 }
 
@@ -1379,6 +1414,12 @@ function formatAirport_(row, showDistance) {
     driveSuffix_(toNum_(row['車距離m']), row['有料道路'] === 'あり', showDistance);
 }
 
+/** 掲載名（必要ならジャンル名を頭に付ける。例: スーパー タッチもとこい） */
+function facilityName_(row) {
+  var g = String(row['ジャンル表示'] || '').trim();
+  return (g ? g + ' ' : '') + row['名称'];
+}
+
 /**
  * 例: セブンイレブン 豊田市小川町店まで徒歩約2分
  *     スーパーマーケットバロー 東新町店まで車で約6分（徒歩分が閾値を超え、車の所要時間がある場合）
@@ -1386,9 +1427,9 @@ function formatAirport_(row, showDistance) {
 function formatFacility_(row, showDistance) {
   var car = toNum_(row['車所要分']);
   if (car != null) {
-    return row['名称'] + 'まで車で約' + car + '分' + driveSuffix_(toNum_(row['車距離m']), false, showDistance);
+    return facilityName_(row) + 'まで車で約' + car + '分' + driveSuffix_(toNum_(row['車距離m']), false, showDistance);
   }
-  return row['名称'] + 'まで徒歩約' + row['徒歩分'] + '分';
+  return facilityName_(row) + 'まで徒歩約' + row['徒歩分'] + '分';
 }
 
 /** 周辺施設の複数行テキスト（カテゴリの出力順→道路距離順。純粋関数） */
@@ -1527,14 +1568,14 @@ function applyCheckboxes_(sh, headers, name, firstRow, numRows) {
  * @param {function(Object):string} keyFn 引継ぎ用キー
  * @param {string[]} preserveCols 引き継ぐ列（例: 路線, 確認済, 掲載, 備考）
  */
-function replacePropertyRows_(name, propertyId, newRows, keyFn, preserveCols) {
+function replacePropertyRows_(name, propertyId, newRows, keyFn, preserveCols, onlyIf) {
   var t = readTable_(name);
   var sh = t.sheet;
   var headers = t.headers;
   var kept = [];
   var preserved = {};
   t.rows.forEach(function (r) {
-    if (String(r['物件ID']) === String(propertyId)) {
+    if (String(r['物件ID']) === String(propertyId) &amp;&amp; (!onlyIf || onlyIf(r))) {
       var k = keyFn(r);
       if (k) preserved[k] = r;
     } else {
@@ -1805,6 +1846,7 @@ function processProperty_(prop, ctx) {
     prop['物件ID'] = id;
   }
   ctx.propertyId = id;
+  ctx.propertyAddress = String(prop['住所'] || '');
   ctx.runId = makeRunId_();
   var callsBefore = ctx.apiCalls;
   var requireConfirm = bool_(ctx.settings.require_origin_confirm);
@@ -2657,6 +2699,7 @@ function webAppUrl_() {
 
 /** アプリ起動時の状態（APIキーの有無など） */
 function api_status() {
+  migrate_();
   return {
     hasApiKey: !!(PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY) || BOOTSTRAP.apiKey),
     webAppUrl: webAppUrl_(),
@@ -2670,6 +2713,146 @@ function api_setApiKey(key) {
   if (!/^AIza[0-9A-Za-z_\-]{30,}$/.test(k)) throw new Error('APIキーの形式が正しくありません（「AIza」で始まる文字列です）');
   PropertiesService.getScriptProperties().setProperty(SCRIPT_PROP_API_KEY, k);
   return api_status();
+}
+
+/* ---------------- 自動更新（シートの列・カテゴリ設定） ---------------- */
+
+/**
+ * プログラム更新後に必要なシートの変更を、アプリを開いたときに1回だけ行う。
+ * - 新しい列・設定キーの追加（既存のデータは動かさない）
+ * - カテゴリ設定の版が上がっていたら「カテゴリ設定」「チェーン辞書」を初期値で書き直す
+ */
+var SCHEMA_VERSION = 3;
+function migrate_() {
+  var props = PropertiesService.getScriptProperties();
+  if (Number(props.getProperty('SCHEMA_VERSION') || 0) >= SCHEMA_VERSION) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return;
+  try {
+    setupSheets_();
+    var settings = loadSettings_();
+    if ((toNum_(settings.categories_version) || 0) &lt; CATEGORIES_VERSION) {
+      var cat = sheet_(SHEETS.CATEGORIES);
+      cat.clearContents();
+      var ch = HEADERS[SHEETS.CATEGORIES];
+      cat.getRange(1, 1, 1, ch.length).setValues([ch]).setFontWeight('bold').setBackground('#e8eaed');
+      cat.getRange(2, 1, DEFAULT_CATEGORIES.length, ch.length).setValues(DEFAULT_CATEGORIES);
+      var br = sheet_(SHEETS.BRANDS);
+      br.clearContents();
+      br.getRange(1, 1, 1, 3).setValues([HEADERS[SHEETS.BRANDS]]).setFontWeight('bold').setBackground('#e8eaed');
+      br.getRange(2, 1, DEFAULT_BRANDS.length, 3).setValues(DEFAULT_BRANDS);
+      var t = readTable_(SHEETS.SETTINGS);
+      var row = t.rows.filter(function (r) { return r['キー'] === 'categories_version'; })[0];
+      if (row) updateRow_(SHEETS.SETTINGS, row._row, { '値': String(CATEGORIES_VERSION) });
+    }
+    CacheService.getScriptCache().removeAll(['ui_settings_v1', 'ui_categories_v1']);
+    props.setProperty('SCHEMA_VERSION', String(SCHEMA_VERSION));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * アプリ起動時に1回だけ呼ぶ：一覧と、全物件の詳細をまとめて返す（各シートを1回ずつ読むだけ）。
+ * 以降、物件をクリックしたときはすぐに表示できる。
+ */
+function api_bootstrap() {
+  migrate_();
+  ensureIds_();
+  var props = readTable_(SHEETS.PROPERTIES).rows.filter(function (p) { return String(p['物件ID'] || '').trim(); });
+  var group = function (name) {
+    var m = {};
+    readTable_(name).rows.forEach(function (r) { var k = String(r['物件ID']); (m[k] = m[k] || []).push(plainRow_(r)); });
+    return m;
+  };
+  var fac = group(SHEETS.FACILITIES), st = group(SHEETS.STATIONS), ac = group(SHEETS.ACCESS), out = group(SHEETS.OUTPUT);
+  var settings = loadSettings_();
+  var categories = loadCategories_().filter(function (c) { return c.enabled; }).map(function (c) { return { id: c.id, label: c.label, order: c.order }; });
+  var config = {
+    titleMax: toNum_(settings.title_max_length) || 60,
+    welmoLimit: toNum_(settings.welmo_walk_limit_min) || 30,
+    hasApiKey: !!(PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY) || BOOTSTRAP.apiKey),
+    webAppUrl: webAppUrl_()
+  };
+  var list = [], details = {};
+  props.forEach(function (p) {
+    var id = String(p['物件ID']);
+    var f = fac[id] || [], s = st[id] || [], a = ac[id] || [];
+    var pending = countUnconfirmed_(f, s, a);
+    var stg = stageOf_(p, f.length + s.length + a.length > 0, pending);
+    list.push({ id: id, name: String(p['建物名'] || p['物件名'] || ''), address: String(p['住所'] || ''), stage: stg.stage, stageLabel: stg.label,
+      pending: pending, wellmoAt: String(plain_(p['ウェルモ入力日時']) || ''), updated: plain_(p['最終調査日時'] || p['マイソク取込日時'] || '') });
+    details[id] = { prop: plainRow_(p), facilities: f, stations: s, access: a, output: (out[id] || [])[0] || null,
+      categories: categories, stage: stg.stage, stageLabel: stg.label, pending: pending, config: config };
+  });
+  return { list: list, details: details, status: { hasApiKey: config.hasApiKey } };
+}
+
+/* ---------------- 調査（工程ごとに分けて実行し、画面で進み具合を出す） ---------------- */
+
+/**
+ * 調査の1工程を実行する。画面から順番に呼ぶ。
+ *  'plan'      … 工程の一覧を返す
+ *  'fac:&lt;ID>'  … そのカテゴリの周辺施設
+ *  'stations'  … 最寄り駅
+ *  'access'    … バス停・空港
+ *  'finish'    … 状態を「調査済」にして出力を作る
+ */
+function api_surveyPart(id, part, runId) {
+  var ctx = buildContext_();
+  var p = findProp_(id);
+  ctx.propertyId = String(id);
+  ctx.propertyAddress = String(p['住所'] || '');
+  ctx.runId = runId || makeRunId_();
+  var lat = toNum_(p['起点緯度']), lng = toNum_(p['起点経度']);
+  if (part === 'plan') {
+    if (lat == null || lng == null || !bool_(p['起点確認済'])) throw new Error('位置が確定していません。「位置」の手順で建物の出入口を確定してください。');
+    var parts = ctx.categories.filter(function (c) { return c.enabled; }).sort(function (a, b) { return a.order - b.order; })
+      .map(function (c) { return { part: 'fac:' + c.id, label: c.label }; });
+    parts.push({ part: 'stations', label: '最寄り駅' }, { part: 'access', label: 'バス停・空港' }, { part: 'finish', label: '結果のまとめ' });
+    return { runId: ctx.runId, parts: parts };
+  }
+  var origin = { lat: lat, lng: lng };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('ほかの調査が実行中です。少し待ってからもう一度押してください。');
+  try {
+    if (part.indexOf('fac:') === 0) {
+      var catId = part.slice(4);
+      var cat = ctx.categories.filter(function (c) { return c.id === catId; })[0];
+      if (!cat) throw new Error('カテゴリが見つかりません: ' + catId);
+      var rows;
+      try { rows = surveyCategory_(ctx, cat, origin); } catch (e) {
+        rows = [{ '物件ID': ctx.propertyId, '実行ID': ctx.runId, 'カテゴリID': cat.id, 'カテゴリ': cat.label, '採否': 'エラー',
+          '要確認理由': 'API取得エラー: ' + e.message, '確認済': false, '掲載': false, '取得日時': formatJst_() }];
+      }
+      replacePropertyRows_(SHEETS.FACILITIES, id, rows,
+        function (r) { return r['物件ID'] + '|' + r['カテゴリID'] + '|' + r['place_id']; }, ['確認済', '掲載', '備考'],
+        function (r) { return r['カテゴリID'] === catId; });
+      return { ok: true, count: rows.filter(function (r) { return r['採否'] === '採用'; }).length, apiCalls: ctx.apiCalls };
+    }
+    if (part === 'stations') {
+      replacePropertyRows_(SHEETS.STATIONS, id, surveyStations_(ctx, p, origin),
+        function (r) { return r['物件ID'] + '|' + normStationName_(r['駅名']); }, ['路線', '確認済', '備考']);
+      return { ok: true, apiCalls: ctx.apiCalls };
+    }
+    if (part === 'access') {
+      replacePropertyRows_(SHEETS.ACCESS, id, surveyBusStop_(ctx, origin).concat(surveyAirports_(ctx, origin)),
+        function (r) { return r['物件ID'] + '|' + r['種別'] + '|' + (r['place_id'] || r['名称']); }, ['運行会社', '確認済', '備考']);
+      return { ok: true, apiCalls: ctx.apiCalls };
+    }
+    if (part === 'finish') {
+      // 無効にしたカテゴリの古い結果は消す
+      var enabled = ctx.categories.filter(function (c) { return c.enabled; }).map(function (c) { return c.id; });
+      replacePropertyRows_(SHEETS.FACILITIES, id, [], function () { return ''; }, [], function (r) { return enabled.indexOf(r['カテゴリID']) &lt; 0; });
+      updateRow_(SHEETS.PROPERTIES, p._row, { 'ステータス': '調査済', '最終調査日時': formatJst_(), 'メッセージ': '結果の「要確認」を確認し、掲載する施設を選んでください。' });
+      regenerateOutput_(id);
+      appendLog_(ctx.runId, id, '調査', '調査済', 0, '画面から工程ごとに実行');
+      return { ok: true, data: api_getProperty(id) };
+    }
+    throw new Error('不明な工程です: ' + part);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ---------------- 一覧・詳細 ---------------- */
@@ -3172,6 +3355,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .plan th, .plan td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .plan th { width: 170px; background: var(--band); font-size: 13px; }
 .plan td { color: var(--muted); font-size: 13px; }
+.survey-progress { display: grid; gap: 6px; }
+.survey-progress .ptop { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }
+.survey-progress .pct { color: var(--accent); }
+.survey-progress .bar { height: 10px; background: var(--accent-soft); border-radius: 999px; overflow: hidden; }
+.survey-progress .bar i { display: block; height: 100%; background: repeating-linear-gradient(45deg, var(--accent) 0 12px, color-mix(in srgb, var(--accent) 80%, white) 12px 24px); background-size: 34px 34px; animation: stripes 1s linear infinite; transition: width .4s ease; border-radius: 999px; }
+@keyframes stripes { to { background-position: 34px 0; } }
 .progress { height: 4px; background: var(--accent-soft); overflow: hidden; }
 .progress i { display: block; height: 100%; width: 35%; background: var(--accent); animation: slide 1.4s ease-in-out infinite; }
 @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
@@ -3310,7 +3499,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     { n: 2, t: '位置', d: '建物の出入口を指定' },
     { n: 3, t: '調査', d: '周辺施設・駅を調べる' },
     { n: 4, t: '確認', d: '掲載する施設を選ぶ' },
-    { n: 5, t: 'ウェルモ入力', d: '一覧から選んで入力' }
+    { n: 5, t: 'ウェルモ入力', d: '新規作成画面へ自動入力' }
   ];
   var KINDS = ['マンション', 'アパート', '一戸建て', 'その他'];
   var STRUCTS = [['RC', 'RC（鉄筋コンクリート）'], ['SRC', 'SRC（鉄骨鉄筋コンクリート）'], ['S', 'S（鉄骨）'], ['軽量鉄骨', '軽量鉄骨'], ['木造', '木造'], ['その他', 'その他']];
@@ -3320,6 +3509,9 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   var EQUIP_WELLMO = [['防犯カメラ', '防犯カメラ'], ['コンシェルジュ', 'コンシェルジュ'], ['自動販売機', '自動販売機'], ['TVドアホン', 'TVドアホン'], ['ゴミ捨て場', 'ゴミ捨て場']];
   var WELLMO_EQUIP_KEYS = ['エレベーター', 'オートロック', '宅配BOX', '防犯カメラ', 'コンシェルジュ', '自転車駐輪可能', '自動販売機', 'TVドアホン', 'ゴミ捨て場'];
   var WELLMO_URL = 'https://wm-system.com/';
+  // ウェルモ「物件・料金管理 > 建物の新規作成」。#wmfill=物件ID を付けると、Tampermonkeyのスクリプトが自動で入力する
+  var WELLMO_CREATE_URL = 'https://wm-system.com/build/create';
+  function wellmoCreateUrl(id) { return WELLMO_CREATE_URL + '#wmfill=' + encodeURIComponent(id); }
   var MAP_W = 640, MAP_H = 400;
 
   /* ================= 状態 ================= */
@@ -3327,7 +3519,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     list: [], filter: 'all', query: '',
     id: null, data: null, step: 1, tab: 'facility', onlyPending: false,
     map: null, busy: '', surveyResult: null, error: '', addOpen: false, forceStep: 0, uploading: false,
-    cache: {}, inflight: {}, confirmDelete: ''
+    cache: {}, inflight: {}, confirmDelete: '', edits: 0
   };
 
   /* ================= 小道具 ================= */
@@ -3381,9 +3573,12 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   }
 
   /* ================= 物件一覧 ================= */
+  /* 一覧と全物件の詳細を1回の通信でまとめて読む（以降のクリックはすぐ表示） */
   function loadList(selectId) {
-    return API.call('api_listProperties').then(function (list) {
-      S.list = list || [];
+    return API.call('api_bootstrap').then(function (r) {
+      S.list = r.list || [];
+      Object.keys(r.details || {}).forEach(function (k) { S.cache[k] = r.details[k]; });
+      if (r.status &amp;&amp; !r.status.hasApiKey) $('setup-band').hidden = false;
       renderList();
       var target = selectId || S.id || (S.list[0] &amp;&amp; S.list[0].id);
       if (target) return openProperty(target, !selectId &amp;&amp; S.id === target);
@@ -3440,16 +3635,21 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     // 一度開いた物件は、前回の内容をすぐに表示してから最新に更新する
     var cached = changed &amp;&amp; S.cache[id];
     if (cached) { S.data = cached; setStep(cached); }
+    var editsAtOpen = S.edits;
     renderList();
     renderWork();
     if (window.innerWidth &lt;= 900) setQueueOpen(false);
     return fetchProperty(id).then(function (d) {
       if (S.id !== id) return;
       if (cached) {
-        if (JSON.stringify(d) === JSON.stringify(cached) || editing()) { if (!editing()) S.data = d; return; }
+        // 開いたあとに画面で変更（「確認した」など）していたら、古い内容で上書きしない
+        if (S.edits !== editsAtOpen || editing()) return;
+        if (JSON.stringify(d) === JSON.stringify(cached)) { S.data = d; return; }
         S.data = d; renderWork();
         return;
       }
+      // 表示中の物件をもう一度押した場合も、その間の画面の変更は上書きしない
+      if (S.data &amp;&amp; S.edits !== editsAtOpen) return;
       S.data = d; setStep(d); renderWork();
     }).catch(function (e) { if (S.id === id) { S.error = errorText(e); renderWork(); } });
   }
@@ -3547,8 +3747,8 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       msg = pc ? '&lt;b style=&quot;color:var(--warn)&quot;>確認が' + pc + '件残っています&lt;/b>（変更はすぐに出力へ反映されます）' : '&lt;span style=&quot;color:var(--ok)&quot;>✓ すべて確認しました&lt;/span>';
       primary = '&lt;button class=&quot;btn primary big&quot; type=&quot;button&quot; data-step=&quot;5&quot;>ウェルモ入力へ →&lt;/button>';
     } else {
-      msg = p['ウェルモ入力日時'] ? 'ウェルモ入力済（' + esc(p['ウェルモ入力日時']) + '）' : 'ウェルモの建物編集画面で「周辺調査から入力」を押し、この物件を選びます';
-      primary = '&lt;a class=&quot;btn primary big&quot; href=&quot;' + WELLMO_URL + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモを開く ↗&lt;/a>';
+      msg = p['ウェルモ入力日時'] ? 'ウェルモ入力済（' + esc(p['ウェルモ入力日時']) + '）' : '新規作成画面が開き、自動で入力されます。内容を確認して「保存」を押してください';
+      primary = '&lt;a class=&quot;btn primary big&quot; href=&quot;' + esc(wellmoCreateUrl(p['物件ID'])) + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモで新規作成して入力 ↗&lt;/a>';
     }
     return '&lt;div class=&quot;actionbar&quot;>&lt;div class=&quot;actionbar-inner&quot;>' + back + '&lt;div class=&quot;msg&quot;>' + msg + '&lt;/div>' + primary + '&lt;/div>&lt;/div>';
   }
@@ -3624,6 +3824,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   function queueSave(field, value) {
     pending[field] = value;
     S.data.prop[field] = value;
+    S.edits++;
     refreshActionBar();
     setSaveState('保存中…');
     clearTimeout(saveTimer);
@@ -3712,7 +3913,8 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       if (S.id !== id) return;
       S.map = { lat: loc.lat, lng: loc.lng, pinLat: loc.lat, pinLng: loc.lng, zoom: 18, warnings: loc.warnings, geocodedAddress: loc.geocodedAddress, loading: true };
       loadMapImage(loc.lat, loc.lng, 18);
-      API.call('api_getProperty', id).then(function (d) { if (S.id === id) applyData(d); });
+      var e0 = S.edits;
+      API.call('api_getProperty', id).then(function (d) { if (S.id === id &amp;&amp; S.edits === e0) applyData(d); });
     }).catch(function (e) { S.map = { error: errorText(e) }; renderWork(); });
   }
   function loadMapImage(lat, lng, zoom) {
@@ -3746,7 +3948,12 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       resultNote = res.error ? note('err', '×', '&lt;p>&lt;b>調査できませんでした&lt;/b>&lt;/p>&lt;p>' + esc(res.error) + '&lt;/p>')
         : note(bad ? 'warn' : 'ok', bad ? '!' : '✓', '&lt;p>&lt;b>' + esc(res.status) + '&lt;/b>（Google API ' + esc(res.apiCalls) + '回）&lt;/p>&lt;p>' + esc(res.message) + '&lt;/p>');
     }
-    var running = S.busy === 'survey' ? card('調査中', '', '&lt;div class=&quot;progress&quot; role=&quot;progressbar&quot; aria-label=&quot;調査中&quot;>&lt;i>&lt;/i>&lt;/div>&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>Googleから施設・駅・経路を取得し、道路距離から徒歩分（80m＝1分）を計算しています。&lt;/p>') : '';
+    var pr = S.progress || { i: 0, n: 1, label: '準備しています' }, pct = Math.round(pr.i / pr.n * 100);
+    var running = S.busy === 'survey' ? card('調査中', '画面を閉じずにお待ちください',
+      '&lt;div id=&quot;survey-progress&quot; class=&quot;survey-progress&quot; role=&quot;progressbar&quot; aria-label=&quot;調査の進み具合&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;100&quot; aria-valuenow=&quot;' + pct + '&quot;>' +
+        '&lt;div class=&quot;ptop&quot;>&lt;span class=&quot;ptext&quot;>' + (pr.i + 1) + ' / ' + pr.n + '　' + esc(pr.label) + '…&lt;/span>&lt;span class=&quot;pct num&quot;>' + pct + '%&lt;/span>&lt;/div>' +
+        '&lt;div class=&quot;bar&quot;>&lt;i style=&quot;width:' + Math.max(4, pct) + '%&quot;>&lt;/i>&lt;/div>&lt;/div>' +
+      '&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>Googleから施設・駅・経路を取得し、道路距離から徒歩分（80m＝1分）を計算しています。&lt;/p>') : '';
     var again = hasResults(d) &amp;&amp; S.busy !== 'survey'
       ? note('info', 'i', '&lt;p>この物件は調査済みです。もう一度調査すると結果を最新にします（掲載のON/OFF・路線などの入力は引き継ぎます）。 &lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-act=&quot;survey&quot;>再調査する&lt;/button>&lt;/p>') : '';
     return resultNote + running + card('調査する内容', '距離はすべてGoogleの道路距離。AIによる推定は行いません',
@@ -3756,16 +3963,45 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       '&lt;tr>&lt;th>空港からのアクセス&lt;/th>&lt;td>中部国際空港・県営名古屋空港のうち近い方（渋滞の少ない深夜の車移動）&lt;/td>&lt;/tr>&lt;/table>') + again;
   }
 
+  /* 調査：工程（カテゴリ→駅→バス・空港→まとめ）を1つずつ実行し、本当の進み具合を表示する */
   function runSurvey() {
     var id = S.id;
-    S.busy = 'survey'; S.surveyResult = null; renderWork();
-    API.call('api_runSurvey', id).then(function (r) {
+    S.busy = 'survey'; S.surveyResult = null; S.progress = { i: 0, n: 1, label: '準備しています', started: Date.now(), calls: 0 };
+    renderWork();
+    API.call('api_surveyPart', id, 'plan').then(function (plan) {
+      var parts = plan.parts, i = 0;
+      S.progress.n = parts.length;
+      var next = function () {
+        if (S.id !== id) { S.busy = ''; return null; }
+        var p = parts[i];
+        S.progress.i = i; S.progress.label = p.part === 'finish' ? '結果をまとめています' : p.label + 'を調べています';
+        updateProgress();
+        return API.call('api_surveyPart', id, p.part, plan.runId).then(function (r) {
+          S.progress.calls += (r &amp;&amp; r.apiCalls) || 0;
+          i++;
+          if (p.part === 'finish') return r;
+          return next();
+        });
+      };
+      return next();
+    }).then(function (r) {
       S.busy = '';
-      if (S.id !== id) return;
-      S.surveyResult = r; applyData(r.data);
-      if (r.data.stage >= 4) { S.step = 4; toast('調査が完了しました。結果を確認してください'); }
+      if (!r || S.id !== id) return;
+      var sec = Math.round((Date.now() - S.progress.started) / 1000);
+      S.surveyResult = { status: '調査済', message: '結果の「要確認」を確認し、掲載する施設を選んでください。（' + sec + '秒）', apiCalls: S.progress.calls };
+      applyData(r.data);
+      S.step = 4; toast('調査が完了しました。結果を確認してください');
       renderWork();
     }).catch(function (e) { S.busy = ''; S.surveyResult = { error: errorText(e) }; renderWork(); });
+  }
+  /* 進み具合の表示だけを書き換える（画面全体は描き直さない） */
+  function updateProgress() {
+    var el = $('survey-progress');
+    if (!el) { renderWork(); return; }
+    var pr = S.progress, pct = Math.round(pr.i / pr.n * 100);
+    el.querySelector('.bar i').style.width = Math.max(4, pct) + '%';
+    el.querySelector('.ptext').textContent = (pr.i + 1) + ' / ' + pr.n + '　' + pr.label + '…';
+    el.querySelector('.pct').textContent = pct + '%';
   }
 
   /* ---------- 手順4：確認 ---------- */
@@ -3876,6 +4112,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     var keyOf = kind === 'facility' ? function (r) { return r['カテゴリID'] + '|' + (r['place_id'] || r['採否']); }
       : kind === 'station' ? function (r) { return String(r['枠']); } : function (r) { return r['種別'] + '|' + (r['place_id'] || r['名称']); };
     var row = list.filter(function (r) { return keyOf(r) === key; })[0];
+    S.edits++;
     if (row) {
       Object.keys(patch).forEach(function (k) { row[k] = patch[k]; });
       if (kind === 'access' &amp;&amp; patch['採用'] === true) list.forEach(function (r) { if (r !== row &amp;&amp; r['種別'] === row['種別']) r['採用'] = false; });
@@ -3883,12 +4120,24 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     var y = scrollY();
     var rerender = !('路線' in patch || '運行会社' in patch);
     if (rerender) { renderWork(); setScroll(y); } else refreshActionBar();
-    return API.call('api_updateResult', kind, id, key, patch).then(function (d) {
-      if (S.id !== id) return;
+    if (S.cache[id]) S.cache[id] = S.data;
+    // 操作は1つずつ順番に送る。まだ送信待ちの操作がある間は、途中の返事で画面を書き換えない
+    updPending++;
+    updQueue = updQueue.then(function () { return API.call('api_updateResult', kind, id, key, patch); }).then(function (d) {
+      updPending--;
+      if (S.id !== id) { S.cache[id] = d; return; }
+      if (updPending > 0) return;
+      var changed = JSON.stringify(d) !== JSON.stringify(S.data);
       applyData(d);
-      if (rerender) { var y2 = scrollY(); renderWork(); setScroll(y2); } else refreshActionBar();
-    }).catch(function (e) { toast('保存できませんでした：' + errorText(e)); openProperty(id, true); });
+      if (changed &amp;&amp; rerender &amp;&amp; !editing()) { var y2 = scrollY(); renderWork(); setScroll(y2); } else refreshActionBar();
+    }, function (e) {
+      updPending--;
+      toast('保存できませんでした：' + errorText(e));
+      if (updPending === 0) { delete S.cache[id]; openProperty(id, true); }
+    });
+    return updQueue;
   }
+  var updQueue = Promise.resolve(), updPending = 0;
   function scrollY() { var el = document.querySelector('.work-scroll'); return el ? el.scrollTop : 0; }
   function setScroll(y) { var el = document.querySelector('.work-scroll'); if (el) el.scrollTop = y; }
 
@@ -3920,11 +4169,12 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     var entered = p['ウェルモ入力日時'];
     var howto = card('ウェルモへの入力', entered ? '入力済（' + esc(entered) + '）' : 'コピー＆貼り付けは不要です',
       '&lt;div class=&quot;handoff&quot;>&lt;ol class=&quot;howto&quot;>' +
-        '&lt;li>ウェルモで&lt;b>建物管理の新規登録／編集画面&lt;/b>を開く&lt;/li>' +
-        '&lt;li>右下の&lt;b>「周辺調査から入力」&lt;/b>を押し、一覧から&lt;b>' + esc(p['建物名'] || 'この物件') + '&lt;/b>の「入力」を押す&lt;/li>' +
-        '&lt;li>全項目が入ります。右上の結果で赤字の項目（住所検索など）だけ手で直す&lt;/li>' +
+        '&lt;li>右の&lt;b>「ウェルモで新規作成して入力」&lt;/b>を押す&lt;/li>' +
+        '&lt;li>ウェルモの「物件・料金管理」の&lt;b>建物の新規作成画面&lt;/b>が開き、&lt;b>' + esc(p['建物名'] || 'この物件') + '&lt;/b>の内容が自動で入力されます&lt;/li>' +
+        '&lt;li>右上の結果で赤字の項目だけ手で直す&lt;/li>' +
         '&lt;li>内容を確認して&lt;b>「保存」&lt;/b>を押すと、ここに「ウェルモ入力済」と記録されます&lt;/li>&lt;/ol>' +
-        '&lt;a class=&quot;btn primary&quot; href=&quot;' + WELLMO_URL + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモを開く ↗&lt;/a>&lt;/div>' +
+        '&lt;a class=&quot;btn primary&quot; href=&quot;' + esc(wellmoCreateUrl(p['物件ID'])) + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモで新規作成して入力 ↗&lt;/a>&lt;/div>' +
+        '&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>既存の建物を更新するときは、ウェルモの建物編集画面で右下の「周辺調査から入力」から選べます。&lt;/p>' +
       '&lt;details class=&quot;more&quot;>&lt;summary>はじめて使うときの設定（1回だけ）&lt;/summary>&lt;div style=&quot;display:grid;gap:8px;padding-top:6px&quot;>' +
         '&lt;ol class=&quot;howto&quot;>&lt;li>Chromeに拡張機能「Tampermonkey」を追加&lt;/li>&lt;li>ウェルモ自動入力スクリプト（wellmo-autofill.user.js）をTampermonkeyに追加&lt;/li>' +
         '&lt;li>ウェルモで「周辺調査から入力」→「設定」を押し、次のURLを貼り付けて保存&lt;/li>&lt;/ol>' +
@@ -4117,8 +4367,6 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   $('queue-toggle').addEventListener('click', function () { setQueueOpen($('queue').classList.contains('collapsed')); });
 
   window.addEventListener('beforeunload', flushSave);
-  // APIキーが未登録なら、画面上部で登録できるようにする
-  API.call('api_status').then(function (st) { if (!st.hasApiKey) $('setup-band').hidden = false; }).catch(function () {});
   $('key-form').addEventListener('submit', function (ev) {
     ev.preventDefault();
     $('key-msg').textContent = '登録中…';

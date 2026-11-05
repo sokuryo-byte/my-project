@@ -243,11 +243,19 @@ function surveyCategory_(ctx, cat, origin) {
   return rows;
 }
 
+/** 店名だけでは何の店か分かりにくい場合のジャンル名（純粋関数）。チェーン辞書の店・名前にジャンル語がある店は空 */
+function genrePrefix_(cat, name, fromDict, settings) {
+  if (settings && settings.facility_genre_prefix !== undefined && !bool_(settings.facility_genre_prefix)) return '';
+  var g = GENRE_LABELS[cat.id];
+  if (!g || fromDict) return '';
+  return g[1].test(nfkc_(name)) ? '' : g[0];
+}
+
 function facilityRow_(ctx, cat, c, status, reason, rank, flags, now) {
   return {
     '物件ID': ctx.propertyId, '実行ID': ctx.runId, 'カテゴリID': cat.id, 'カテゴリ': cat.label,
     '採否': status, '採用理由': reason, '順位': rank,
-    '名称': c.place.name, 'ブランド': c.brand, '道路距離m': c.roadM, '徒歩分': c.minutes,
+    '名称': c.place.name, 'ジャンル表示': genrePrefix_(cat, c.place.name, c.fromDict, ctx.settings), 'ブランド': c.brand, '道路距離m': c.roadM, '徒歩分': c.minutes,
     '車所要分': c.driveMin != null ? c.driveMin : '', '車距離m': c.driveM != null ? c.driveM : '', '直線距離m': c.straightM,
     '住所': c.place.address, '緯度': c.place.lat, '経度': c.place.lng, 'place_id': c.placeId,
     '営業状態': c.place.businessStatus, '面積概算m2': c.area,

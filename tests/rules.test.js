@@ -127,7 +127,7 @@ test('出力: 駅（徒歩/30分以上のバス・車）', () => {
 
 test('出力: バス停・空港', () => {
   assert.equal(g.formatBusStop_({ '名称': '砂田橋', '運行会社': '名古屋市営バス', '徒歩分': 4 }), '名古屋市営バス「砂田橋」停から徒歩約4分');
-  assert.equal(g.formatBusStop_({ '名称': '砂田橋', '運行会社': '', '徒歩分': 4 }), '○○バス「砂田橋」停から徒歩約4分');
+  assert.equal(g.formatBusStop_({ '名称': '砂田橋', '運行会社': '', '徒歩分': 4 }), '「砂田橋」停から徒歩約4分');
   assert.equal(g.formatAirport_({ '名称': '県営名古屋空港', '車所要分': 25, '車距離m': 15000, '有料道路': 'あり' }, false),
     '県営名古屋空港から車で約25分（有料道路あり）');
   assert.equal(g.formatAirport_({ '名称': '中部国際空港', '車所要分': 40, '車距離m': 45010, '有料道路': 'あり' }, true),
@@ -258,4 +258,24 @@ test('エリア：所在地の文字列から（名古屋市は区のみ、そ�
   assert.equal(g.areaFromAddress_('愛知県名古屋市天白区鴻の巣1丁目703', o), '天白区');
   assert.equal(g.areaFromAddress_('愛知県豊田市小川町1-1', o), '愛知県豊田市');
   assert.equal(g.areaFromAddress_('愛知県西春日井郡豊山町豊場', o), '愛知県西春日井郡豊山町');
+});
+
+test('店名の頭のジャンル名：チェーンや名前にジャンル語がある店には付けない', () => {
+  const sup = { id: 'supermarket' };
+  assert.equal(g.genrePrefix_(sup, 'タッチもとこい', false, {}), 'スーパー');
+  assert.equal(g.genrePrefix_(sup, 'マックスバリュエクスプレス 今池駅南店', true, {}), '', 'チェーン辞書の店');
+  assert.equal(g.genrePrefix_(sup, 'スーパーマーケットバロー', false, {}), '', '名前に「スーパー」');
+  assert.equal(g.genrePrefix_({ id: 'drugstore' }, '好き生堂薬局', false, {}), '');
+  assert.equal(g.genrePrefix_({ id: 'clinic' }, '奥村クリニック', false, {}), '');
+  assert.equal(g.genrePrefix_({ id: 'mall' }, 'Kamado', false, {}), '商業施設');
+  assert.equal(g.genrePrefix_(sup, 'タッチもとこい', false, { facility_genre_prefix: 'FALSE' }), '', '設定で無効');
+  assert.equal(g.formatFacility_({ 'ジャンル表示': 'スーパー', '名称': 'タッチもとこい', '徒歩分': 6 }, false), 'スーパー タッチもとこいまで徒歩約6分');
+});
+
+test('バス停の運行会社：所在地から初期値（名古屋市→名古屋市営バス）', () => {
+  const s = { bus_operator_defaults: '名古屋市=名古屋市営バス, 豊田市=とよたおいでんバス' };
+  assert.equal(g.defaultBusOperator_('愛知県名古屋市千種区今池3丁目', s), '名古屋市営バス');
+  assert.equal(g.defaultBusOperator_('愛知県豊田市小川町', s), 'とよたおいでんバス');
+  assert.equal(g.defaultBusOperator_('岐阜県岐阜市', s), '');
+  assert.equal(g.formatBusStop_({ '名称': '大久手', '運行会社': '', '徒歩分': 4 }), '「大久手」停から徒歩約4分', '未入力でも「○○バス」とは出さない');
 });

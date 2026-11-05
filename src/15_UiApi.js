@@ -102,6 +102,7 @@ function webAppUrl_() {
 
 /** アプリ起動時の状態（APIキーの有無など） */
 function api_status() {
+  migrate_();
   return {
     hasApiKey: !!(PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY) || BOOTSTRAP.apiKey),
     webAppUrl: webAppUrl_(),
@@ -115,6 +116,146 @@ function api_setApiKey(key) {
   if (!/^AIza[0-9A-Za-z_\-]{30,}$/.test(k)) throw new Error('APIキーの形式が正しくありません（「AIza」で始まる文字列です）');
   PropertiesService.getScriptProperties().setProperty(SCRIPT_PROP_API_KEY, k);
   return api_status();
+}
+
+/* ---------------- 自動更新（シートの列・カテゴリ設定） ---------------- */
+
+/**
+ * プログラム更新後に必要なシートの変更を、アプリを開いたときに1回だけ行う。
+ * - 新しい列・設定キーの追加（既存のデータは動かさない）
+ * - カテゴリ設定の版が上がっていたら「カテゴリ設定」「チェーン辞書」を初期値で書き直す
+ */
+var SCHEMA_VERSION = 3;
+function migrate_() {
+  var props = PropertiesService.getScriptProperties();
+  if (Number(props.getProperty('SCHEMA_VERSION') || 0) >= SCHEMA_VERSION) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return;
+  try {
+    setupSheets_();
+    var settings = loadSettings_();
+    if ((toNum_(settings.categories_version) || 0) < CATEGORIES_VERSION) {
+      var cat = sheet_(SHEETS.CATEGORIES);
+      cat.clearContents();
+      var ch = HEADERS[SHEETS.CATEGORIES];
+      cat.getRange(1, 1, 1, ch.length).setValues([ch]).setFontWeight('bold').setBackground('#e8eaed');
+      cat.getRange(2, 1, DEFAULT_CATEGORIES.length, ch.length).setValues(DEFAULT_CATEGORIES);
+      var br = sheet_(SHEETS.BRANDS);
+      br.clearContents();
+      br.getRange(1, 1, 1, 3).setValues([HEADERS[SHEETS.BRANDS]]).setFontWeight('bold').setBackground('#e8eaed');
+      br.getRange(2, 1, DEFAULT_BRANDS.length, 3).setValues(DEFAULT_BRANDS);
+      var t = readTable_(SHEETS.SETTINGS);
+      var row = t.rows.filter(function (r) { return r['キー'] === 'categories_version'; })[0];
+      if (row) updateRow_(SHEETS.SETTINGS, row._row, { '値': String(CATEGORIES_VERSION) });
+    }
+    CacheService.getScriptCache().removeAll(['ui_settings_v1', 'ui_categories_v1']);
+    props.setProperty('SCHEMA_VERSION', String(SCHEMA_VERSION));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * アプリ起動時に1回だけ呼ぶ：一覧と、全物件の詳細をまとめて返す（各シートを1回ずつ読むだけ）。
+ * 以降、物件をクリックしたときはすぐに表示できる。
+ */
+function api_bootstrap() {
+  migrate_();
+  ensureIds_();
+  var props = readTable_(SHEETS.PROPERTIES).rows.filter(function (p) { return String(p['物件ID'] || '').trim(); });
+  var group = function (name) {
+    var m = {};
+    readTable_(name).rows.forEach(function (r) { var k = String(r['物件ID']); (m[k] = m[k] || []).push(plainRow_(r)); });
+    return m;
+  };
+  var fac = group(SHEETS.FACILITIES), st = group(SHEETS.STATIONS), ac = group(SHEETS.ACCESS), out = group(SHEETS.OUTPUT);
+  var settings = loadSettings_();
+  var categories = loadCategories_().filter(function (c) { return c.enabled; }).map(function (c) { return { id: c.id, label: c.label, order: c.order }; });
+  var config = {
+    titleMax: toNum_(settings.title_max_length) || 60,
+    welmoLimit: toNum_(settings.welmo_walk_limit_min) || 30,
+    hasApiKey: !!(PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY) || BOOTSTRAP.apiKey),
+    webAppUrl: webAppUrl_()
+  };
+  var list = [], details = {};
+  props.forEach(function (p) {
+    var id = String(p['物件ID']);
+    var f = fac[id] || [], s = st[id] || [], a = ac[id] || [];
+    var pending = countUnconfirmed_(f, s, a);
+    var stg = stageOf_(p, f.length + s.length + a.length > 0, pending);
+    list.push({ id: id, name: String(p['建物名'] || p['物件名'] || ''), address: String(p['住所'] || ''), stage: stg.stage, stageLabel: stg.label,
+      pending: pending, wellmoAt: String(plain_(p['ウェルモ入力日時']) || ''), updated: plain_(p['最終調査日時'] || p['マイソク取込日時'] || '') });
+    details[id] = { prop: plainRow_(p), facilities: f, stations: s, access: a, output: (out[id] || [])[0] || null,
+      categories: categories, stage: stg.stage, stageLabel: stg.label, pending: pending, config: config };
+  });
+  return { list: list, details: details, status: { hasApiKey: config.hasApiKey } };
+}
+
+/* ---------------- 調査（工程ごとに分けて実行し、画面で進み具合を出す） ---------------- */
+
+/**
+ * 調査の1工程を実行する。画面から順番に呼ぶ。
+ *  'plan'      … 工程の一覧を返す
+ *  'fac:<ID>'  … そのカテゴリの周辺施設
+ *  'stations'  … 最寄り駅
+ *  'access'    … バス停・空港
+ *  'finish'    … 状態を「調査済」にして出力を作る
+ */
+function api_surveyPart(id, part, runId) {
+  var ctx = buildContext_();
+  var p = findProp_(id);
+  ctx.propertyId = String(id);
+  ctx.propertyAddress = String(p['住所'] || '');
+  ctx.runId = runId || makeRunId_();
+  var lat = toNum_(p['起点緯度']), lng = toNum_(p['起点経度']);
+  if (part === 'plan') {
+    if (lat == null || lng == null || !bool_(p['起点確認済'])) throw new Error('位置が確定していません。「位置」の手順で建物の出入口を確定してください。');
+    var parts = ctx.categories.filter(function (c) { return c.enabled; }).sort(function (a, b) { return a.order - b.order; })
+      .map(function (c) { return { part: 'fac:' + c.id, label: c.label }; });
+    parts.push({ part: 'stations', label: '最寄り駅' }, { part: 'access', label: 'バス停・空港' }, { part: 'finish', label: '結果のまとめ' });
+    return { runId: ctx.runId, parts: parts };
+  }
+  var origin = { lat: lat, lng: lng };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('ほかの調査が実行中です。少し待ってからもう一度押してください。');
+  try {
+    if (part.indexOf('fac:') === 0) {
+      var catId = part.slice(4);
+      var cat = ctx.categories.filter(function (c) { return c.id === catId; })[0];
+      if (!cat) throw new Error('カテゴリが見つかりません: ' + catId);
+      var rows;
+      try { rows = surveyCategory_(ctx, cat, origin); } catch (e) {
+        rows = [{ '物件ID': ctx.propertyId, '実行ID': ctx.runId, 'カテゴリID': cat.id, 'カテゴリ': cat.label, '採否': 'エラー',
+          '要確認理由': 'API取得エラー: ' + e.message, '確認済': false, '掲載': false, '取得日時': formatJst_() }];
+      }
+      replacePropertyRows_(SHEETS.FACILITIES, id, rows,
+        function (r) { return r['物件ID'] + '|' + r['カテゴリID'] + '|' + r['place_id']; }, ['確認済', '掲載', '備考'],
+        function (r) { return r['カテゴリID'] === catId; });
+      return { ok: true, count: rows.filter(function (r) { return r['採否'] === '採用'; }).length, apiCalls: ctx.apiCalls };
+    }
+    if (part === 'stations') {
+      replacePropertyRows_(SHEETS.STATIONS, id, surveyStations_(ctx, p, origin),
+        function (r) { return r['物件ID'] + '|' + normStationName_(r['駅名']); }, ['路線', '確認済', '備考']);
+      return { ok: true, apiCalls: ctx.apiCalls };
+    }
+    if (part === 'access') {
+      replacePropertyRows_(SHEETS.ACCESS, id, surveyBusStop_(ctx, origin).concat(surveyAirports_(ctx, origin)),
+        function (r) { return r['物件ID'] + '|' + r['種別'] + '|' + (r['place_id'] || r['名称']); }, ['運行会社', '確認済', '備考']);
+      return { ok: true, apiCalls: ctx.apiCalls };
+    }
+    if (part === 'finish') {
+      // 無効にしたカテゴリの古い結果は消す
+      var enabled = ctx.categories.filter(function (c) { return c.enabled; }).map(function (c) { return c.id; });
+      replacePropertyRows_(SHEETS.FACILITIES, id, [], function () { return ''; }, [], function (r) { return enabled.indexOf(r['カテゴリID']) < 0; });
+      updateRow_(SHEETS.PROPERTIES, p._row, { 'ステータス': '調査済', '最終調査日時': formatJst_(), 'メッセージ': '結果の「要確認」を確認し、掲載する施設を選んでください。' });
+      regenerateOutput_(id);
+      appendLog_(ctx.runId, id, '調査', '調査済', 0, '画面から工程ごとに実行');
+      return { ok: true, data: api_getProperty(id) };
+    }
+    throw new Error('不明な工程です: ' + part);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ---------------- 一覧・詳細 ---------------- */

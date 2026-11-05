@@ -42,7 +42,8 @@ function formatStation_(row, limitMin, showDistance) {
 /** 例: ○○バス「△△」停から徒歩約n分 */
 function formatBusStop_(row) {
   if (!row || !row['名称']) return '';
-  var op = nfkc_(row['運行会社']).trim() || '○○バス';
+  // 運行会社が未入力なら「○○バス」とは出さず、停留所名だけにする
+  var op = nfkc_(row['運行会社']).trim();
   return op + '「' + row['名称'] + '」停から徒歩約' + row['徒歩分'] + '分';
 }
 
@@ -53,6 +54,12 @@ function formatAirport_(row, showDistance) {
     driveSuffix_(toNum_(row['車距離m']), row['有料道路'] === 'あり', showDistance);
 }
 
+/** 掲載名（必要ならジャンル名を頭に付ける。例: スーパー タッチもとこい） */
+function facilityName_(row) {
+  var g = String(row['ジャンル表示'] || '').trim();
+  return (g ? g + ' ' : '') + row['名称'];
+}
+
 /**
  * 例: セブンイレブン 豊田市小川町店まで徒歩約2分
  *     スーパーマーケットバロー 東新町店まで車で約6分（徒歩分が閾値を超え、車の所要時間がある場合）
@@ -60,9 +67,9 @@ function formatAirport_(row, showDistance) {
 function formatFacility_(row, showDistance) {
   var car = toNum_(row['車所要分']);
   if (car != null) {
-    return row['名称'] + 'まで車で約' + car + '分' + driveSuffix_(toNum_(row['車距離m']), false, showDistance);
+    return facilityName_(row) + 'まで車で約' + car + '分' + driveSuffix_(toNum_(row['車距離m']), false, showDistance);
   }
-  return row['名称'] + 'まで徒歩約' + row['徒歩分'] + '分';
+  return facilityName_(row) + 'まで徒歩約' + row['徒歩分'] + '分';
 }
 
 /** 周辺施設の複数行テキスト（カテゴリの出力順→道路距離順。純粋関数） */

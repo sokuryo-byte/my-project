@@ -91,6 +91,28 @@
     document.body.appendChild(root);
     renderClosed();
     retryPendingMark();
+    autoFillFromHash();
+  }
+
+  /**
+   * 周辺調査アプリの「ウェルモで新規作成して入力」から開かれた場合（URL末尾 #wmfill=物件ID）、
+   * 入力欄が表示されるのを待って自動で入力する。再読み込みで二重に入力しないよう、印はすぐ消す。
+   */
+  function autoFillFromHash() {
+    var m = location.hash.match(/wmfill=([^&]+)/);
+    if (!m) return;
+    var id = decodeURIComponent(m[1]);
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* 下で消す */ }
+    if (location.hash) { try { location.hash = ''; } catch (e) { /* 消せなくても続行 */ } }
+    if (!GM_getValue(KEY_URL, '')) {
+      state.msg = '自動入力するには、最初に周辺調査アプリのURLを設定してください（設定後、もう一度アプリのボタンから開いてください）。';
+      state.err = true; renderSettings(); return;
+    }
+    var tries = 0;
+    (function waitForm() {
+      if (document.querySelector('[name="display_name"]') || tries > 40) { fillFor(id); return; }
+      tries++; setTimeout(waitForm, 250);
+    })();
   }
   function renderClosed() {
     root.innerHTML = '<button type="button" class="wm-open">周辺調査から入力</button>';
@@ -107,6 +129,7 @@
   function renderSettings() {
     var url = GM_getValue(KEY_URL, '');
     frame('周辺調査から入力：設定',
+      (state.msg ? '<div class="wm-msg' + (state.err ? ' wm-err' : '') + '">' + esc(state.msg) + '</div>' : '') +
       '<div>周辺調査アプリの<b>ウェブアプリURL</b>を貼り付けてください（アプリの「ウェルモ入力」画面に表示されています）。</div>' +
       '<input class="wm-in" id="wm-url" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(url) + '">' +
       '<div><button type="button" class="wm-btn wm-primary" id="wm-save">保存して一覧を表示</button></div>' +

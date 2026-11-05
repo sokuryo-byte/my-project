@@ -125,6 +125,26 @@ async function checkFilled(page) {
   assert.deepEqual(marks, ['P00002'], '保存ボタンで入力済みを記録');
   if (process.env.SHOT) await page3.screenshot({ path: process.env.SHOT, fullPage: true });
 
+  // ---- 周辺調査アプリの「ウェルモで新規作成して入力」から開いた場合（#wmfill=物件ID）は自動で入力 ----
+  const page4 = await browser.newPage();
+  await page4.setContent(PAGE);
+  await page4.exposeFunction('__fakeApp2', (url) => {
+    const q = new URL(url).searchParams;
+    if (q.get('api') === 'wellmo-data') return JSON.stringify({ ok: true, id: q.get('id'), name: '名信ビル', data: DATA, pending: 0 });
+    return JSON.stringify({ ok: true, items: [] });
+  });
+  await page4.evaluate(() => {
+    const store = { webappUrl: 'https://script.google.com/macros/s/TEST/exec' };
+    window.GM_getValue = (k, d) => (k in store ? store[k] : d);
+    window.GM_setValue = (k, v) => { store[k] = v; };
+    window.GM_xmlhttpRequest = (o) => { window.__fakeApp2(o.url).then((t) => o.onload({ responseText: t, status: 200 })); };
+    location.hash = 'wmfill=P00002';
+  });
+  await page4.addScriptTag({ path: USERSCRIPT });
+  await page4.waitForFunction(() => /名信ビル/.test((document.getElementById('wm-autofill-panel') || {}).innerText || ''), null, { timeout: 20000 });
+  await checkFilled(page4);
+  assert.equal(await page4.evaluate(() => location.hash), '', '再読み込みで二重に入力しないよう印は消す');
+
   await browser.close();
   console.log('wellmo autofill browser test (bookmarklet + Tampermonkey): OK');
 })().catch((e) => { console.error(e); process.exit(1); });

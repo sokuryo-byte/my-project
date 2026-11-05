@@ -159,6 +159,7 @@ function processProperty_(prop, ctx) {
     prop['物件ID'] = id;
   }
   ctx.propertyId = id;
+  ctx.propertyAddress = String(prop['住所'] || '');
   ctx.runId = makeRunId_();
   var callsBefore = ctx.apiCalls;
   var requireConfirm = bool_(ctx.settings.require_origin_confirm);

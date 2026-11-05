@@ -45,8 +45,12 @@ const SHOT = process.env.SHOT_DIR;
 
   // 調査
   await page.getByRole('button', { name: '調査を開始する' }).click();
-  await page.waitForSelector('.progress');
-  await page.waitForSelector('.tabs', { timeout: 10000 });
+  // 進み具合（n / 全体 と ％）が表示され、進んでいく
+  await page.waitForSelector('#survey-progress');
+  await page.waitForFunction(() => /^(?:[3-9]|1\d) \/ \d+/.test(document.querySelector('#survey-progress .ptext')?.textContent || ''), null, { timeout: 10000 });
+  assert.match(await page.locator('#survey-progress .ptext').innerText(), /\d+ \/ 13　.+を調べています/);
+  if (SHOT) await page.screenshot({ path: SHOT + '/progress.png' });
+  await page.waitForSelector('.tabs', { timeout: 15000 });
   const pendingBefore = await page.locator('.actionbar .msg').innerText();
   assert.match(pendingBefore, /確認が\d+件/);
 
@@ -83,7 +87,9 @@ const SHOT = process.env.SHOT_DIR;
   const title = await page.locator('.out tr').first().locator('td.val').innerText();
   assert.match(title, /^【東区\/.*】グランシエル高岳/);
   assert.match(await page.locator('.out tr', { hasText: 'その他アクセス' }).innerText(), /名古屋市営バス「.*」停から徒歩約3分/);
-  assert.match(await page.locator('.howto').first().innerText(), /周辺調査から入力/);
+  assert.match(await page.locator('.howto').first().innerText(), /新規作成画面/);
+  const href = await page.locator('a', { hasText: 'ウェルモで新規作成して入力' }).first().getAttribute('href');
+  assert.match(href, /^https:\/\/wm-system\.com\/build\/create#wmfill=P\d+$/, 'ウェルモの新規作成画面へ物件IDつきで開く');
   if (SHOT) await page.screenshot({ path: SHOT + '/output.png', fullPage: false });
   assert.match(await page.locator('.q-item[aria-current="true"] .tag').innerText(), /準備ができました/);
 
@@ -121,6 +127,12 @@ const SHOT = process.env.SHOT_DIR;
   // 一度開いた物件は、2回目はすぐ表示される（先読み・キャッシュ）
   await page.locator('.q-item', { hasText: '名信ビル' }).click();
   await page.waitForSelector('.tabs');
+  // 「確認した」を素早く3回続けて押しても、表示が戻ったりせず3件とも確認済みになる
+  const doneBefore = await page.locator('.r-flag.done').count();
+  for (let k = 0; k < 3; k++) { await page.getByRole('button', { name: '確認した', exact: true }).first().click({ delay: 0 }); }
+  const seen = [];
+  for (let k = 0; k < 15; k++) { seen.push(await page.locator('.r-flag.done').count()); await page.waitForTimeout(100); }
+  assert.ok(seen.every((c) => c === doneBefore + 3), '途中で表示が戻らない（確認済みの件数）: ' + doneBefore + ' → ' + seen.join(','));
   await page.locator('.q-item', { hasText: 'サンコーレジデンス' }).click();
   await page.waitForSelector('text=入力される内容');
   const t0 = Date.now();

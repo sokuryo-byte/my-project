@@ -43,7 +43,7 @@ HEADERS[SHEETS.PROPERTIES] = [
 ];
 HEADERS[SHEETS.FACILITIES] = [
   '物件ID', '実行ID', 'カテゴリID', 'カテゴリ', '採否', '採用理由', '順位',
-  '名称', 'ブランド', '道路距離m', '徒歩分', '車所要分', '車距離m', '直線距離m', '住所', '緯度', '経度',
+  '名称', 'ジャンル表示', 'ブランド', '道路距離m', '徒歩分', '車所要分', '車距離m', '直線距離m', '住所', '緯度', '経度',
   'place_id', '営業状態', '面積概算m2', '要確認理由', '確認済', '掲載', '備考', '取得日時'
 ];
 HEADERS[SHEETS.STATIONS] = [
@@ -113,6 +113,9 @@ var DEFAULT_SETTINGS = [
   ['max_unselected_saved', '5', 'カテゴリごとに保存する不採用候補の最大数（担当者の差し替え用）'],
   ['attribution', '周辺施設・距離：Google Maps Platformのデータを基に算出', '周辺施設の出力末尾に付ける出典表記'],
   ['api_retries', '3', 'API一時エラー時のリトライ回数'],
+  ['bus_operator_defaults', '名古屋市=名古屋市営バス', 'バス停の運行会社の初期値（所在地に含まれる地名=会社名、カンマ区切り）。違う場合は確認画面で修正'],
+  ['facility_genre_prefix', 'TRUE', 'TRUE: 店名だけでは分かりにくい施設の頭にジャンル名を付ける（例: スーパー タッチもとこい）'],
+  ['categories_version', '0', 'カテゴリ設定の版（自動更新用。変更しないこと）'],
   ['mysoku_folder_id', '', 'マイソクPDFを置くGoogleドライブのフォルダ（URLまたはID）。「フォルダから新規取り込み」で使用']
 ];
 
@@ -120,17 +123,28 @@ var DEFAULT_SETTINGS = [
 //  圏内上限分, 最低件数, 最大件数, 他社のみ, チェーン辞書必須, 面積下限m2, 常に要確認, 要確認メモ, 出力順, 必須の種別]
 // 必須の種別：Googleの分類（types）にこのいずれかを含む施設だけを残す（例: 食料品店や調剤薬局を除く）。
 // 最大件数：掲載の上限（近い順）。公園は面積の大きい順に優先する。
+// カテゴリ定義の版。上げると、次にアプリを開いたとき「カテゴリ設定」「チェーン辞書」シートを初期値で書き直す
+var CATEGORIES_VERSION = 3;
+
+// 店名だけでは何の店か分かりにくいときに頭に付けるジャンル名（チェーン辞書の店・名前にジャンルの語がある店には付けない）
+var GENRE_LABELS = {
+  supermarket: ['スーパー', /スーパー/], drugstore: ['ドラッグストア', /ドラッグ|薬局|薬品/], convenience: ['コンビニ', /コンビニ|マート|ストア/],
+  hundred_yen: ['100円ショップ', /100円|ダイソー|セリア|キャンドゥ/], mall: ['商業施設', /モール|ショッピング|百貨店|デパート|プラザ|センター|SC|イオン|アピタ/],
+  clinic: ['クリニック', /クリニック|医院|診療所|内科/], hospital: ['病院', /病院/], post_office: ['郵便局', /郵便局/],
+  park: ['公園', /公園|緑地|広場/], chain_restaurant: ['飲食店', /^$/]
+};
+
 var DEFAULT_CATEGORIES = [
-  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, 3, true, false, '', false, '', 1, 'supermarket'],
-  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, 3, true, false, '', false, '', 2, 'drugstore'],
-  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, 3, true, false, '', false, '', 3, 'convenience_store'],
+  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, 2, true, false, '', false, '', 1, 'supermarket'],
+  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, 2, true, false, '', false, '', 2, 'drugstore'],
+  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, 2, true, false, '', false, '', 3, 'convenience_store'],
   ['hundred_yen', '100円ショップ', true, 'text', '', '100円ショップ', 'ダイソー,DAISO,セリア,Seria,キャンドゥ,Can★Do,ワッツ,Watts,meets,シルク', '', 10, 0, 2, true, false, '', false, '', 4, ''],
   ['mall', '大型商業施設', true, 'nearby', 'shopping_mall,department_store', '', '', '', 15, 0, 2, true, false, '', true, '大型ショッピングモール・商業施設に該当するか確認', 5, 'shopping_mall,department_store'],
   ['clinic', '内科系クリニック', true, 'text', '', '内科', '', '歯科,眼科,皮膚科,整形外科,耳鼻,動物,美容,形成外科', '', 1, 1, false, false, '', true, '内科系の診療科か確認', 6, ''],
   ['hospital', '総合病院', true, 'nearby', 'hospital', '', '病院', '動物,歯科,デイケア', 15, 0, 2, false, false, '', true, '総合病院（複数診療科）に該当するか確認', 7, 'hospital'],
   ['post_office', '郵便局', true, 'nearby', 'post_office', '', '郵便局', 'ATM,ゆうちょ銀行', '', 1, 1, false, false, '', false, '', 8, ''],
   ['park', '公園', true, 'nearby', 'park', '', '', 'ひろば,広場,児童遊園,遊園地,ちびっこ', 10, 0, 2, false, false, 10000, false, '', 9, 'park'],
-  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, 5, true, true, '', false, '', 10, '']
+  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, 3, true, true, '', false, '', 10, '']
 ];
 
 // [ブランド名, 照合キーワード(カンマ区切り), 対象カテゴリID(空欄=全カテゴリ)]

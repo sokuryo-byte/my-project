@@ -21,6 +21,7 @@ function makeSheet(name) {
     getRange: (r, c, nr = 1, nc = 1) => makeRange(sh, r, c, nr, nc),
     appendRow: (vals) => { data[sh.getLastRow()] = vals.slice(); },
     deleteRow: (r) => { data.splice(r - 1, 1); },
+    clearContents: () => { data.length = 0; return sh; },
     setFrozenRows: () => {}
   };
   return sh;
@@ -176,7 +177,7 @@ const g = loadGas({
   PropertiesService: { getScriptProperties: () => ({ getProperty: () => 'TEST_KEY', setProperty: () => {} }) },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }), getDocumentLock: () => null }, // 紐付けなしスクリプトではDocumentLockはnull
   Utilities: { sleep: () => {}, formatDate: () => '03:00' },
-  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {} }) },
+  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, removeAll: () => {} }) },
   DriveApp: { getFileById: (id) => ({ getName: () => 'mysoku.pdf', getBlob: () => ({}), setTrashed: () => {} }) },
   Drive: { Files: {
     create: (meta, blob, opt) => { driveOps.push(['create', meta.mimeType, opt.ocrLanguage]); return { id: 'tmpdoc' }; },
@@ -258,7 +259,7 @@ test('E2E: セットアップ → 起点確認待ち → 調査 → 出力', () 
   assert.equal(out['駅1'], '地下鉄名城線「砂田橋」駅');
   assert.equal(out['駅1_徒歩分'], '15');
   assert.equal(out['駅2'], '（路線未入力）「大曽根」駅');
-  assert.equal(out['その他アクセス'], '○○バス「大曽根」停から徒歩約3分');
+  assert.equal(out['その他アクセス'], '名古屋市営バス「大曽根」停から徒歩約3分'); // 名古屋市内は運行会社を自動で入れる
   assert.equal(out['空港からのアクセス'], '中部国際空港から車で約25分（有料道路あり）');
   assert.match(out['周辺施設'], /^イオン 大曽根店まで徒歩約5分\nマックスバリュ 大曽根店まで徒歩約8分\nスギ薬局 大曽根店まで車で約25分\n/);
   assert.equal(out['出典表記'], g.DEFAULT_SETTINGS.find((d) => d[0] === 'attribution')[1]);
@@ -324,6 +325,22 @@ test('E2E: マイソクPDF取り込み → 物件シートの空欄に反映', (
   assert.equal(after['建物構造'], 'RC');
   assert.match(after['マイソク取込メモ'], /要確認: .*帖数/);
   eq(driveOps, [['create', 'application/vnd.google-apps.document', 'ja'], ['remove', 'tmpdoc']]); // 一時ドキュメントは削除
+});
+
+test('E2E: アプリ画面の一括読み込みと、工程ごとの調査', () => {
+  const b = g.api_bootstrap();
+  assert.ok(b.list.length >= 1);
+  b.list.forEach((it) => assert.ok(b.details[it.id], '一覧の全物件の詳細が入っている'));
+  const id = b.list.find((x) => x.name === 'テストハイツ').id;
+  const plan = g.api_surveyPart(id, 'plan');
+  assert.ok(plan.parts.length >= 4);
+  assert.equal(plan.parts[plan.parts.length - 1].part, 'finish');
+  let last;
+  plan.parts.forEach((p) => { last = g.api_surveyPart(id, p.part, plan.runId); });
+  assert.equal(last.data.prop['ステータス'], '調査済');
+  assert.ok(last.data.output['周辺施設'].length > 0);
+  // スーパーは上限2件（他社）
+  assert.ok(last.data.facilities.filter((r) => r['カテゴリID'] === 'supermarket' && r['採否'] === '採用').length <= 2);
 });
 
 test('E2E: アプリ画面のAPI（詳細の取得・物件の削除）', () => {
