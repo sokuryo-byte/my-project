@@ -1,54 +1,134 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><title>wellmo mock</title></head><body>
-<!-- ウェルモ「建物管理｜編集」画面のスクリーンショットを基にした検証用の模擬ページ（実際のHTMLではない） -->
-<h2>建物管理｜編集</h2>
-<table>
-<tr><th>マンスリー表示名 <span class="req">必須</span></th><td><input type="text" name="monthly_name" value=""></td>
-    <th>ふりがな <span class="req">必須</span></th><td><input type="text" name="kana"></td></tr>
-<tr><th>建物名 <span class="req">必須</span></th><td><input type="text" name="build_name"></td>
-    <td><label><input type="checkbox" name="show_name" checked>建物名を物件詳細ページに表示する</label></td></tr>
-<tr><th>物件種別 <span class="req">必須</span></th><td>
-  <label><input type="radio" name="kind" value="1">マンション</label>
-  <label><input type="radio" name="kind" value="2">アパート</label>
-  <label><input type="radio" name="kind" value="3">一戸建て</label>
-  <label><input type="radio" name="kind" value="4">その他</label></td></tr>
-<tr><th>所在地 <span class="req">必須</span></th><td><select name="zip_search"><option>住所検索（郵便番号または住所を入力）</option></select>
-  <input type="text" name="address1" readonly value="〒468-0003 愛知県 名古屋市 天白区鴻の巣１丁目"><input type="text" name="address2" value="703"></td></tr>
-<tr><th>緯度</th><td><input type="text" name="lat" value="35.1"></td><th>経度</th><td><input type="text" name="lng" value="136.9"></td></tr>
-<tr><th>周辺環境</th><td><textarea name="around">旧データ</textarea></td></tr>
-</table>
+<html lang="ja"><head><meta charset="utf-8"><title>wellmo mock</title>
+<style>
+.hidden-input { display: none; }
+.SumoSelect select { display: none; }
+.optWrapper { display: none; border: 1px solid #ccc; }
+.SumoSelect.open .optWrapper { display: block; }
+.select2-dropdown { border: 1px solid #ccc; }
+#tmpRow { display: none; }
+</style></head><body>
+<!--
+  ウェルモ「建物管理｜新規登録」の模擬ページ（実際のHTMLではない）。
+  2026-11-05 に実画面で取得した診断結果（name属性・dl/dt/dd構造・select2の住所検索・
+  SumoSelectの駅検索・ひな形行 #tmpStationSelect）に合わせて作っている。
+-->
+<h2>建物管理｜新規登録</h2>
+<dl><dt class="title required">マンスリー表示名<span>必須</span></dt><dd><input type="text" name="display_name" placeholder="マンスリーサイトに表示する物件名です。"></dd>
+    <dt class="title required">ふりがな<span>必須</span></dt><dd><input type="text" name="display_kana"></dd></dl>
+<dl><dt class="title required">建物名<span>必須</span></dt><dd><input type="text" name="buildName"> <label><input type="checkbox" name="visible[]" id="checkbox" checked>建物名を物件詳細ページに表示する</label></dd></dl>
+<dl><dt class="title required">物件種別<span>必須</span></dt><dd>
+  <label><input type="radio" class="hidden-input" name="build_type" value="1"><span>マンション</span></label>
+  <label><input type="radio" class="hidden-input" name="build_type" value="2"><span>アパート</span></label>
+  <label><input type="radio" class="hidden-input" name="build_type" value="3"><span>一戸建て</span></label>
+  <label><input type="radio" class="hidden-input" name="build_type" value="4"><span>その他</span></label></dd></dl>
+<dl><dt class="title">建物紹介文</dt><dd><textarea name="free_memo" placeholder="立地や建物設備などのアピールポイントを入力してください。"></textarea></dd></dl>
+
+<h3>建物所在</h3>
+<dl><dt class="title required">所在地<span>必須</span></dt><dd>
+  <div class="addressSearchBox">
+    <select id="buildAddressInputNew" class="addressSearchBox__item select2-hidden-accessible" style="display:none"></select><span class="select2 select2-container" id="addr-s2"><span class="select2-selection">住所検索（郵便番号または住所を入力）</span></span>
+  </div>
+  <input type="text" name="buildAddress" id="buildAddress" readonly placeholder="住所入力欄 例）○○市△△町00丁目">
+  <input type="text" name="address_detail_text" placeholder="左記以外 例）1-1-1"></dd></dl>
+<dl><dt class="title">緯度</dt><dd><input type="text" name="build_address_lat" id="lat" placeholder="緯度" value="35.1"></dd>
+    <dt class="title">経度</dt><dd><input type="text" name="build_address_lng" id="lng" placeholder="経度" value="136.9"></dd></dl>
+<dl><dt class="title">周辺環境</dt><dd><textarea name="address_memo">旧データ</textarea></dd></dl>
+
 <h3>アクセス情報</h3>
-<div class="access">
-  <div class="row"><div class="lbl">最寄り駅</div><div><select name="station[0]"><option value="">選択</option>
-    <option value="101">名古屋市鶴舞線 塩釜口駅</option><option value="102">名古屋市鶴舞線 植田駅</option><option value="103">名古屋市鶴舞線 原駅</option>
-    <option value="201">名古屋市桜通線 吹上駅</option><option value="202">名古屋市東山線 今池駅</option><option value="203">名古屋市東山線 千種駅</option><option value="204">JR中央本線 千種駅</option></select></div>
-    <div class="lbl">徒歩</div><div><input type="text" name="walk[0]" placeholder="半角"> 分</div><div><input type="text" name="other[0]"></div><button type="button">−</button></div>
-  <div class="row"><div class="lbl">最寄り駅</div><div><select name="station[1]"><option value="">選択</option>
-    <option value="201">名古屋市桜通線 吹上駅</option><option value="202">名古屋市東山線 今池駅</option><option value="203">名古屋市東山線 千種駅</option><option value="204">JR中央本線 千種駅</option></select></div>
-    <div class="lbl">徒歩</div><div><input type="text" name="walk[1]" placeholder="半角"> 分</div><div><input type="text" name="other[1]"></div></div>
-  <div class="row"><div class="lbl">最寄り駅</div><div><select name="station[2]"><option value="">選択</option>
-    <option value="203">名古屋市東山線 千種駅</option><option value="204">JR中央本線 千種駅</option></select></div>
-    <div class="lbl">徒歩</div><div><input type="text" name="walk[2]" placeholder="半角" value="5"> 分</div><div><input type="text" name="other[2]"></div></div>
+<div id="stations">
+  <dl class="st-row"><dt class="title">最寄り駅</dt><dd><select name="use_stations[station_codes][]" class="stations lib-selectsrch SumoUnder"></select></dd>
+    <dt class="title">徒歩</dt><dd><input type="number" name="use_stations[walk_minutes][]" placeholder="半角"> 分 <input type="text" name="use_stations[info][]" placeholder="例) バスで10分"></dd></dl>
+  <dl class="st-row"><dt class="title">最寄り駅</dt><dd><select name="use_stations[station_codes][]" class="stations lib-selectsrch SumoUnder"></select></dd>
+    <dt class="title">徒歩</dt><dd><input type="number" name="use_stations[walk_minutes][]" placeholder="半角" value="5"> 分 <input type="text" name="use_stations[info][]" placeholder="例) バスで10分"></dd></dl>
 </div>
-<table>
-<tr><th>その他アクセス</th><td><input type="text" name="other_access"></td></tr>
-<tr><th>空港からのアクセス</th><td><input type="text" name="airport"></td></tr>
-</table>
+<dl id="tmpRow"><dt class="title">最寄り駅</dt><dd><select name="use_stations[station_codes][]" id="tmpStationSelect" class="stations"><option value="">沿線を選択してください</option></select></dd>
+  <dt class="title">徒歩</dt><dd><input type="number" name="use_stations[walk_minutes][]"> 分 <input type="text" name="use_stations[info][]"></dd></dl>
+<p><button type="button" class="btn-add-station" id="addStation">+</button></p>
+<dl><dt class="title">その他アクセス</dt><dd><input type="text" name="access_other"></dd></dl>
+<dl><dt class="title">空港からのアクセス</dt><dd><input type="text" name="access_airport"></dd></dl>
+
 <h3>建物設備</h3>
-<div class="equip">
-  <label class="eq"><input type="checkbox" name="eq_ev" style="display:none"><img alt=""><span>エレベーター</span></label>
-  <label class="eq"><input type="checkbox" name="eq_al" style="display:none"><span>オートロック</span></label>
-  <label class="eq"><input type="checkbox" name="eq_box" style="display:none"><span>宅配ボックス</span></label>
-  <label class="eq"><input type="checkbox" name="eq_bike" style="display:none" checked><span>駐輪場</span></label>
-  <label class="eq"><input type="checkbox" name="eq_gomi" style="display:none"><span>ゴミ捨て場</span></label>
-</div>
-<table>
-<tr><th>建物構造</th><td><select name="structure"><option value="">選択</option><option value="1">木造</option><option value="2">軽量鉄骨</option>
-  <option value="3">S(鉄骨造)</option><option value="4">RC(鉄筋コンクリート)</option><option value="5">SRC(鉄骨鉄筋コンクリート)</option><option value="9">その他</option></select></td></tr>
-<tr><th>建物階数</th><td><input type="text" name="floor_up"> 階 <input type="text" name="floor_down"> 階</td>
-    <th>築年月</th><td><input type="text" name="built_y"> 年 <input type="text" name="built_m"> 月</td></tr>
-<tr><th>総戸数</th><td><input type="text" name="units"> 戸</td><th>面積</th><td><input type="text" name="area"></td></tr>
-</table>
-<button type="button" id="save" onclick="window.__saved=true">保存</button>
-<script>window.__changes=0;document.addEventListener('change',function(){window.__changes++;},true);</script>
+<ul class="facilities">
+  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="1"><span class="name">エレベーター</span></label></li>
+  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="2"><span class="name">オートロック</span></label></li>
+  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="3"><span class="name">宅配ボックス</span></label></li>
+  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="6" checked><span class="name">駐輪場</span></label></li>
+  <li><label><input type="checkbox" class="hidden-input" name="facilities[]" value="9"><span class="name">ゴミ捨て場</span></label></li>
+</ul>
+<dl><dt class="title">その他の設備</dt><dd><textarea name="facility_memo"></textarea></dd></dl>
+<h3>その他建物情報</h3>
+<dl><dt class="title">建物構造</dt><dd><select name="structure"><option value="1">RC(鉄筋コンクリート)</option><option value="2">WRC(壁式鉄筋コンクリート造)</option>
+  <option value="3">SRC(鉄骨鉄筋コンクリート造)</option><option value="4">CFT(コンクリート充填鋼管)</option><option value="5">ALC(軽量気泡コンクリート)</option>
+  <option value="6">PC(プレキャスト鉄筋コンクリート)</option><option value="7">S(鉄骨造)</option><option value="8">LGS(軽量鉄骨造)</option><option value="9">W(木造)</option></select></dd></dl>
+<dl><dt class="title">建物階数</dt><dd><input type="number" name="floor_up" placeholder="地上"> 階 <input type="number" name="floor_down" placeholder="地下"> 階</dd>
+    <dt class="title">築年月</dt><dd><input type="number" name="build_year" class="short" placeholder="2000"> 年 <input type="number" name="build_month" class="short" placeholder="1"> 月</dd></dl>
+<dl><dt class="title">総戸数</dt><dd><input type="number" name="total_units" class="short"> 戸</dd><dt class="title">面積</dt><dd><input type="number" name="area_size" class="short"></dd></dl>
+<button type="button" id="save" onclick="window.__saved=true">保存</button> <button type="button">保存せずに戻る</button>
+
+<script>
+window.__changes = 0;
+document.addEventListener('change', function () { window.__changes++; }, true);
+
+/* ---- 駅：SumoSelect＋サーバー検索の模擬（初期は全国の先頭21件のみ。検索すると候補を読み込む） ---- */
+var STATIONS = [['9930121', '名古屋市桜通線 吹上'], ['9930306', '名古屋市東山線 今池'], ['9930305', '名古屋市東山線 千種'], ['1130212', 'JR中央本線 千種'], ['9930411', '名古屋市鶴舞線 原']];
+var INITIAL = [['1', '北海道新幹線 新青森'], ['2', '北海道新幹線 奥津軽いまべつ'], ['3', '函館本線 函館']];
+function sumoize(sel) {
+  sel.innerHTML = '<option value="">沿線を選択してください</option>' + INITIAL.map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('');
+  var wrap = document.createElement('div'); wrap.className = 'SumoSelect';
+  sel.parentNode.insertBefore(wrap, sel); wrap.appendChild(sel);
+  wrap.insertAdjacentHTML('beforeend', '<p class="CaptionCont SelectBox"><span>沿線を選択してください</span></p><div class="optWrapper"><input type="text" class="search-txt" placeholder="検索..."><ul class="options"></ul></div>');
+  var ul = wrap.querySelector('ul'), cap = wrap.querySelector('.CaptionCont'), search = wrap.querySelector('.search-txt');
+  function draw() {
+    ul.innerHTML = Array.prototype.slice.call(sel.options, 1).map(function (o, i) { return '<li class="opt" data-i="' + (i + 1) + '"><label>' + o.text + '</label></li>'; }).join('');
+  }
+  draw();
+  cap.addEventListener('click', function () { wrap.classList.toggle('open'); });
+  search.addEventListener('keyup', function () {
+    var q = search.value;
+    setTimeout(function () { // サーバーからの読み込みを模擬
+      var hits = STATIONS.filter(function (s) { return q && s[1].indexOf(q) >= 0; });
+      sel.innerHTML = '<option value="">沿線を選択してください</option>' + hits.map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('');
+      draw();
+    }, 400);
+  });
+  ul.addEventListener('click', function (e) {
+    var li = e.target.closest('li'); if (!li) return;
+    sel.selectedIndex = Number(li.dataset.i); sel.dispatchEvent(new Event('change', { bubbles: true }));
+    cap.querySelector('span').textContent = sel.options[sel.selectedIndex].text; wrap.classList.remove('open');
+  });
+}
+Array.prototype.forEach.call(document.querySelectorAll('#stations select'), sumoize);
+document.getElementById('addStation').addEventListener('click', function () {
+  var row = document.getElementById('tmpRow').cloneNode(true);
+  row.removeAttribute('id'); row.className = 'st-row';
+  var s = row.querySelector('select'); s.removeAttribute('id'); s.className = 'stations lib-selectsrch SumoUnder';
+  document.getElementById('stations').appendChild(row);
+  setTimeout(function () { sumoize(s); }, 50);
+});
+
+/* ---- 所在地：select2（郵便番号で住所を検索）の模擬 ---- */
+var ADDR = { '4640850': ['〒464-0850 愛知県 名古屋市 千種区今池１丁目', '〒464-0850 愛知県 名古屋市 千種区今池３丁目', '〒464-0850 愛知県 名古屋市 千種区今池５丁目'] };
+var s2 = document.querySelector('#addr-s2 .select2-selection');
+s2.addEventListener('mousedown', function () {
+  if (document.querySelector('.select2-container--open')) return;
+  var dd = document.createElement('span');
+  dd.className = 'select2-container select2-container--open';
+  dd.innerHTML = '<span class="select2-dropdown"><span class="select2-search"><input class="select2-search__field" type="search"></span><ul class="select2-results__options"></ul></span>';
+  document.body.appendChild(dd);
+  var f = dd.querySelector('input'), ul = dd.querySelector('ul');
+  f.addEventListener('input', function () {
+    ul.innerHTML = '<li class="select2-results__option loading-results">検索しています…</li>';
+    setTimeout(function () {
+      var list = ADDR[f.value.replace(/-/g, '')] || [];
+      ul.innerHTML = list.length ? list.map(function (t) { return '<li class="select2-results__option">' + t + '</li>'; }).join('') : '<li class="select2-results__option select2-results__message">見つかりません</li>';
+    }, 300);
+  });
+  ul.addEventListener('mouseup', function (e) {
+    var li = e.target.closest('.select2-results__option'); if (!li || /message|loading/.test(li.className)) return;
+    document.getElementById('buildAddress').value = li.textContent;
+    dd.remove();
+  });
+});
+</script>
 </body></html>

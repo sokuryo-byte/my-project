@@ -115,8 +115,8 @@
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="wm-btn" id="wm-test">サンプルで入力テスト</button>' +
       '<button type="button" class="wm-btn" id="wm-diag">入力欄の診断をコピー</button></div>');
     root.querySelector('#wm-test').onclick = function () {
-      W.run(SAMPLE, 'ウェルモ自動入力：テスト（保存しないでください）');
       renderClosed();
+      W.run(SAMPLE, 'ウェルモ自動入力：テスト（保存しないでください）');
     };
     root.querySelector('#wm-diag').onclick = function () { W.diagnose(); };
     root.querySelector('#wm-save').onclick = function () {
@@ -167,7 +167,9 @@
   function fillFor(id) {
     state.msg = '入力しています…'; state.err = false; renderList();
     callApp({ api: 'wellmo-data', id: id }).then(function (r) {
-      var rep = W.run(r.data, 'ウェルモ自動入力：' + (r.name || ''));
+      return W.run(r.data, 'ウェルモ自動入力：' + (r.name || '')).then(function (rep) { return { r: r, rep: rep }; });
+    }).then(function (x) {
+      var r = x.r, rep = x.rep;
       state.msg = r.name + 'を入力しました（' + rep.done.length + '項目' + (rep.manual.length ? '、手動が必要 ' + rep.manual.length + '項目' : '') + '）。内容を確認して「保存」を押してください。';
       if (r.pending) state.msg += '　※アプリ側で未確認の項目が' + r.pending + '件あります。';
       renderClosed();

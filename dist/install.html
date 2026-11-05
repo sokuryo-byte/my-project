@@ -44,7 +44,7 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
 <textarea id="src" readonly>// ==UserScript==
 // @name         ウェルモ自動入力（マンスリー周辺調査）
 // @namespace    monthly-nearby-survey
-// @version      0.2.1
+// @version      0.3.0
 // @description  周辺調査アプリの結果を、ウェルモ「建物管理｜編集」画面に一括入力する（保存は担当者が押す）
 // @match        https://wm-system.com/build/*
 // @grant        GM_xmlhttpRequest
@@ -66,7 +66,7 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
  */
 (function () {
   'use strict';
-  var VERSION = '0.2.1';
+  var VERSION = '0.3.0';
   var PANEL_ID = 'wm-autofill-panel';
 
   var norm = function (s) {
@@ -101,13 +101,13 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
   }
 
   /** 項目名の後ろにある入力欄（同じ行・ブロック内）を返す */
-  function fieldsAfter(labelEl, selector) {
+  function fieldsAfter(labelEl, selector, includeHidden) {
     var a = labelEl;
     for (var depth = 0; depth &lt; 5 &amp;&amp; a &amp;&amp; a !== document.body; depth++) {
       a = a.parentElement;
       if (!a) break;
       var list = Array.prototype.filter.call(a.querySelectorAll(selector || FIELD_SEL), function (f) {
-        return (labelEl.compareDocumentPosition(f) &amp; Node.DOCUMENT_POSITION_FOLLOWING) &amp;&amp; isVisible(f);
+        return (labelEl.compareDocumentPosition(f) &amp; Node.DOCUMENT_POSITION_FOLLOWING) &amp;&amp; (includeHidden || isVisible(f));
       });
       if (list.length) return list;
     }
@@ -130,10 +130,20 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
     if (window.jQuery) { try { window.jQuery(el).trigger('change'); } catch (e) { /* noop */ } }
   }
 
-  function selectOption(sel, matcher) {
+  function selectOption(sel, matcher, prefer) {
     var opts = Array.prototype.slice.call(sel.options);
     var hits = opts.filter(function (o) { return o.value !== '' &amp;&amp; matcher(norm(o.text)); });
-    if (hits.length !== 1) return { ok: false, count: hits.length };
+    if (hits.length > 1 &amp;&amp; prefer) {
+      var pre = hits.filter(function (o) { return prefer(norm(o.text)); });
+      if (pre.length >= 1) hits = pre;
+    }
+    if (hits.length > 1) {
+      // 最も短い（＝余計な語のない）選択肢が1つだけならそれを選ぶ
+      var min = Math.min.apply(null, hits.map(function (o) { return norm(o.text).length; }));
+      var shortest = hits.filter(function (o) { return norm(o.text).length === min; });
+      if (shortest.length === 1) hits = shortest;
+    }
+    if (hits.length !== 1) return { ok: false, count: hits.length, sample: hits.slice(0, 4).map(function (o) { return o.text; }) };
     setValue(sel, hits[0].value);
     return { ok: true, text: hits[0].text };
   }
@@ -183,15 +193,33 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
     if (!value) return;
     var els = findLabelEls(label);
     if (!els.length) return manual(label, '画面に項目が見つからない');
-    var radios = fieldsAfter(els[0], 'input[type=radio]');
+    var radios = fieldsAfter(els[0], 'input[type=radio]', true); // 見た目を作り込んだ画面ではラジオ本体が隠れている
     var target = norm(value);
+    var radioText = function (r) {
+      if (r.labels &amp;&amp; r.labels.length) return r.labels[0].textContent;
+      var sib = r.nextSibling;
+      while (sib &amp;&amp; sib.nodeType === 3 &amp;&amp; !sib.textContent.trim()) sib = sib.nextSibling;
+      if (sib &amp;&amp; norm(sib.textContent)) return sib.textContent;
+      return r.parentElement ? r.parentElement.textContent : '';
+    };
     for (var i = 0; i &lt; radios.length; i++) {
       var r = radios[i];
-      var text = r.labels &amp;&amp; r.labels.length ? r.labels[0].textContent : (r.parentElement ? r.parentElement.textContent : '');
-      if (norm(text) === target || norm(r.value) === target) {
-        if (!r.checked) r.click();
+      if (norm(radioText(r)) === target || norm(r.value) === target) {
+        if (!r.checked) {
+          var lbl = r.labels &amp;&amp; r.labels[0];
+          (lbl || r).click();
+          if (!r.checked) { r.checked = true; fire(r, 'change'); }
+        }
         return done(label, value);
       }
+    }
+    // ラジオ本体がない（見た目だけの選択肢）場合は、文字が一致する要素を押す
+    var row = els[0].parentElement;
+    for (var d = 0; d &lt; 4 &amp;&amp; row; d++, row = row.parentElement) {
+      var opts = Array.prototype.filter.call(row.querySelectorAll('label,span,div,li,button'), function (x) {
+        return norm(x.textContent) === target &amp;&amp; (els[0].compareDocumentPosition(x) &amp; Node.DOCUMENT_POSITION_FOLLOWING);
+      });
+      if (opts.length) { opts[opts.length - 1].click(); return done(label, value + '（選択ボタンを押しました。表示を確認してください）'); }
     }
     manual(label, '「' + value + '」の選択肢が見つからない');
   }
@@ -211,8 +239,11 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
     if (!els.length) return manual('建物構造', '画面に項目が見つからない');
     var sel = fieldsAfter(els[0], 'select')[0];
     if (!sel) return manual('建物構造', '選択欄が見つからない（' + value + '）');
-    var r = selectOption(sel, STRUCT_MATCH[value] || function (t) { return t.indexOf(norm(value)) >= 0; });
-    if (r.ok) done('建物構造', r.text); else manual('建物構造', '「' + value + '」に一致する選択肢が' + r.count + '件');
+    var code = norm(value);
+    var r = selectOption(sel, STRUCT_MATCH[value] || function (t) { return t.indexOf(code) >= 0; },
+      function (t) { return t === code || t.indexOf(code + '(') === 0 || t.indexOf(code + '造') === 0; });
+    if (r.ok) done('建物構造', r.text);
+    else manual('建物構造', '「' + value + '」に一致する選択肢が' + r.count + '件' + (r.sample ? '（' + r.sample.join('／') + '）' : '') + '。手動で選択');
   }
 
   // 路線名の表記ゆれ（会社名などの前置き）を除いた中核部分。例: 名古屋市鶴舞線/地下鉄鶴舞線 → 鶴舞線
@@ -230,20 +261,54 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
     };
   }
 
+  /** 最寄り駅の「＋」（行の追加）ボタンを探す */
+  function findAddStationButton() {
+    var labels = findLabelEls('最寄り駅');
+    if (!labels.length) return null;
+    var last = labels[labels.length - 1];
+    var stop = findLabelEls('その他アクセス')[0];
+    var cands = document.querySelectorAll('button, a, span, i, div');
+    for (var i = 0; i &lt; cands.length; i++) {
+      var x = cands[i];
+      if (!(last.compareDocumentPosition(x) &amp; Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+      if (stop &amp;&amp; !(x.compareDocumentPosition(stop) &amp; Node.DOCUMENT_POSITION_FOLLOWING)) break;
+      var t = norm(x.textContent), cls = String(x.className || '');
+      if ((t === '+' || t === '＋' || /(^|[-_ ])(plus|add)([-_ ]|$)/i.test(cls) || /追加/.test(x.getAttribute('aria-label') || x.title || '')) &amp;&amp; x.children.length &lt;= 2) return x;
+    }
+    return null;
+  }
+
+  /** 駅の行が足りなければ「＋」を押して増やす（画面の更新を待つため Promise） */
+  function ensureStationRows(count) {
+    return new Promise(function (resolve) {
+      var tries = 0;
+      (function step() {
+        var have = document.querySelector('select[name="' + WM.station + '"]') ? stationSelects().length : findLabelEls('最寄り駅').length;
+        if (have >= count || tries >= count) return resolve();
+        var btn = findAddStationButton();
+        if (!btn) return resolve();
+        btn.click(); tries++;
+        setTimeout(step, 350);
+      })();
+    });
+  }
+
   function fillStations(list) {
     if (!list || !list.length) return;
     var labels = findLabelEls('最寄り駅');
     list.forEach(function (st, i) {
       var key = '最寄り駅' + (i + 1) + '（' + (st['路線'] || '') + '「' + st['駅'] + '」）';
       var lab = labels[i];
-      if (!lab) return manual(key, '行が足りない。「＋」で行を追加してから再実行');
+      if (!lab) return manual(key, '行が足りない。「＋」で行を追加してから、もう一度入力');
       var fields = fieldsAfter(lab);
       // 同じ行の最初の欄＝駅、次＝徒歩分、その次＝その他
       var stField = fields[0];
       if (stField &amp;&amp; stField.tagName === 'SELECT') {
-        var r = selectOption(stField, stationMatcher(st));
+        var usable = Array.prototype.filter.call(stField.options, function (o) { return o.value !== ''; }).length;
+        var r = usable ? selectOption(stField, stationMatcher(st)) : { ok: false, count: 0 };
         if (r.ok) done(key, r.text);
-        else manual(key, r.count ? '候補が' + r.count + '件あり特定できない' : '選択肢に見つからない（路線名の表記を確認）');
+        else if (!usable) manual(key, '駅の選択肢が読み込まれていない（検索して選ぶ形式の可能性）。手動で選択');
+        else manual(key, r.count ? '候補が' + r.count + '件あり特定できない' : '選択肢' + usable + '件の中に見つからない（路線名の表記を確認）');
       } else {
         manual(key, '駅は検索選択式のため手動で選択');
       }
@@ -285,32 +350,200 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
     });
   }
 
-  function fill(data) {
-    fillText('マンスリー表示名', data['マンスリー表示名']);
-    fillText('ふりがな', data['ふりがな']);
-    fillText('建物名', data['建物名']);
-    fillRadio('物件種別', data['物件種別']);
-    if (data['所在地']) {
-      report.info.push('所在地は「住所検索」で選択：' + (data['所在地']['郵便番号'] || '') + ' ' + (data['所在地']['住所'] || ''));
+  /* ---------- ウェルモ実画面の入力欄（name属性。診断結果より） ---------- */
+  var WM = {
+    title: 'display_name', kana: 'display_kana', build: 'buildName',
+    address: 'buildAddress', detail: 'address_detail_text', lat: 'build_address_lat', lng: 'build_address_lng',
+    around: 'address_memo', station: 'use_stations[station_codes][]', walk: 'use_stations[walk_minutes][]', info: 'use_stations[info][]',
+    other: 'access_other', airport: 'access_airport', structure: 'structure',
+    up: 'floor_up', down: 'floor_down', year: 'build_year', month: 'build_month', units: 'total_units'
+  };
+  var ADDRESS_SEARCH_ID = 'buildAddressInputNew';
+  var TEMPLATE_STATION_ID = 'tmpStationSelect';
+
+  function byName(name) { return document.querySelector('[name="' + name + '"]'); }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function waitFor(fn, timeout) {
+    var t0 = Date.now();
+    return new Promise(function (resolve) {
+      (function poll() {
+        var v = null;
+        try { v = fn(); } catch (e) { v = null; }
+        if (v) return resolve(v);
+        if (Date.now() - t0 > (timeout || 4000)) return resolve(null);
+        setTimeout(poll, 150);
+      })();
+    });
+  }
+  function shown(el) { return !!el &amp;&amp; el.getClientRects().length > 0; }
+  /** 検索欄への入力（blur しない＝候補リストを閉じない） */
+  function typeSearch(input, text) {
+    input.focus();
+    var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    desc.set.call(input, text);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'a' }));
+  }
+  function setNamed(label, name, value, idx) {
+    if (value == null || value === '') return;
+    var el = byName(name);
+    if (!el) return fillText(label, value, idx); // 画面が変わっていたら項目名で探す
+    if (el.readOnly || el.disabled) return manual(label, '入力不可の欄（' + value + '）');
+    setValue(el, String(value));
+    done(label, value);
+  }
+
+  /** 所在地：住所検索（select2）で郵便番号を検索して選び、残り（番地など）を「左記以外」に入れる */
+  async function fillAddress(addr) {
+    if (!addr) return;
+    var full = String(addr['住所'] || '');
+    var postal = String(addr['郵便番号'] || '');
+    var label = '所在地（' + (postal ? '〒' + postal + ' ' : '') + full + '）';
+    var sel = document.getElementById(ADDRESS_SEARCH_ID);
+    var shownAddr = byName(WM.address);
+    if (!sel || !shownAddr) { report.info.push('所在地は「住所検索」で選択：' + label); return; }
+    if (shownAddr.value) { report.info.push('所在地は入力済みのため変更しませんでした：' + shownAddr.value); return fillDetail(shownAddr.value, full); }
+    var container = sel.nextElementSibling &amp;&amp; /select2/.test(sel.nextElementSibling.className) ? sel.nextElementSibling : sel.parentElement.querySelector('.select2');
+    var opener = container &amp;&amp; container.querySelector('.select2-selection');
+    if (!opener) return manual(label, '住所検索を開けません。手動で検索してください');
+    var terms = [postal, postal.replace(/-/g, ''), full.replace(/(丁目|番地?|\d).*$/, '')].filter(function (t, i, arr) { return t &amp;&amp; arr.indexOf(t) === i; });
+    var target = norm(full);
+    for (var i = 0; i &lt; terms.length; i++) {
+      opener.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      opener.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      opener.click();
+      var search = await waitFor(function () { return document.querySelector('.select2-container--open .select2-search__field'); }, 2000);
+      if (!search) break;
+      typeSearch(search, terms[i]);
+      var opts = await waitFor(function () {
+        var list = document.querySelectorAll('.select2-container--open .select2-results__option');
+        var real = Array.prototype.filter.call(list, function (o) { return !/loading|message/.test(o.className) &amp;&amp; norm(o.textContent); });
+        return real.length ? real : null;
+      }, 4000);
+      if (!opts) { document.activeElement &amp;&amp; document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape', keyCode: 27 })); continue; }
+      // 物件住所の先頭と最も長く一致する候補を選ぶ
+      var best = null, bestLen = 0;
+      opts.forEach(function (o) {
+        var t = norm(o.textContent).replace(/^〒?\d{3}-?\d{4}/, '');
+        var k = 0; while (k &lt; t.length &amp;&amp; t[k] === target[k]) k++;
+        if (k === t.length &amp;&amp; k > bestLen) { best = o; bestLen = k; }
+      });
+      if (!best &amp;&amp; opts.length === 1) best = opts[0];
+      if (!best) continue;
+      best.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      best.click();
+      var v = await waitFor(function () { return shownAddr.value; }, 2000);
+      if (v) { done('所在地', v); return fillDetail(v, full); }
     }
-    fillText('緯度', data['緯度']);
-    fillText('経度', data['経度']);
+    manual(label, '住所検索で候補を選べませんでした。手動で検索してください');
+  }
+  /** 選ばれた住所の続き（番地など）を「左記以外」に入れる */
+  function fillDetail(picked, full) {
+    var p = norm(picked).replace(/^〒?\d{3}-?\d{4}/, ''), f = norm(full);
+    var detail = f.indexOf(p) === 0 ? f.slice(p.length) : '';
+    var el = byName(WM.detail);
+    if (!el) return;
+    if (!detail) return report.info.push('「左記以外」（番地など）を確認してください');
+    if (el.value) return report.info.push('「左記以外」は入力済みのため変更しませんでした');
+    setValue(el, detail);
+    done('所在地（左記以外）', detail);
+  }
+
+  /** 表示されている駅の行（非表示のひな形を除く） */
+  function stationSelects() {
+    return Array.prototype.filter.call(document.querySelectorAll('select[name="' + WM.station + '"]'), function (s) {
+      if (s.id === TEMPLATE_STATION_ID) return false;
+      return shown(s.closest('.SumoSelect') || s.parentElement);
+    });
+  }
+  function rowOf(sel) { return sel.closest('dl') || sel.closest('tr') || sel.closest('li') || sel.parentElement.parentElement; }
+
+  /** 駅を選ぶ：選択肢になければ検索欄に駅名を入れて候補を読み込ませる */
+  async function chooseStation(sel, st) {
+    var m = stationMatcher(st);
+    var pick = function () {
+      var r = selectOption(sel, m);
+      if (!r.ok) return r;
+      // 見た目（SumoSelect）の選択も合わせる
+      var wrap = sel.closest('.SumoSelect');
+      var li = wrap &amp;&amp; Array.prototype.filter.call(wrap.querySelectorAll('li'), function (x) { return norm(x.textContent) === norm(r.text); })[0];
+      if (li) li.click();
+      return r;
+    };
+    var r0 = pick();
+    if (r0.ok || r0.count > 1) return r0;
+    var wrap = sel.closest('.SumoSelect') || sel.parentElement;
+    var cap = wrap.querySelector('.CaptionCont, p');
+    if (cap) cap.click();
+    var search = await waitFor(function () { return wrap.querySelector('input.search-txt, input[type=search], input[type=text]:not([name])'); }, 1500);
+    if (!search) return { ok: false, count: 0, reason: '検索欄が見つからない' };
+    var name = norm(st['駅']).replace(/駅$/, '');
+    typeSearch(search, name);
+    var hit = await waitFor(function () {
+      return Array.prototype.some.call(sel.options, function (o) { return o.value !== '' &amp;&amp; m(norm(o.text)); });
+    }, 5000);
+    var r = hit ? pick() : { ok: false, count: 0, reason: '検索しても候補に出ない' };
+    if (cap &amp;&amp; wrap.classList.contains('open')) cap.click();
+    return r;
+  }
+
+  async function fillStationsAsync(list) {
+    if (!list || !list.length) return;
+    if (!document.querySelector('select[name="' + WM.station + '"]')) return fillStations(list); // 画面が変わっていたら従来の方法
+    for (var i = 0; i &lt; list.length; i++) {
+      var st = list[i];
+      var key = '最寄り駅' + (i + 1) + '（' + (st['路線'] || '') + '「' + st['駅'] + '」）';
+      var sel = stationSelects()[i];
+      if (!sel) { manual(key, '行が足りない。「＋」で行を追加してから、もう一度入力'); continue; }
+      var r = await chooseStation(sel, st);
+      if (r.ok) done(key, r.text);
+      else manual(key, r.count > 1 ? '候補が' + r.count + '件あり特定できない（' + (r.sample || []).join('／') + '）' : (r.reason || '候補に見つからない') + '。手動で選択');
+      var row = rowOf(sel);
+      var walk = row &amp;&amp; row.querySelector('[name="' + WM.walk + '"]');
+      var info = row &amp;&amp; row.querySelector('[name="' + WM.info + '"]');
+      if (walk &amp;&amp; st['徒歩'] !== undefined) {
+        setValue(walk, st['徒歩'] === '' ? '' : String(st['徒歩']));
+        done('最寄り駅' + (i + 1) + ' 徒歩', st['徒歩'] === '' ? '（空欄）' : st['徒歩'] + '分');
+      }
+      if (info &amp;&amp; st['その他']) { setValue(info, st['その他']); done('最寄り駅' + (i + 1) + ' その他', st['その他']); }
+    }
+  }
+
+  function fillStructureNamed(value) {
+    if (!value) return;
+    var sel = byName(WM.structure);
+    if (!sel || sel.tagName !== 'SELECT') return fillStructure(value);
+    var code = norm(value);
+    var r = selectOption(sel, STRUCT_MATCH[value] || function (t) { return t.indexOf(code) >= 0; },
+      function (t) { return t === code || t.indexOf(code + '(') === 0 || t.indexOf(code + '造') === 0; });
+    if (r.ok) done('建物構造', r.text);
+    else manual('建物構造', '「' + value + '」に一致する選択肢が' + r.count + '件' + (r.sample ? '（' + r.sample.join('／') + '）' : '') + '。手動で選択');
+  }
+
+  async function fill(data) {
+    setNamed('マンスリー表示名', WM.title, data['マンスリー表示名']);
+    setNamed('ふりがな', WM.kana, data['ふりがな']);
+    setNamed('建物名', WM.build, data['建物名']);
+    fillRadio('物件種別', data['物件種別']);
+    await fillAddress(data['所在地']);
+    setNamed('緯度', WM.lat, data['緯度']);
+    setNamed('経度', WM.lng, data['経度']);
     if (data['緯度'] != null) report.info.push('緯度・経度を入れても地図のピンは動かない場合があります。ピン位置を確認してください');
-    fillText('周辺環境', data['周辺環境']);
-    fillStations(data['最寄り駅']);
-    fillText('その他アクセス', data['その他アクセス']);
-    fillText('空港からのアクセス', data['空港からのアクセス']);
+    setNamed('周辺環境', WM.around, data['周辺環境']);
+    await fillStationsAsync(data['最寄り駅']);
+    setNamed('その他アクセス', WM.other, data['その他アクセス']);
+    setNamed('空港からのアクセス', WM.airport, data['空港からのアクセス']);
     fillEquipment(data['建物設備']);
-    fillStructure(data['建物構造']);
+    fillStructureNamed(data['建物構造']);
     if (data['建物階数']) {
-      fillText('建物階数', data['建物階数']['地上'], 0);
-      fillText('建物階数', data['建物階数']['地下'], 1);
+      setNamed('建物階数（地上）', WM.up, data['建物階数']['地上'], 0);
+      setNamed('建物階数（地下）', WM.down, data['建物階数']['地下'], 1);
     }
     if (data['築年月']) {
-      fillText('築年月', data['築年月']['年'], 0);
-      fillText('築年月', data['築年月']['月'], 1);
+      setNamed('築年', WM.year, data['築年月']['年'], 0);
+      setNamed('築月', WM.month, data['築年月']['月'], 1);
     }
-    fillText('総戸数', data['総戸数']);
+    setNamed('総戸数', WM.units, data['総戸数']);
   }
 
   /* ---------- 診断モード（入力欄の構造だけを出力。入力値は含めない） ---------- */
@@ -336,6 +569,49 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
           after: fieldsAfter(el).slice(0, 4).map(describe), checkbox: box ? describe(box) : null };
       });
     });
+    out.radios = findLabelEls('物件種別').slice(0, 1).map(function (el) {
+      return fieldsAfter(el, 'input[type=radio]', true).slice(0, 6).map(function (r) {
+        var d = describe(r);
+        d.hiddenInput = !isVisible(r) || getComputedStyle(r).display === 'none' || getComputedStyle(r).opacity === '0';
+        d.label = r.labels &amp;&amp; r.labels[0] ? norm(r.labels[0].textContent) : '';
+        d.parent = r.parentElement ? r.parentElement.tagName.toLowerCase() + '.' + String(r.parentElement.className || '').slice(0, 40) + ' 「' + norm(r.parentElement.textContent).slice(0, 20) + '」' : '';
+        return d;
+      });
+    });
+    out.stations = findLabelEls('最寄り駅').map(function (el) {
+      return fieldsAfter(el, 'select,input', true).slice(0, 4).map(function (f) {
+        var d = describe(f);
+        d.hidden = !isVisible(f);
+        if (f.tagName === 'SELECT') {
+          d.sample = Array.prototype.slice.call(f.options, 0, 12).map(function (o) { return o.text; });
+          var nx = f.nextElementSibling;
+          d.widget = nx ? nx.tagName.toLowerCase() + '.' + String(nx.className || '').slice(0, 60) : '';
+        }
+        return d;
+      });
+    });
+    var shape = function (el, depth) {
+      if (!el || depth &lt; 0) return null;
+      return { tag: el.tagName.toLowerCase(), cls: String(el.className || '').slice(0, 60), name: el.getAttribute('name') || '', type: el.getAttribute('type') || '',
+        kids: Array.prototype.slice.call(el.children, 0, 8).map(function (c) { return shape(c, depth - 1); }).filter(Boolean) };
+    };
+    var firstSt = document.querySelector('select[name="use_stations[station_codes][]"]:not(#tmpStationSelect)');
+    out.stationWidget = firstSt ? shape(firstSt.closest('.SumoSelect') || firstSt.parentElement, 3) : null;
+    var addrSel = document.getElementById('buildAddressInputNew');
+    out.addressWidget = addrSel ? shape(addrSel.parentElement, 3) : null;
+    out.equipment = ['エレベーター', 'ゴミ捨て場'].map(function (nm) {
+      var el = findLabelEls(nm)[0];
+      var chain = [], x = el;
+      for (var k = 0; k &lt; 4 &amp;&amp; x; k++, x = x.parentElement) chain.push(x.tagName.toLowerCase() + '.' + String(x.className || '').slice(0, 40));
+      var holder = el ? el.closest('label, li, a, button') || (el.parentElement &amp;&amp; el.parentElement.parentElement) : null;
+      var ins = holder ? Array.prototype.map.call(holder.querySelectorAll('input'), function (i) { return { type: i.type, name: i.name, checked: !!i.checked }; }) : [];
+      return { name: nm, chain: chain, inputs: ins };
+    });
+    var add = findAddStationButton();
+    out.addButton = add ? { tag: add.tagName.toLowerCase(), cls: String(add.className || '').slice(0, 60), text: norm(add.textContent) } : null;
+    var structSel = findLabelEls('建物構造')[0];
+    var ss = structSel ? fieldsAfter(structSel, 'select', true)[0] : null;
+    out.structureOptions = ss ? Array.prototype.map.call(ss.options, function (o) { return o.text; }) : null;
     var text = JSON.stringify(out, null, 1);
     var copy = function () {
       if (navigator.clipboard) return navigator.clipboard.writeText(text);
@@ -372,9 +648,14 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
     /** データを入力し、結果パネルを表示して結果を返す */
     run: function (data, title) {
       report = { done: [], manual: [], info: [] };
-      try { fill(data); } catch (e) { manual('処理エラー', e.message); }
-      showPanel(title || ('ウェルモ自動入力：' + (data['建物名'] || '')));
-      return report;
+      var need = (data['最寄り駅'] || []).length;
+      showPanel('ウェルモ自動入力：入力しています…');
+      return ensureStationRows(need).then(function () { return fill(data); })
+        .catch(function (e) { manual('処理エラー', e.message); })
+        .then(function () {
+          showPanel(title || ('ウェルモ自動入力：' + (data['建物名'] || '')));
+          return report;
+        });
     },
     diagnose: function () { report = { done: [], manual: [], info: [] }; diagnose(); },
     parseInput: parseInput,
@@ -505,8 +786,8 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
       '&lt;div style="display:flex;gap:6px;flex-wrap:wrap">&lt;button type="button" class="wm-btn" id="wm-test">サンプルで入力テスト&lt;/button>' +
       '&lt;button type="button" class="wm-btn" id="wm-diag">入力欄の診断をコピー&lt;/button>&lt;/div>');
     root.querySelector('#wm-test').onclick = function () {
-      W.run(SAMPLE, 'ウェルモ自動入力：テスト（保存しないでください）');
       renderClosed();
+      W.run(SAMPLE, 'ウェルモ自動入力：テスト（保存しないでください）');
     };
     root.querySelector('#wm-diag').onclick = function () { W.diagnose(); };
     root.querySelector('#wm-save').onclick = function () {
@@ -557,7 +838,9 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
   function fillFor(id) {
     state.msg = '入力しています…'; state.err = false; renderList();
     callApp({ api: 'wellmo-data', id: id }).then(function (r) {
-      var rep = W.run(r.data, 'ウェルモ自動入力：' + (r.name || ''));
+      return W.run(r.data, 'ウェルモ自動入力：' + (r.name || '')).then(function (rep) { return { r: r, rep: rep }; });
+    }).then(function (x) {
+      var r = x.r, rep = x.rep;
       state.msg = r.name + 'を入力しました（' + rep.done.length + '項目' + (rep.manual.length ? '、手動が必要 ' + rep.manual.length + '項目' : '') + '）。内容を確認して「保存」を押してください。';
       if (r.pending) state.msg += '　※アプリ側で未確認の項目が' + r.pending + '件あります。';
       renderClosed();
@@ -593,7 +876,7 @@ textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, monospace; b
 <p>ウェルモの「建物管理｜編集」画面を開き直し、右下に「<b>周辺調査から入力</b>」ボタンが出ていれば完了です。</p>
 <p class="done">ボタンを押したときに出る「設定」には、周辺調査アプリ（本番）のURLを入れます。本番のアプリを用意した後で設定してください。</p>
 </div></section>
-<p class="or">ウェルモ自動入力 v0.2.1</p>
+<p class="or">ウェルモ自動入力 v0.3.0</p>
 </main>
 <script>
 document.getElementById('copy').addEventListener('click', function () {
