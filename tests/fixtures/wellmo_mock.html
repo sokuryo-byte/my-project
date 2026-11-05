@@ -128,6 +128,8 @@ s2.addEventListener('mousedown', function () {
     var li = e.target.closest('.select2-results__option'); if (!li || /message|loading/.test(li.className)) return;
     document.getElementById('buildAddress').value = li.textContent;
     dd.remove();
+    // 実画面と同じく、住所を選ぶと少し遅れて緯度経度を自前で上書きする
+    setTimeout(function () { document.getElementById('lat').value = '35.164988'; document.getElementById('lng').value = '136.933771'; }, 700);
   });
 });
 </script>

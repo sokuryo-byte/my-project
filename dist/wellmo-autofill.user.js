@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ウェルモ自動入力（マンスリー周辺調査）
 // @namespace    monthly-nearby-survey
-// @version      0.3.1
+// @version      0.3.2
 // @description  周辺調査アプリの結果を、ウェルモ「建物管理｜編集」画面に一括入力する（保存は担当者が押す）
 // @match        https://wm-system.com/build/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
  */
 (function () {
   'use strict';
-  var VERSION = '0.3.1';
+  var VERSION = '0.3.2';
   var PANEL_ID = 'wm-autofill-panel';
 
   var norm = function (s) {
@@ -511,7 +511,10 @@
     setNamed('ふりがな', WM.kana, data['ふりがな']);
     setNamed('建物名', WM.build, data['建物名']);
     fillRadio('物件種別', data['物件種別']);
+    var latEl = byName(WM.lat), before = latEl ? latEl.value : '';
     await fillAddress(data['所在地']);
+    // 住所を選ぶとウェルモが自分で緯度経度を計算して上書きするので、それを待ってから入れる
+    if (latEl && data['緯度'] != null) await waitFor(function () { return latEl.value !== before; }, 2500);
     setNamed('緯度', WM.lat, data['緯度']);
     setNamed('経度', WM.lng, data['経度']);
     if (data['緯度'] != null) report.info.push('緯度・経度を入れても地図のピンは動かない場合があります。ピン位置を確認してください');
@@ -530,6 +533,13 @@
       setNamed('築月', WM.month, data['築年月']['月'], 1);
     }
     setNamed('総戸数', WM.units, data['総戸数']);
+    // 遅れて上書きされた場合に備えて、最後にもう一度確かめる
+    if (data['緯度'] != null) {
+      await sleep(800);
+      var la = byName(WM.lat), ln = byName(WM.lng);
+      if (la && String(la.value) !== String(data['緯度'])) { setValue(la, String(data['緯度'])); report.info.push('緯度がウェルモ側で書き換えられたため、アプリで確定した値に戻しました'); }
+      if (ln && String(ln.value) !== String(data['経度'])) setValue(ln, String(data['経度']));
+    }
   }
 
   /* ---------- 診断モード（入力欄の構造だけを出力。入力値は含めない） ---------- */
