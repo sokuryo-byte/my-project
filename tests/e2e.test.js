@@ -259,7 +259,7 @@ test('E2E: セットアップ → 起点確認待ち → 調査 → 出力', () 
   assert.equal(out['空港からのアクセス'], '中部国際空港から車で約25分（有料道路あり）');
   assert.match(out['周辺施設'], /^イオン 大曽根店まで徒歩約5分\nマックスバリュ 大曽根店まで徒歩約8分\nスギ薬局 大曽根店まで車で約25分\n/);
   assert.equal(out['出典表記'], g.DEFAULT_SETTINGS.find((d) => d[0] === 'attribution')[1]);
-  assert.equal(out['タイトル'], '【千種区/大曽根駅徒歩10分/バストイレ別/オートロック】テストハイツ 101');
+  assert.equal(out['タイトル'], '【千種区/大曽根駅徒歩10分/バストイレ別/オートロック】テストハイツ');
   assert.doesNotMatch(out['周辺施設'], /クリニック/); // 未承認は出力しない
   assert.ok(out['未確認の要確認件数'] > 0);
   const w = JSON.parse(out['ウェルモJSON']);

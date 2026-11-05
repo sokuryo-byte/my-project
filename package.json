@@ -3,6 +3,8 @@
   "private": true,
   "description": "マンスリー物件向け周辺施設自動調査（Google Apps Script）",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:browser": "node tests/wellmo-filler.browser.js",
+    "build:bookmarklet": "node tools/build-bookmarklet.js"
   }
 }

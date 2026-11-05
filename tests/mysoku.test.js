@@ -69,6 +69,6 @@ test('DriveのURLからファイルID', () => {
 
 test('タイトル: マイソク取込後の例（名信ビル）', () => {
   const p = { 'エリア': '千種区', '建物名': '名信ビル', '号室': '6', 'バストイレ別': true, '独立洗面台': true };
-  const t = g.buildTitle_(p, { name: '吹上', minutes: 7 }, '', { title_max_length: '60', title_station_walk_max_min: '10', title_room_format: '{建物名} {号室}' });
-  assert.equal(t.title, '【千種区/吹上駅徒歩7分/バストイレ別・独立洗面台】名信ビル 6');
+  const t = g.buildTitle_(p, { name: '吹上', minutes: 7 }, '', { title_max_length: '60', title_station_walk_max_min: '10', title_room_format: '{建物名}' });
+  assert.equal(t.title, '【千種区/吹上駅徒歩7分/バストイレ別・独立洗面台】名信ビル');
 });

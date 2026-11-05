@@ -4,8 +4,9 @@
  *
  * 書式:
  *  【エリア/最寄り駅&徒歩分数/駐車場/無料Wi-Fi/角部屋/バストイレ別(・独立洗面台)/洋室〇帖 or 全居室6帖以上/
- *    リフォーム済/オートロック/エレベーター/宅配BOX/自転車駐輪可能/その他アピール】建物名 号室
- *  - エリア・最寄り駅・建物名・号室は必須。それ以降は該当するもののみ。
+ *    リフォーム済/オートロック/エレベーター/宅配BOX/自転車駐輪可能/その他アピール】建物名
+ *  - 建物登録用のため号室は付けない（設定 title_room_format で変更可）
+ *  - エリア・最寄り駅・建物名は必須。それ以降は該当するもののみ。
  *  - 最寄り駅は徒歩10分以内なら「今池駅徒歩4分」、超える場合は「今池駅」のみ。
  *  - USEN AIRは無料Wi-Fiとして扱わない。
  *  - 自転車駐輪可能は、駐車場ありの物件では書かない。
@@ -89,7 +90,8 @@ function buildTitle_(p, station, autoAppeal, settings) {
   var building = String(p['建物名'] || '').trim();
   var room = String(p['号室'] || '').trim();
   if (!building) notes.push('建物名が未入力');
-  if (!room) notes.push('号室が未入力');
+  var tailFormat = String(settings.title_room_format || '{建物名}');
+  if (!room && tailFormat.indexOf('{号室}') >= 0) notes.push('号室が未入力');
 
   var opts = [];
   var parking = bool_(p['駐車場']);
@@ -112,7 +114,7 @@ function buildTitle_(p, station, autoAppeal, settings) {
   var appeal = String(p['その他アピール'] || '').trim() || autoAppeal || '';
   if (appeal) opts.push(appeal);
 
-  var tail = String(settings.title_room_format || '{建物名} {号室}')
+  var tail = tailFormat
     .replace('{建物名}', building).replace('{号室}', room).trim();
   var compose = function (o) {
     return '【' + [area, st].filter(function (x) { return x; }).concat(o).join('/') + '】' + tail;

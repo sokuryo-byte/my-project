@@ -95,7 +95,7 @@ var DEFAULT_SETTINGS = [
   ['facility_drive_threshold_min', '20', '周辺施設の徒歩分がこれを超える場合は「車で約n分」で表示'],
   ['title_max_length', '60', 'タイトルの最大文字数。超える場合は後ろの要素から削る'],
   ['title_station_walk_max_min', '10', 'タイトルの最寄り駅に徒歩分を付ける上限（超えたら駅名のみ）'],
-  ['title_room_format', '{建物名} {号室}', 'タイトル末尾の書式（{建物名}{号室}を置換）'],
+  ['title_room_format', '{建物名}', 'タイトル末尾の書式（{建物名}{号室}を置換）。建物登録では号室を付けない'],
   ['title_ward_cities', '名古屋市', 'エリアを「区」だけで表す市（カンマ区切り）'],
   ['title_area_other_style', '県+市', '上記以外のエリア表記: 県+市 / 市のみ'],
   ['title_auto_appeal', 'TRUE', 'TRUE:「その他アピール」が空欄なら、掲載チェック済みの大型商業施設（圏内）を使う'],
