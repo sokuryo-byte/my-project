@@ -1,0 +1,8 @@
+{
+  "name": "monthly-nearby-survey",
+  "private": true,
+  "description": "マンスリー物件向け周辺施設自動調査（Google Apps Script）",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
