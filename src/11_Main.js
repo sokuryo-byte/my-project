@@ -24,6 +24,12 @@ function onOpen() {
     .addToUi();
 }
 
+/** Apps Script の編集画面から1回実行する初期設定（スプレッドシートのメニューがない場合用） */
+function setup() {
+  setupSheets_();
+  Logger.log('初期設定が完了しました: ' + ss_().getUrl());
+}
+
 function menuSetup() {
   setupSheets_();
   SpreadsheetApp.getUi().alert('セットアップが完了しました。続けて「APIキー設定」を行ってください。');

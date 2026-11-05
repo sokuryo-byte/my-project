@@ -57,7 +57,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ---------- 枠組み ---------- */
-.app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+.app { display: flex; flex-direction: column; height: 100%; }
+.app > .layout { flex: 1; min-height: 0; }
 .topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 12px; min-height: 48px;
   padding-block: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   background: var(--nav); color: var(--nav-ink); }
@@ -67,6 +68,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .topbar .btn { background: transparent; color: var(--nav-ink); border-color: rgba(255, 255, 255, .35); }
 .demo-band { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--warn-line); font-size: 12.5px;
   padding-block: 5px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.setup-band { background: var(--warn-soft); border-bottom: 1px solid var(--warn-line); padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.setup-inner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.setup-inner .input { max-width: 420px; flex: 1; min-width: 200px; }
 .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
 @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
 
@@ -290,6 +294,11 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     <div class="spacer"></div>
     <button class="btn small queue-toggle" id="queue-toggle" type="button" aria-controls="queue" aria-expanded="true">物件一覧</button>
   </header>
+  <div class="setup-band" id="setup-band" hidden>
+    <form id="key-form" class="setup-inner"><b>はじめに：Google Maps の APIキーを登録してください</b>
+      <label class="sr" for="api-key">APIキー</label><input class="input" id="api-key" placeholder="AIza で始まるAPIキー" autocomplete="off">
+      <button class="btn primary small" type="submit">登録</button><span id="key-msg" role="status"></span></form>
+  </div>
   <div class="demo-band" id="demo-band" hidden>デモ版：架空のサンプルデータで動いています。Google API・スプレッドシート・ウェルモには接続しません。</div>
   <div class="layout">
     <aside class="queue" id="queue" aria-label="物件一覧">
@@ -329,6 +338,9 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
  */
 
 var APP_NAME = 'マンスリー周辺施設調査';
+
+// 設置時に自動で書き込まれる値（tools/deploy-drive.js で設定。スプレッドシートに紐付かないスクリプトとして設置した場合に使う）
+var BOOTSTRAP = { spreadsheetId: '', mysokuFolderId: '' };
 var SCRIPT_PROP_API_KEY = 'GOOGLE_MAPS_API_KEY';
 var MAX_EXEC_MS = 270000; // GASの6分制限に対して余裕を持たせる（4.5分）
 
@@ -1774,6 +1786,8 @@ function buildWellmoData_(prop, out, stRows) {
 
   /* ---------- API ---------- */
   var api = {
+    api_status: function () { return { hasApiKey: true, webAppUrl: '', spreadsheetUrl: '' }; },
+    api_setApiKey: function () { return { hasApiKey: true }; },
     api_listProperties: function () {
       return DB.props.map(function (p) {
         var s = stage(p);
@@ -2633,6 +2647,15 @@ function buildWellmoData_(prop, out, stRows) {
   $('queue-toggle').addEventListener('click', function () { setQueueOpen($('queue').classList.contains('collapsed')); });
 
   window.addEventListener('beforeunload', flushSave);
+  // APIキーが未登録なら、画面上部で登録できるようにする
+  API.call('api_status').then(function (st) { if (!st.hasApiKey) $('setup-band').hidden = false; }).catch(function () {});
+  $('key-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    $('key-msg').textContent = '登録中…';
+    API.call('api_setApiKey', $('api-key').value).then(function () {
+      $('setup-band').hidden = true; toast('APIキーを登録しました');
+    }).catch(function (e) { $('key-msg').textContent = errorText(e); });
+  });
   loadList();
 })();
 </script>

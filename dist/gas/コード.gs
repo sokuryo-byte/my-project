@@ -12,6 +12,9 @@
  */
 
 var APP_NAME = 'マンスリー周辺施設調査';
+
+// 設置時に自動で書き込まれる値（tools/deploy-drive.js で設定。スプレッドシートに紐付かないスクリプトとして設置した場合に使う）
+var BOOTSTRAP = { spreadsheetId: '', mysokuFolderId: '' };
 var SCRIPT_PROP_API_KEY = 'GOOGLE_MAPS_API_KEY';
 var MAX_EXEC_MS = 270000; // GASの6分制限に対して余裕を持たせる（4.5分）
 
@@ -1359,7 +1362,7 @@ var SCRIPT_PROP_SHEET_ID = 'SPREADSHEET_ID';
 function ss_() {
   var active = SpreadsheetApp.getActiveSpreadsheet();
   if (active) return active;
-  var id = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_SHEET_ID);
+  var id = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_SHEET_ID) || BOOTSTRAP.spreadsheetId;
   if (!id) throw new Error('スプレッドシートが特定できません。スプレッドシートのメニューから「初期セットアップ」を実行してください。');
   return SpreadsheetApp.openById(id);
 }
@@ -1521,7 +1524,10 @@ function setupSheets_() {
 
   var st = sheet_(SHEETS.SETTINGS);
   if (st.getLastRow() < 2) {
-    st.getRange(2, 1, DEFAULT_SETTINGS.length, 3).setNumberFormat('@').setValues(DEFAULT_SETTINGS);
+    var defaults = DEFAULT_SETTINGS.map(function (d) {
+      return d[0] === 'mysoku_folder_id' && BOOTSTRAP.mysokuFolderId ? [d[0], BOOTSTRAP.mysokuFolderId, d[2]] : d;
+    });
+    st.getRange(2, 1, defaults.length, 3).setNumberFormat('@').setValues(defaults);
   } else {
     // 新しい設定キーだけを追加
     var existing = readTable_(SHEETS.SETTINGS).rows.map(function (r) { return String(r['キー']); });
@@ -1570,6 +1576,12 @@ function onOpen() {
     .addItem('初期セットアップ（シート作成）', 'menuSetup')
     .addItem('APIキー設定', 'menuSetApiKey')
     .addToUi();
+}
+
+/** Apps Script の編集画面から1回実行する初期設定（スプレッドシートのメニューがない場合用） */
+function setup() {
+  setupSheets_();
+  Logger.log('初期設定が完了しました: ' + ss_().getUrl());
 }
 
 function menuSetup() {
@@ -2507,6 +2519,23 @@ function ensureIds_() {
 
 function webAppUrl_() {
   try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+}
+
+/** アプリ起動時の状態（APIキーの有無など） */
+function api_status() {
+  return {
+    hasApiKey: !!PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY),
+    webAppUrl: webAppUrl_(),
+    spreadsheetUrl: ss_().getUrl()
+  };
+}
+
+/** 画面からAPIキーを登録する */
+function api_setApiKey(key) {
+  var k = String(key || '').trim();
+  if (!/^AIza[0-9A-Za-z_\-]{30,}$/.test(k)) throw new Error('APIキーの形式が正しくありません（「AIza」で始まる文字列です）');
+  PropertiesService.getScriptProperties().setProperty(SCRIPT_PROP_API_KEY, k);
+  return api_status();
 }
 
 /* ---------------- 一覧・詳細 ---------------- */

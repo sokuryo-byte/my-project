@@ -9,7 +9,7 @@ var SCRIPT_PROP_SHEET_ID = 'SPREADSHEET_ID';
 function ss_() {
   var active = SpreadsheetApp.getActiveSpreadsheet();
   if (active) return active;
-  var id = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_SHEET_ID);
+  var id = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_SHEET_ID) || BOOTSTRAP.spreadsheetId;
   if (!id) throw new Error('スプレッドシートが特定できません。スプレッドシートのメニューから「初期セットアップ」を実行してください。');
   return SpreadsheetApp.openById(id);
 }
@@ -171,7 +171,10 @@ function setupSheets_() {
 
   var st = sheet_(SHEETS.SETTINGS);
   if (st.getLastRow() < 2) {
-    st.getRange(2, 1, DEFAULT_SETTINGS.length, 3).setNumberFormat('@').setValues(DEFAULT_SETTINGS);
+    var defaults = DEFAULT_SETTINGS.map(function (d) {
+      return d[0] === 'mysoku_folder_id' && BOOTSTRAP.mysokuFolderId ? [d[0], BOOTSTRAP.mysokuFolderId, d[2]] : d;
+    });
+    st.getRange(2, 1, defaults.length, 3).setNumberFormat('@').setValues(defaults);
   } else {
     // 新しい設定キーだけを追加
     var existing = readTable_(SHEETS.SETTINGS).rows.map(function (r) { return String(r['キー']); });

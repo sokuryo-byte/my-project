@@ -6,6 +6,9 @@
  */
 
 var APP_NAME = 'マンスリー周辺施設調査';
+
+// 設置時に自動で書き込まれる値（tools/deploy-drive.js で設定。スプレッドシートに紐付かないスクリプトとして設置した場合に使う）
+var BOOTSTRAP = { spreadsheetId: '', mysokuFolderId: '' };
 var SCRIPT_PROP_API_KEY = 'GOOGLE_MAPS_API_KEY';
 var MAX_EXEC_MS = 270000; // GASの6分制限に対して余裕を持たせる（4.5分）
 

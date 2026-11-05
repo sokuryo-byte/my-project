@@ -240,6 +240,8 @@
 
   /* ---------- API ---------- */
   var api = {
+    api_status: function () { return { hasApiKey: true, webAppUrl: '', spreadsheetUrl: '' }; },
+    api_setApiKey: function () { return { hasApiKey: true }; },
     api_listProperties: function () {
       return DB.props.map(function (p) {
         var s = stage(p);

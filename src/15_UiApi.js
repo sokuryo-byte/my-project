@@ -100,6 +100,23 @@ function webAppUrl_() {
   try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
 }
 
+/** アプリ起動時の状態（APIキーの有無など） */
+function api_status() {
+  return {
+    hasApiKey: !!PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY),
+    webAppUrl: webAppUrl_(),
+    spreadsheetUrl: ss_().getUrl()
+  };
+}
+
+/** 画面からAPIキーを登録する */
+function api_setApiKey(key) {
+  var k = String(key || '').trim();
+  if (!/^AIza[0-9A-Za-z_\-]{30,}$/.test(k)) throw new Error('APIキーの形式が正しくありません（「AIza」で始まる文字列です）');
+  PropertiesService.getScriptProperties().setProperty(SCRIPT_PROP_API_KEY, k);
+  return api_status();
+}
+
 /* ---------------- 一覧・詳細 ---------------- */
 
 function api_listProperties() {

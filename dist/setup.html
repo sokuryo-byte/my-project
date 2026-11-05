@@ -59,6 +59,9 @@ textarea { display: block; width: 100%; height: 90px; border: 0; padding: 8px 10
  */
 
 var APP_NAME = 'マンスリー周辺施設調査';
+
+// 設置時に自動で書き込まれる値（tools/deploy-drive.js で設定。スプレッドシートに紐付かないスクリプトとして設置した場合に使う）
+var BOOTSTRAP = { spreadsheetId: '', mysokuFolderId: '' };
 var SCRIPT_PROP_API_KEY = 'GOOGLE_MAPS_API_KEY';
 var MAX_EXEC_MS = 270000; // GASの6分制限に対して余裕を持たせる（4.5分）
 
@@ -1406,7 +1409,7 @@ var SCRIPT_PROP_SHEET_ID = 'SPREADSHEET_ID';
 function ss_() {
   var active = SpreadsheetApp.getActiveSpreadsheet();
   if (active) return active;
-  var id = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_SHEET_ID);
+  var id = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_SHEET_ID) || BOOTSTRAP.spreadsheetId;
   if (!id) throw new Error('スプレッドシートが特定できません。スプレッドシートのメニューから「初期セットアップ」を実行してください。');
   return SpreadsheetApp.openById(id);
 }
@@ -1568,7 +1571,10 @@ function setupSheets_() {
 
   var st = sheet_(SHEETS.SETTINGS);
   if (st.getLastRow() &lt; 2) {
-    st.getRange(2, 1, DEFAULT_SETTINGS.length, 3).setNumberFormat('@').setValues(DEFAULT_SETTINGS);
+    var defaults = DEFAULT_SETTINGS.map(function (d) {
+      return d[0] === 'mysoku_folder_id' &amp;&amp; BOOTSTRAP.mysokuFolderId ? [d[0], BOOTSTRAP.mysokuFolderId, d[2]] : d;
+    });
+    st.getRange(2, 1, defaults.length, 3).setNumberFormat('@').setValues(defaults);
   } else {
     // 新しい設定キーだけを追加
     var existing = readTable_(SHEETS.SETTINGS).rows.map(function (r) { return String(r['キー']); });
@@ -1617,6 +1623,12 @@ function onOpen() {
     .addItem('初期セットアップ（シート作成）', 'menuSetup')
     .addItem('APIキー設定', 'menuSetApiKey')
     .addToUi();
+}
+
+/** Apps Script の編集画面から1回実行する初期設定（スプレッドシートのメニューがない場合用） */
+function setup() {
+  setupSheets_();
+  Logger.log('初期設定が完了しました: ' + ss_().getUrl());
 }
 
 function menuSetup() {
@@ -2556,6 +2568,23 @@ function webAppUrl_() {
   try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
 }
 
+/** アプリ起動時の状態（APIキーの有無など） */
+function api_status() {
+  return {
+    hasApiKey: !!PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY),
+    webAppUrl: webAppUrl_(),
+    spreadsheetUrl: ss_().getUrl()
+  };
+}
+
+/** 画面からAPIキーを登録する */
+function api_setApiKey(key) {
+  var k = String(key || '').trim();
+  if (!/^AIza[0-9A-Za-z_\-]{30,}$/.test(k)) throw new Error('APIキーの形式が正しくありません（「AIza」で始まる文字列です）');
+  PropertiesService.getScriptProperties().setProperty(SCRIPT_PROP_API_KEY, k);
+  return api_status();
+}
+
 /* ---------------- 一覧・詳細 ---------------- */
 
 function api_listProperties() {
@@ -2855,7 +2884,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ---------- 枠組み ---------- */
-.app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+.app { display: flex; flex-direction: column; height: 100%; }
+.app > .layout { flex: 1; min-height: 0; }
 .topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 12px; min-height: 48px;
   padding-block: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   background: var(--nav); color: var(--nav-ink); }
@@ -2865,6 +2895,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .topbar .btn { background: transparent; color: var(--nav-ink); border-color: rgba(255, 255, 255, .35); }
 .demo-band { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--warn-line); font-size: 12.5px;
   padding-block: 5px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.setup-band { background: var(--warn-soft); border-bottom: 1px solid var(--warn-line); padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.setup-inner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.setup-inner .input { max-width: 420px; flex: 1; min-width: 200px; }
 .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
 @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
 
@@ -3088,6 +3121,11 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     &lt;div class="spacer">&lt;/div>
     &lt;button class="btn small queue-toggle" id="queue-toggle" type="button" aria-controls="queue" aria-expanded="true">物件一覧&lt;/button>
   &lt;/header>
+  &lt;div class="setup-band" id="setup-band" hidden>
+    &lt;form id="key-form" class="setup-inner">&lt;b>はじめに：Google Maps の APIキーを登録してください&lt;/b>
+      &lt;label class="sr" for="api-key">APIキー&lt;/label>&lt;input class="input" id="api-key" placeholder="AIza で始まるAPIキー" autocomplete="off">
+      &lt;button class="btn primary small" type="submit">登録&lt;/button>&lt;span id="key-msg" role="status">&lt;/span>&lt;/form>
+  &lt;/div>
   &lt;div class="demo-band" id="demo-band" hidden>デモ版：架空のサンプルデータで動いています。Google API・スプレッドシート・ウェルモには接続しません。&lt;/div>
   &lt;div class="layout">
     &lt;aside class="queue" id="queue" aria-label="物件一覧">
@@ -3869,6 +3907,15 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   $('queue-toggle').addEventListener('click', function () { setQueueOpen($('queue').classList.contains('collapsed')); });
 
   window.addEventListener('beforeunload', flushSave);
+  // APIキーが未登録なら、画面上部で登録できるようにする
+  API.call('api_status').then(function (st) { if (!st.hasApiKey) $('setup-band').hidden = false; }).catch(function () {});
+  $('key-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    $('key-msg').textContent = '登録中…';
+    API.call('api_setApiKey', $('api-key').value).then(function () {
+      $('setup-band').hidden = true; toast('APIキーを登録しました');
+    }).catch(function (e) { $('key-msg').textContent = errorText(e); });
+  });
   loadList();
 })();
 &lt;/script>
