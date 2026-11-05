@@ -32,6 +32,13 @@ const SHOT = process.env.SHOT_DIR;
   await page.mouse.click(box.x + box.width * 0.62, box.y + box.height * 0.40);
   const after = await page.locator('.kv td').first().innerText();
   assert.notEqual(before, after, 'クリックでピンが動く');
+  // ＋／−を押してもピン（緯度経度）は動かない
+  await page.getByRole('button', { name: '拡大' }).click();
+  await page.waitForFunction(() => !document.querySelector('.map-loading'));
+  assert.equal(await page.locator('.kv td').first().innerText(), after, '拡大でピンが飛ばない');
+  await page.getByRole('button', { name: '縮小' }).click();
+  await page.waitForFunction(() => !document.querySelector('.map-loading'));
+  assert.equal(await page.locator('.kv td').first().innerText(), after, '縮小でピンが飛ばない');
   if (SHOT) await page.screenshot({ path: SHOT + '/map.png' });
   await page.getByRole('button', { name: 'この位置で確定 →' }).click();
   await page.waitForSelector('text=調査する内容');

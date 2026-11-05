@@ -280,6 +280,10 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
 
 .toast { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 20; background: var(--ink); color: var(--surface);
   padding: 9px 16px; border-radius: var(--r); font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.25); max-width: calc(100% - 32px); }
+.busy { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 52px); left: 50%; transform: translateX(-50%); z-index: 25; display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r); padding: 8px 16px; font-weight: 700; color: var(--accent); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+.busy i { width: 16px; height: 16px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .drop { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--nav) 30%, transparent); display: grid; place-items: center; pointer-events: none; }
 .drop div { background: var(--surface); border: 2px dashed var(--accent); border-radius: var(--r); padding: 26px 34px; font-size: 16px; font-weight: 700; color: var(--accent); }
 .empty-state { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 56px 16px; color: var(--muted); }
@@ -326,6 +330,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="busy" id="busy" role="status" aria-live="polite" hidden><i aria-hidden="true"></i><span>処理しています…</span></div>
 <div class="drop" id="drop" hidden><div>マイソクPDFをドロップして取り込み</div></div>
 
 <script>
@@ -340,7 +345,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
 var APP_NAME = 'マンスリー周辺施設調査';
 
 // 設置時に自動で書き込まれる値（tools/deploy-drive.js で設定。スプレッドシートに紐付かないスクリプトとして設置した場合に使う）
-var BOOTSTRAP = { spreadsheetId: '', mysokuFolderId: '' };
+var BOOTSTRAP = { spreadsheetId: '', mysokuFolderId: '', apiKey: '' };
 var SCRIPT_PROP_API_KEY = 'GOOGLE_MAPS_API_KEY';
 var MAX_EXEC_MS = 270000; // GASの6分制限に対して余裕を持たせる（4.5分）
 
@@ -401,7 +406,7 @@ HEADERS[SHEETS.OUTPUT] = [
 HEADERS[SHEETS.CATEGORIES] = [
   'カテゴリID', '表示名', '有効', '検索方法', 'includedTypes', '検索語',
   '名称に含む', '名称に含まない', '圏内上限分', '最低件数', '最大件数',
-  '他社のみ', 'チェーン辞書必須', '面積下限m2', '常に要確認', '要確認メモ', '出力順'
+  '他社のみ', 'チェーン辞書必須', '面積下限m2', '常に要確認', '要確認メモ', '出力順', '必須の種別'
 ];
 HEADERS[SHEETS.BRANDS] = ['ブランド名', '照合キーワード', '対象カテゴリID'];
 HEADERS[SHEETS.SETTINGS] = ['キー', '値', '説明'];
@@ -441,6 +446,7 @@ var DEFAULT_SETTINGS = [
   ['airport_2_name', '県営名古屋空港', '空港2の表示名'],
   ['airport_2_address', '県営名古屋空港 愛知県西春日井郡豊山町', '空港2の検索用住所（Routes APIで解決）'],
   ['retention_days', '30', 'Google由来データの保存日数。超過分は「保存期限切れデータの整理」で削除'],
+  ['route_candidates_max', '8', 'カテゴリごとに道路距離を計算する候補の最大数（直線距離の近い順。API費用の節約）'],
   ['max_unselected_saved', '5', 'カテゴリごとに保存する不採用候補の最大数（担当者の差し替え用）'],
   ['attribution', '周辺施設・距離：Google Maps Platformのデータを基に算出', '周辺施設の出力末尾に付ける出典表記'],
   ['api_retries', '3', 'API一時エラー時のリトライ回数'],
@@ -448,18 +454,20 @@ var DEFAULT_SETTINGS = [
 ];
 
 // [ID, 表示名, 有効, 検索方法, includedTypes, 検索語, 名称に含む, 名称に含まない,
-//  圏内上限分, 最低件数, 最大件数, 他社のみ, チェーン辞書必須, 面積下限m2, 常に要確認, 要確認メモ, 出力順]
+//  圏内上限分, 最低件数, 最大件数, 他社のみ, チェーン辞書必須, 面積下限m2, 常に要確認, 要確認メモ, 出力順, 必須の種別]
+// 必須の種別：Googleの分類（types）にこのいずれかを含む施設だけを残す（例: 食料品店や調剤薬局を除く）。
+// 最大件数：掲載の上限（近い順）。公園は面積の大きい順に優先する。
 var DEFAULT_CATEGORIES = [
-  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, '', true, false, '', false, '', 1],
-  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, '', true, false, '', false, '', 2],
-  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, '', true, false, '', false, '', 3],
-  ['hundred_yen', '100円ショップ', true, 'text', '', '100円ショップ', 'ダイソー,DAISO,セリア,Seria,キャンドゥ,Can★Do,ワッツ,Watts,meets,シルク', '', 10, 0, '', true, false, '', false, '', 4],
-  ['mall', '大型商業施設', true, 'nearby', 'shopping_mall,department_store,electronics_store,home_improvement_store', '', '', '', 15, 0, '', true, false, '', true, '大型ショッピングモール・商業施設に該当するか確認', 5],
-  ['clinic', '内科系クリニック', true, 'text', '', '内科', '', '歯科,眼科,皮膚科,整形外科,耳鼻,動物,美容,形成外科', '', 1, 1, false, false, '', true, '内科系の診療科か確認', 6],
-  ['hospital', '総合病院', true, 'nearby', 'hospital', '', '病院', '動物,歯科', 15, 0, '', false, false, '', true, '総合病院（複数診療科）に該当するか確認', 7],
-  ['post_office', '郵便局', true, 'nearby', 'post_office', '', '郵便局', 'ATM,ゆうちょ銀行', '', 1, 1, false, false, '', false, '', 8],
-  ['park', '公園', true, 'nearby', 'park', '', '', '', 10, 0, '', false, false, 10000, false, '', 9],
-  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, '', true, true, '', false, '', 10]
+  ['supermarket', 'スーパー', true, 'nearby', 'supermarket,grocery_store', '', '', '', 10, 1, 3, true, false, '', false, '', 1, 'supermarket'],
+  ['drugstore', 'ドラッグストア', true, 'nearby', 'drugstore,pharmacy', '', '', '調剤', 10, 1, 3, true, false, '', false, '', 2, 'drugstore'],
+  ['convenience', 'コンビニ', true, 'nearby', 'convenience_store', '', '', '', 10, 1, 3, true, false, '', false, '', 3, 'convenience_store'],
+  ['hundred_yen', '100円ショップ', true, 'text', '', '100円ショップ', 'ダイソー,DAISO,セリア,Seria,キャンドゥ,Can★Do,ワッツ,Watts,meets,シルク', '', 10, 0, 2, true, false, '', false, '', 4, ''],
+  ['mall', '大型商業施設', true, 'nearby', 'shopping_mall,department_store', '', '', '', 15, 0, 2, true, false, '', true, '大型ショッピングモール・商業施設に該当するか確認', 5, 'shopping_mall,department_store'],
+  ['clinic', '内科系クリニック', true, 'text', '', '内科', '', '歯科,眼科,皮膚科,整形外科,耳鼻,動物,美容,形成外科', '', 1, 1, false, false, '', true, '内科系の診療科か確認', 6, ''],
+  ['hospital', '総合病院', true, 'nearby', 'hospital', '', '病院', '動物,歯科,デイケア', 15, 0, 2, false, false, '', true, '総合病院（複数診療科）に該当するか確認', 7, 'hospital'],
+  ['post_office', '郵便局', true, 'nearby', 'post_office', '', '郵便局', 'ATM,ゆうちょ銀行', '', 1, 1, false, false, '', false, '', 8, ''],
+  ['park', '公園', true, 'nearby', 'park', '', '', 'ひろば,広場,児童遊園,遊園地,ちびっこ', 10, 0, 2, false, false, 10000, false, '', 9, 'park'],
+  ['chain_restaurant', 'チェーン系飲食店', true, 'nearby_each', 'restaurant,fast_food_restaurant,hamburger_restaurant,ramen_restaurant,japanese_restaurant,sushi_restaurant,cafe', '', '', '', 10, 3, 5, true, true, '', false, '', 10, '']
 ];
 
 // [ブランド名, 照合キーワード(カンマ区切り), 対象カテゴリID(空欄=全カテゴリ)]
@@ -485,6 +493,15 @@ var DEFAULT_BRANDS = [
   ['業務スーパー', '業務スーパー', 'supermarket'],
   ['ライフ', 'ライフ', 'supermarket'],
   ['八百鮮', '八百鮮', 'supermarket'],
+  ['フランテ', 'フランテ', 'supermarket'],
+  ['アオキスーパー', 'アオキスーパー', 'supermarket'],
+  ['ヨシヅヤ', 'ヨシヅヤ', 'supermarket'],
+  ['ユーストア', 'ユーストア', 'supermarket'],
+  ['ナフコ不二屋', 'ナフコ不二屋', 'supermarket'],
+  ['生鮮館やまひこ', 'やまひこ', 'supermarket'],
+  ['タチヤ', 'タチヤ', 'supermarket'],
+  ['パワーズ', 'パワーズ', 'supermarket'],
+  ['MEGAドン・キホーテUNY', 'ドン・キホーテUNY,ドンキホーテUNY', 'supermarket'],
   ['ドン・キホーテ', 'ドン・キホーテ,ドンキホーテ,MEGAドン・キホーテ', ''],
   // ドラッグストア
   ['スギ薬局', 'スギ薬局,スギドラッグ', 'drugstore'],
@@ -1078,6 +1095,28 @@ function areaFromGeocode_(comps, formatted, opt) {
   return pref + city;
 }
 
+/**
+ * 住所の文字列からエリアを作る（純粋関数）。名古屋市は「〇〇区」、それ以外は「県＋市（町村）」。
+ * 例: 愛知県名古屋市千種区今池3丁目 → 千種区 ／ 愛知県豊田市小川町 → 愛知県豊田市
+ */
+function areaFromAddress_(address, opt) {
+  return areaFromGeocode_([], address, opt);
+}
+
+/**
+ * 建物名からふりがなを作る（純粋関数）。カタカナ・ひらがな（と数字・長音）だけの名前に限り、ひらがなにする。
+ * 漢字や英字を含む名前は読み方を機械的に決められないため空を返す（担当者が入力）。
+ * 例: サンコーレジデンス → さんこーれじでんす
+ */
+function kanaFromName_(name) {
+  var n = nfkc_(name).trim();
+  if (!n) return '';
+  if (/[A-Za-z\u4E00-\u9FFF\u3400-\u4DBF々〆ヵヶ]/.test(n)) return '';
+  if (!/^[\u3041-\u3096\u30A1-\u30FA\u30FC\u30FB0-9０-９\s・]+$/.test(n)) return '';
+  return n.replace(/[\u30A1-\u30F6]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); })
+    .replace(/[\s・]/g, '');
+}
+
 /** 採用徒歩分の最も短い駅（純粋関数） */
 function nearestStation_(stRows) {
   var best = null;
@@ -1199,9 +1238,19 @@ function matchLabel_(line) {
   return null;
 }
 
+/**
+ * Googleドキュメント変換では、表の複数の項目が1行に並ぶことがある
+ * （例:「物件種目 [住居用] マンション 物件名 名信ビル」）。行の途中の見出しの前で改行を入れる。
+ */
+function breakInlineLabels_(text) {
+  var labels = MYSOKU_LABELS.slice().sort(function (a, b) { return b.length - a.length; }).map(labelRegex_);
+  var re = new RegExp('[ \\t\u3000]+(' + labels.join('|') + ')(?=[ \\t\u3000:：]|$)', 'gm');
+  return text.replace(re, '\n$1');
+}
+
 /** テキストを見出しごとのブロックに分ける（同じ見出しは最初の1つ） */
 function splitMysokuSections_(text) {
-  var lines = nfkc_(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+  var lines = breakInlineLabels_(nfkc_(text)).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l; });
   var sections = {};
   var current = null;
   lines.forEach(function (line) {
@@ -1242,7 +1291,8 @@ function parseMysokuText_(text) {
   if (kindM) fields['物件種別'] = kindM[0] === 'マンション' || kindM[0] === 'アパート' ? kindM[0] : '一戸建て';
   else if (kind) fields['物件種別'] = 'その他';
 
-  var postal = (sec['所在地'] || []).join(' ').match(/〒?\s*(\d{3})-?(\d{4})/);
+  // 郵便番号は所在地の前の行に出ることもあるので、所在地欄→本文全体の順に探す
+  var postal = (sec['所在地'] || []).join(' ').match(/〒?\s*(\d{3})-?(\d{4})/) || nfkc_(text).match(/〒\s*(\d{3})-?(\d{4})/);
   if (postal) fields['郵便番号'] = postal[1] + '-' + postal[2];
 
   var struct = (sec['建築構造'] || []).join(' ');
@@ -1268,12 +1318,15 @@ function parseMysokuText_(text) {
   for (var i = 0; i < addrLines.length; i++) {
     if (/(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/.test(addrLines[i])) { addr = addrLines[i]; break; }
   }
-  addr = addr.replace(/〒?\s*\d{3}-?\d{4}/, '').trim();
+  addr = addr.replace(/〒?\s*\d{3}-?\d{4}/, '')
+    .replace(/\s+\S*「[^」]+」.*$/, '') // 交通の行が同じ行に入り込んだ場合は除く
+    .trim();
   if (addr) fields['住所'] = addr;
 
   // 交通: 「路線「駅」徒歩n分」形式。バス停（「停」「バス」を含む）は除外
   var stations = [];
-  (sec['交通'] || []).forEach(function (line) {
+  // 交通の1行目が所在地の行に入り込むことがあるので、所在地欄も対象にする（文書の順）
+  (sec['所在地'] || []).concat(sec['交通'] || []).forEach(function (line) {
     var re = /([^\s「」\/]*?)\s*「([^」]+)」\s*(駅|停|停留所)?\s*(?:から)?\s*(?:徒歩|歩)\s*(\d+)\s*分/g;
     var m;
     while ((m = re.exec(line)) !== null) {
@@ -1343,6 +1396,8 @@ function mysokuPatch_(prop, parsed) {
   };
   setIfBlank('物件名', parsed.fields['物件名']);
   setIfBlank('建物名', parsed.fields['物件名']);
+  setIfBlank('ふりがな', kanaFromName_(parsed.fields['物件名']));
+  setIfBlank('エリア', parsed.fields['住所'] ? areaFromAddress_(parsed.fields['住所'], { wardCities: ['名古屋市'], otherStyle: '県+市' }) : '');
   setIfBlank('号室', parsed.fields['号室']);
   setIfBlank('住所', parsed.fields['住所']);
   setIfBlank('最大洋室帖数', parsed.fields['最大洋室帖数']);
@@ -1944,6 +1999,9 @@ function buildWellmoData_(prop, out, stRows) {
   function b(v) { return v === true || v === 'TRUE' || v === 'true'; }
   function n(v) { if (v === '' || v == null) return null; var x = Number(String(v).normalize('NFKC').replace(/[^\d.\-]/g, '')); return isNaN(x) ? null : x; }
   function has(v) { return v !== '' && v != null; }
+  /* 処理中の表示（画面上部の帯）。数秒かかる操作で「止まっていない」ことが分かるように */
+  function showBusy(msg) { var b = $('busy'); b.querySelector('span').textContent = msg || '処理しています…'; b.hidden = false; }
+  function hideBusy() { $('busy').hidden = true; }
   var toastTimer;
   function toast(msg) {
     var t = $('toast'); t.textContent = msg; t.hidden = false;
@@ -2153,11 +2211,11 @@ function buildWellmoData_(prop, out, stRows) {
     return memoNote +
       '<section class="card"><h2>基本情報 <span class="hint">項目名はウェルモと同じです</span></h2><div class="ftable">' +
         frow('建物名', '建物名', input('建物名', { required: true }), { required: true }) +
-        frow('ふりがな', 'ふりがな', input('ふりがな', { required: true, ph: 'ひらがな', help: 'マイソクにないため手入力' }), { required: true }) +
+        frow('ふりがな', 'ふりがな', input('ふりがな', { required: true, ph: 'ひらがな', help: 'カタカナ・ひらがなの建物名は自動で入ります。漢字・英字を含む名前は手入力してください' }), { required: true }) +
         frow('物件種別', '', seg) +
         frow('郵便番号', '郵便番号', input('郵便番号', { num: true, ph: '464-0850' })) +
         frow('所在地', '住所', input('住所', { required: true, ph: '愛知県名古屋市千種区今池3丁目39-21' }), { required: true, wide: true }) +
-        frow('エリア', 'エリア', input('エリア', { help: 'タイトル用。位置の確認で自動入力' })) +
+        frow('エリア', 'エリア', input('エリア', { help: 'タイトル用。所在地から自動で入ります（名古屋市は区のみ）' })) +
         frow('その他アピール', 'その他アピール', input('その他アピール', { ph: 'mozoワンダーシティ徒歩5分', help: 'タイトル用。近くに有名な施設がある場合' })) +
       '</div></section>' +
       card('交通', 'マイソクの記載。足りない駅は調査で補います', stations) +
@@ -2272,13 +2330,16 @@ function buildWellmoData_(prop, out, stRows) {
   function loadMapImage(lat, lng, zoom) {
     var id = S.id;
     S.map.loading = true; renderWork();
+    showBusy('地図を読み込んでいます…');
     API.call('api_mapImage', lat, lng, zoom).then(function (img) {
+      hideBusy();
       if (S.id !== id || !S.map) return;
       S.map.img = img; S.map.zoom = img.zoom || zoom; S.map.loading = false; renderWork();
-    }).catch(function (e) { S.map.img = { error: errorText(e), lat: lat, lng: lng, zoom: zoom }; S.map.loading = false; renderWork(); });
+    }).catch(function (e) { hideBusy(); S.map.img = { error: errorText(e), lat: lat, lng: lng, zoom: zoom }; S.map.loading = false; renderWork(); });
   }
   function onMapClick(ev) {
-    var m = S.map; if (!m || !m.img || m.img.error) return;
+    if (ev.target.closest('.map-tools, a, button')) return; // ＋／−ボタンの押下は地図のクリックとして扱わない
+    var m = S.map; if (!m || !m.img || m.img.error || m.loading) return;
     var box = $('map').getBoundingClientRect();
     var lx = (ev.clientX - box.left) / box.width * MAP_W, ly = (ev.clientY - box.top) / box.height * MAP_H;
     var c = project(m.img.lat, m.img.lng, m.img.zoom);
@@ -2552,9 +2613,11 @@ function buildWellmoData_(prop, out, stRows) {
       case 'confirm-origin':
         var id = S.id;
         t.disabled = true;
+        t.textContent = '確定しています…';
+        showBusy('位置を保存しています…');
         API.call('api_confirmOrigin', id, S.map.pinLat, S.map.pinLng).then(function (d) {
-          applyData(d); S.step = 3; toast('位置を確定しました'); renderWork();
-        }).catch(function (e) { toast('確定できませんでした：' + errorText(e)); t.disabled = false; });
+          hideBusy(); applyData(d); S.step = 3; toast('位置を確定しました'); renderWork();
+        }).catch(function (e) { hideBusy(); toast('確定できませんでした：' + errorText(e)); t.disabled = false; t.textContent = 'この位置で確定 →'; });
         break;
       case 'reimport':
         t.disabled = true; t.textContent = '読み取り中…';

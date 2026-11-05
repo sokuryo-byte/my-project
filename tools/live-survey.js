@@ -58,7 +58,7 @@ const g = loadGas({
   UrlFetchApp,
   SpreadsheetApp: { getActiveSpreadsheet: () => ss, getUi: () => ({ alert: () => {} }) },
   PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k === 'GOOGLE_MAPS_API_KEY' ? KEY : null), setProperty: () => {} }) },
-  LockService: { getDocumentLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
+  LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
   Utilities: { sleep: (ms) => execFileSync('sleep', [String(ms / 1000)]), formatDate: () => '03:00' }
 });
 

@@ -280,6 +280,10 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
 
 .toast { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 20; background: var(--ink); color: var(--surface);
   padding: 9px 16px; border-radius: var(--r); font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.25); max-width: calc(100% - 32px); }
+.busy { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 52px); left: 50%; transform: translateX(-50%); z-index: 25; display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r); padding: 8px 16px; font-weight: 700; color: var(--accent); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+.busy i { width: 16px; height: 16px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .drop { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--nav) 30%, transparent); display: grid; place-items: center; pointer-events: none; }
 .drop div { background: var(--surface); border: 2px dashed var(--accent); border-radius: var(--r); padding: 26px 34px; font-size: 16px; font-weight: 700; color: var(--accent); }
 .empty-state { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 56px 16px; color: var(--muted); }
@@ -326,6 +330,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="busy" id="busy" role="status" aria-live="polite" hidden><i aria-hidden="true"></i><span>処理しています…</span></div>
 <div class="drop" id="drop" hidden><div>マイソクPDFをドロップして取り込み</div></div>
 
 <script>
@@ -377,6 +382,9 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   function b(v) { return v === true || v === 'TRUE' || v === 'true'; }
   function n(v) { if (v === '' || v == null) return null; var x = Number(String(v).normalize('NFKC').replace(/[^\d.\-]/g, '')); return isNaN(x) ? null : x; }
   function has(v) { return v !== '' && v != null; }
+  /* 処理中の表示（画面上部の帯）。数秒かかる操作で「止まっていない」ことが分かるように */
+  function showBusy(msg) { var b = $('busy'); b.querySelector('span').textContent = msg || '処理しています…'; b.hidden = false; }
+  function hideBusy() { $('busy').hidden = true; }
   var toastTimer;
   function toast(msg) {
     var t = $('toast'); t.textContent = msg; t.hidden = false;
@@ -586,11 +594,11 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     return memoNote +
       '<section class="card"><h2>基本情報 <span class="hint">項目名はウェルモと同じです</span></h2><div class="ftable">' +
         frow('建物名', '建物名', input('建物名', { required: true }), { required: true }) +
-        frow('ふりがな', 'ふりがな', input('ふりがな', { required: true, ph: 'ひらがな', help: 'マイソクにないため手入力' }), { required: true }) +
+        frow('ふりがな', 'ふりがな', input('ふりがな', { required: true, ph: 'ひらがな', help: 'カタカナ・ひらがなの建物名は自動で入ります。漢字・英字を含む名前は手入力してください' }), { required: true }) +
         frow('物件種別', '', seg) +
         frow('郵便番号', '郵便番号', input('郵便番号', { num: true, ph: '464-0850' })) +
         frow('所在地', '住所', input('住所', { required: true, ph: '愛知県名古屋市千種区今池3丁目39-21' }), { required: true, wide: true }) +
-        frow('エリア', 'エリア', input('エリア', { help: 'タイトル用。位置の確認で自動入力' })) +
+        frow('エリア', 'エリア', input('エリア', { help: 'タイトル用。所在地から自動で入ります（名古屋市は区のみ）' })) +
         frow('その他アピール', 'その他アピール', input('その他アピール', { ph: 'mozoワンダーシティ徒歩5分', help: 'タイトル用。近くに有名な施設がある場合' })) +
       '</div></section>' +
       card('交通', 'マイソクの記載。足りない駅は調査で補います', stations) +
@@ -705,13 +713,16 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
   function loadMapImage(lat, lng, zoom) {
     var id = S.id;
     S.map.loading = true; renderWork();
+    showBusy('地図を読み込んでいます…');
     API.call('api_mapImage', lat, lng, zoom).then(function (img) {
+      hideBusy();
       if (S.id !== id || !S.map) return;
       S.map.img = img; S.map.zoom = img.zoom || zoom; S.map.loading = false; renderWork();
-    }).catch(function (e) { S.map.img = { error: errorText(e), lat: lat, lng: lng, zoom: zoom }; S.map.loading = false; renderWork(); });
+    }).catch(function (e) { hideBusy(); S.map.img = { error: errorText(e), lat: lat, lng: lng, zoom: zoom }; S.map.loading = false; renderWork(); });
   }
   function onMapClick(ev) {
-    var m = S.map; if (!m || !m.img || m.img.error) return;
+    if (ev.target.closest('.map-tools, a, button')) return; // ＋／−ボタンの押下は地図のクリックとして扱わない
+    var m = S.map; if (!m || !m.img || m.img.error || m.loading) return;
     var box = $('map').getBoundingClientRect();
     var lx = (ev.clientX - box.left) / box.width * MAP_W, ly = (ev.clientY - box.top) / box.height * MAP_H;
     var c = project(m.img.lat, m.img.lng, m.img.zoom);
@@ -985,9 +996,11 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       case 'confirm-origin':
         var id = S.id;
         t.disabled = true;
+        t.textContent = '確定しています…';
+        showBusy('位置を保存しています…');
         API.call('api_confirmOrigin', id, S.map.pinLat, S.map.pinLng).then(function (d) {
-          applyData(d); S.step = 3; toast('位置を確定しました'); renderWork();
-        }).catch(function (e) { toast('確定できませんでした：' + errorText(e)); t.disabled = false; });
+          hideBusy(); applyData(d); S.step = 3; toast('位置を確定しました'); renderWork();
+        }).catch(function (e) { hideBusy(); toast('確定できませんでした：' + errorText(e)); t.disabled = false; t.textContent = 'この位置で確定 →'; });
         break;
       case 'reimport':
         t.disabled = true; t.textContent = '読み取り中…';

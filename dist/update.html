@@ -22,12 +22,14 @@ a { color: var(--accent); overflow-wrap: anywhere; }
 textarea { width: 100%; height: 80px; border: 1px solid var(--line); background: var(--code); color: var(--muted); font: 11.5px/1.4 ui-monospace, monospace; }
 :focus-visible { outline: 2px solid #e09a00; outline-offset: 2px; }
 </style>
-<header><h1>周辺調査プログラムの更新</h1><p>2026-11-05 17:21 版（施設の選び方の改善・マイソク読み取りの改善） ／ info@monthly-familia.com で作業</p></header>
+<header><h1>周辺調査プログラムの更新</h1><p>2026-11-05 18:49 版（調査エラーの修正・地図の拡大縮小・処理中の表示・エリアとふりがなの自動入力） ／ info@monthly-familia.com で作業</p></header>
 <main>
-<section><h2><span class="no">1</span>新しいプログラムをコピーする</h2><div class="body">
-<p><button class="btn" type="button" id="copy">プログラムをコピー</button> <span class="ok" id="ok" role="status"></span></p>
-<label for="code" style="font-size:13px;color:var(--muted)">コピーできない場合は、枠の中をクリックして Ctrl+A → Ctrl+C</label>
-<textarea id="code" readonly>/**
+<section><h2><span class="no">1</span>プログラム（コード.gs）を貼り替える</h2><div class="body">
+<ol><li>プログラムを開く：<a href="https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com" target="_blank" rel="noopener">https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com</a></li>
+<li>下の「コード.gs をコピー」を押す</li>
+<li>Apps Script の左の一覧で <b class="ui">コード.gs</b> を選び、コードの部分をクリックして <b>Ctrl+A</b> → <b>Ctrl+V</b> → <b>Ctrl+S</b></li></ol>
+<p><button class="btn" type="button" data-copy="code">コード.gs をコピー</button> <span class="ok" id="ok-code" role="status"></span></p>
+<textarea id="code" readonly aria-label="コード.gs">/**
  * マンスリー周辺調査（自動生成：tools/build-update.js）
  * src/ の 16 ファイルを1つにまとめたもの。修正は src/ で行うこと。
  */
@@ -1772,7 +1774,7 @@ function buildContext_() {
 }
 
 function runSurvey_(filterFn) {
-  var lock = LockService.getDocumentLock();
+  var lock = LockService.getScriptLock(); // スプレッドシートに紐付かないスクリプトでも使えるロック
   if (!lock.tryLock(10000)) {
     SpreadsheetApp.getUi().alert('他の調査が実行中です。しばらくしてから再実行してください。');
     return;
@@ -1898,7 +1900,8 @@ function geocodeProperty_(prop, ctx) {
     'Geocode住所': g.formattedAddress
   };
   if (!nfkc_(prop['エリア']).trim()) {
-    patch['エリア'] = areaFromGeocode_(g.components, g.formattedAddress, {
+    var areaOpt = { wardCities: splitList_(ctx.settings.title_ward_cities), otherStyle: nfkc_(ctx.settings.title_area_other_style).trim() };
+    patch['エリア'] = areaFromAddress_(prop['住所'], areaOpt) || areaFromGeocode_(g.components, g.formattedAddress, {
       wardCities: splitList_(ctx.settings.title_ward_cities),
       otherStyle: nfkc_(ctx.settings.title_area_other_style).trim()
     });
@@ -2045,6 +2048,28 @@ function areaFromGeocode_(comps, formatted, opt) {
   if (ward &amp;&amp; wardCities.indexOf(city) >= 0) return ward;
   if (opt &amp;&amp; opt.otherStyle === '市のみ') return city;
   return pref + city;
+}
+
+/**
+ * 住所の文字列からエリアを作る（純粋関数）。名古屋市は「〇〇区」、それ以外は「県＋市（町村）」。
+ * 例: 愛知県名古屋市千種区今池3丁目 → 千種区 ／ 愛知県豊田市小川町 → 愛知県豊田市
+ */
+function areaFromAddress_(address, opt) {
+  return areaFromGeocode_([], address, opt);
+}
+
+/**
+ * 建物名からふりがなを作る（純粋関数）。カタカナ・ひらがな（と数字・長音）だけの名前に限り、ひらがなにする。
+ * 漢字や英字を含む名前は読み方を機械的に決められないため空を返す（担当者が入力）。
+ * 例: サンコーレジデンス → さんこーれじでんす
+ */
+function kanaFromName_(name) {
+  var n = nfkc_(name).trim();
+  if (!n) return '';
+  if (/[A-Za-z\u4E00-\u9FFF\u3400-\u4DBF々〆ヵヶ]/.test(n)) return '';
+  if (!/^[\u3041-\u3096\u30A1-\u30FA\u30FC\u30FB0-9０-９\s・]+$/.test(n)) return '';
+  return n.replace(/[\u30A1-\u30F6]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); })
+    .replace(/[\s・]/g, '');
 }
 
 /** 採用徒歩分の最も短い駅（純粋関数） */
@@ -2326,6 +2351,8 @@ function mysokuPatch_(prop, parsed) {
   };
   setIfBlank('物件名', parsed.fields['物件名']);
   setIfBlank('建物名', parsed.fields['物件名']);
+  setIfBlank('ふりがな', kanaFromName_(parsed.fields['物件名']));
+  setIfBlank('エリア', parsed.fields['住所'] ? areaFromAddress_(parsed.fields['住所'], { wardCities: ['名古屋市'], otherStyle: '県+市' }) : '');
   setIfBlank('号室', parsed.fields['号室']);
   setIfBlank('住所', parsed.fields['住所']);
   setIfBlank('最大洋室帖数', parsed.fields['最大洋室帖数']);
@@ -2713,6 +2740,18 @@ function api_saveProperty(id, patch) {
   Object.keys(patch || {}).forEach(function (k) {
     if (allowed.indexOf(k) >= 0) clean[k] = patch[k];
   });
+  // エリア・ふりがなが空なら、所在地・建物名から自動で入れる
+  var settings = loadSettings_();
+  var addr = '住所' in clean ? clean['住所'] : p['住所'];
+  if (addr &amp;&amp; !String(('エリア' in clean ? clean['エリア'] : p['エリア']) || '').trim()) {
+    var area = areaFromAddress_(addr, { wardCities: splitList_(settings.title_ward_cities), otherStyle: nfkc_(settings.title_area_other_style).trim() });
+    if (area) clean['エリア'] = area;
+  }
+  var bname = '建物名' in clean ? clean['建物名'] : p['建物名'];
+  if (bname &amp;&amp; !String(('ふりがな' in clean ? clean['ふりがな'] : p['ふりがな']) || '').trim()) {
+    var kana = kanaFromName_(bname);
+    if (kana) clean['ふりがな'] = kana;
+  }
   // 住所が変わったら起点をやり直す
   if ('住所' in clean &amp;&amp; String(clean['住所']) !== String(p['住所']) &amp;&amp; p['起点緯度'] !== '') {
     clean['起点緯度'] = '';
@@ -2820,7 +2859,7 @@ function api_confirmOrigin(id, lat, lng) {
 /* ---------------- 調査 ---------------- */
 
 function api_runSurvey(id) {
-  var lock = LockService.getDocumentLock();
+  var lock = LockService.getScriptLock(); // スプレッドシートに紐付かないスクリプトでも使えるロック
   if (!lock.tryLock(15000)) throw new Error('他の調査が実行中です。1分ほど待ってからもう一度押してください。');
   try {
     var ctx = buildContext_();
@@ -2864,22 +2903,1132 @@ function api_updateResult(kind, id, key, patch) {
 }
 </textarea>
 </div></section>
-<section><h2><span class="no">2</span>Apps Script に貼り付けて保存する</h2><div class="body">
-<ol><li>プログラムを開く：<a href="https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com" target="_blank" rel="noopener">https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com</a></li>
-<li>左の一覧で <b class="ui">コード.gs</b> を選ぶ（App.html は変更不要）</li>
-<li>コードの部分をクリックして <b>Ctrl+A</b> → <b>Ctrl+V</b> → <b>Ctrl+S</b></li></ol>
+<section><h2><span class="no">2</span>画面（App.html）を貼り替える</h2><div class="body">
+<ol><li>下の「App.html をコピー」を押す</li>
+<li>Apps Script の左の一覧で <b class="ui">App.html</b> を選び、<b>Ctrl+A</b> → <b>Ctrl+V</b> → <b>Ctrl+S</b></li></ol>
+<p><button class="btn" type="button" data-copy="app">App.html をコピー</button> <span class="ok" id="ok-app" role="status"></span></p>
+<textarea id="app" readonly aria-label="App.html">&lt;title>マンスリー周辺調査&lt;/title>
+&lt;meta name=&quot;claude:viewport-fit-sides&quot; content=&quot;cover&quot;>
+&lt;link rel=&quot;preconnect&quot; href=&quot;https://fonts.googleapis.com&quot;>
+&lt;link rel=&quot;preconnect&quot; href=&quot;https://fonts.gstatic.com&quot; crossorigin>
+&lt;link rel=&quot;stylesheet&quot; href=&quot;https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&amp;family=BIZ+UDGothic:wght@400;700&amp;display=swap&quot;>
+&lt;style>
+/* 業務システムの作業台: 濃紺のヘッダー、左に物件の表、右に5工程の作業面。角は小さく、表と罫線で整理する。主操作は常に右下 */
+:root {
+  --paper: #eef1f3;
+  --surface: #ffffff;
+  --band: #f3f5f7;
+  --ink: #1b2730;
+  --muted: #5a6872;
+  --line: #d4dbe0;
+  --line-strong: #b6c2ca;
+  --nav: #1c3a52;
+  --nav-ink: #ffffff;
+  --accent: #1f5f8f;
+  --accent-ink: #ffffff;
+  --accent-soft: #e6eff6;
+  --ok: #1d6b40;
+  --ok-soft: #e4f1e9;
+  --warn: #7c5100;
+  --warn-soft: #fff4dc;
+  --warn-line: #e1b955;
+  --danger: #a8231b;
+  --danger-soft: #fbe9e7;
+  --focus: #e09a00;
+  --font-ui: &quot;BIZ UDPGothic&quot;, &quot;Hiragino Kaku Gothic ProN&quot;, &quot;Yu Gothic UI&quot;, &quot;Meiryo&quot;, sans-serif;
+  --font-num: &quot;BIZ UDGothic&quot;, &quot;Hiragino Kaku Gothic ProN&quot;, ui-monospace, monospace;
+  --r: 3px;
+  --tap: 40px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=&quot;light&quot;]) {
+    --paper: #10171c; --surface: #172128; --band: #1c2830; --ink: #e3eaee; --muted: #9aabb5; --line: #2b3a44; --line-strong: #3d505c;
+    --nav: #0c1a24; --nav-ink: #e3eaee; --accent: #6fb0de; --accent-ink: #0a1822; --accent-soft: #1a3243;
+    --ok: #62c58c; --ok-soft: #15301f; --warn: #eec266; --warn-soft: #352a10; --warn-line: #7a6024; --danger: #f08a80; --danger-soft: #3a1a17; --focus: #f2c94c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme=&quot;dark&quot;] {
+  --paper: #10171c; --surface: #172128; --band: #1c2830; --ink: #e3eaee; --muted: #9aabb5; --line: #2b3a44; --line-strong: #3d505c;
+  --nav: #0c1a24; --nav-ink: #e3eaee; --accent: #6fb0de; --accent-ink: #0a1822; --accent-soft: #1a3243;
+  --ok: #62c58c; --ok-soft: #15301f; --warn: #eec266; --warn-soft: #352a10; --warn-line: #7a6024; --danger: #f08a80; --danger-soft: #3a1a17; --focus: #f2c94c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.6 var(--font-ui); -webkit-font-smoothing: antialiased; }
+body::before { content: &quot;&quot;; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--nav); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- 枠組み ---------- */
+.app { display: flex; flex-direction: column; height: 100%; }
+.app > .layout { flex: 1; min-height: 0; }
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 12px; min-height: 48px;
+  padding-block: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--nav); color: var(--nav-ink); }
+.brand { display: flex; align-items: baseline; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: .04em; }
+.brand small { font-weight: 400; font-size: 12px; opacity: .75; letter-spacing: 0; }
+.topbar .spacer { flex: 1; }
+.topbar .btn { background: transparent; color: var(--nav-ink); border-color: rgba(255, 255, 255, .35); }
+.demo-band { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--warn-line); font-size: 12.5px;
+  padding-block: 5px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.setup-band { background: var(--warn-soft); border-bottom: 1px solid var(--warn-line); padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.setup-inner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.setup-inner .input { max-width: 420px; flex: 1; min-width: 200px; }
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- 物件一覧 ---------- */
+.queue { border-right: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+@media (max-width: 900px) { .queue { border-right: 0; border-bottom: 1px solid var(--line); } .queue.collapsed .queue-body { display: none; } }
+.queue-head { display: grid; gap: 10px; padding: 12px max(14px, env(safe-area-inset-left, 0px)) 10px; border-bottom: 1px solid var(--line); }
+.queue-toggle { display: none; }
+@media (max-width: 900px) { .queue-toggle { display: inline-flex; } }
+.queue-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.queue-list { list-style: none; margin: 0; padding: 0; overflow: auto; }
+@media (max-width: 900px) { .queue-list { max-height: 45vh; } }
+.q-item { width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 10px 14px 10px 16px; cursor: pointer;
+  display: grid; gap: 3px; border-left: 4px solid transparent; }
+.q-item:hover { background: var(--band); }
+.q-item[aria-current=&quot;true&quot;] { background: var(--accent-soft); border-left-color: var(--accent); }
+.q-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-addr { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-empty { color: var(--muted); padding: 16px; font-size: 13px; }
+.q-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.q-tools .seg { display: grid; grid-template-columns: repeat(3, 1fr); }
+
+/* マイソクのドロップ領域 */
+.dropzone { display: grid; justify-items: center; gap: 4px; text-align: center; padding: 16px 10px; border: 2px dashed var(--line-strong); border-radius: var(--r);
+  background: var(--band); cursor: pointer; color: var(--muted); font-size: 12.5px; width: 100%; }
+.dropzone svg { width: 28px; height: 28px; color: var(--accent); }
+.dropzone b { color: var(--ink); font-size: 14px; }
+.dropzone:hover, .dropzone.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.dropzone.busy { cursor: progress; border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+
+/* 状態タグ（色だけに頼らず、記号と文字を併記） */
+.tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; line-height: 1.5; padding: 1px 7px; border-radius: 2px;
+  border: 1px solid var(--line-strong); color: var(--muted); background: var(--surface); width: fit-content; white-space: nowrap; }
+.tag .mk { font-family: var(--font-num); }
+.tag.s1, .tag.s2, .tag.s3 { color: var(--accent); border-color: currentColor; }
+.tag.s4 { color: var(--warn); border-color: var(--warn-line); background: var(--warn-soft); }
+.tag.s5 { color: var(--ok); border-color: currentColor; background: var(--ok-soft); }
+.tag.done { color: var(--muted); border-color: var(--line-strong); background: var(--band); }
+.tag.info { color: var(--accent); border-color: transparent; background: var(--accent-soft); }
+
+/* ---------- ボタン・入力 ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--tap); padding: 0 16px; border-radius: var(--r);
+  border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-weight: 700; white-space: nowrap; text-decoration: none; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.1); color: var(--accent-ink); }
+.btn.big { min-height: 46px; padding: 0 24px; font-size: 15px; }
+.btn.small { min-height: 32px; padding: 0 10px; font-size: 12.5px; }
+.btn.link { background: transparent; border-color: transparent; color: var(--accent); padding: 0 4px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; filter: none; }
+.input, .select, .textarea { width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); }
+.input:focus, .select:focus, .textarea:focus { border-color: var(--accent); outline: 2px solid var(--accent-soft); outline-offset: 0; }
+.input.missing { border-color: var(--warn-line); background: var(--warn-soft); }
+
+/* 連結した選択ボタン */
+.seg { display: inline-flex; flex-wrap: wrap; }
+.seg button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-weight: 700; margin-left: -1px; border-radius: 0; }
+.seg button:first-child { margin-left: 0; border-radius: var(--r) 0 0 var(--r); }
+.seg button:last-child { border-radius: 0 var(--r) var(--r) 0; }
+.seg button[aria-pressed=&quot;true&quot;] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); position: relative; z-index: 1; }
+
+/* ---------- 作業面 ---------- */
+.work { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.work-scroll { flex: 1; overflow: auto; padding-block: 16px 28px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.work-inner { max-width: 1080px; margin: 0 auto; display: grid; gap: 14px; }
+.prop-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; }
+.prop-head h1 { margin: 0; font-size: 19px; line-height: 1.35; text-wrap: balance; }
+.prop-head .sub { color: var(--muted); font-size: 12.5px; }
+
+/* 工程表示（つながった帯） */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line-strong); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.step + .step { border-left: 1px solid var(--line); }
+.step button { width: 100%; min-height: 50px; display: flex; align-items: center; gap: 10px; padding: 6px 12px; border: 0; background: transparent; cursor: pointer; text-align: left; }
+.step button:hover:not([disabled]) { background: var(--band); }
+.step .n { flex: none; font-family: var(--font-num); font-weight: 700; font-size: 13px; width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 2px; color: var(--muted); }
+.step .t { display: grid; line-height: 1.3; min-width: 0; }
+.step .t b { font-size: 13.5px; }
+.step .t small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step.done .n { background: var(--ok); color: var(--surface); border-color: var(--ok); }
+.step.current button { background: var(--accent); color: var(--accent-ink); }
+.step.current .n { border-color: var(--accent-ink); color: var(--accent-ink); }
+.step.current .t small { color: var(--accent-ink); opacity: .85; }
+.step button[disabled] { cursor: not-allowed; opacity: .5; }
+@media (max-width: 720px) { .step .t small { display: none; } .step button { flex-direction: column; justify-content: center; gap: 2px; padding: 6px 2px; } .step .t b { font-size: 12px; } }
+
+/* セクション（見出し帯つき） */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.card > h2 { margin: 0; padding: 9px 14px; font-size: 14px; background: var(--band); border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.card > h2 .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+.card-body { padding: 14px; display: grid; gap: 12px; }
+
+/* 項目表（左に項目名、右に入力。ウェルモと同じ並び） */
+.ftable { display: grid; grid-template-columns: 150px minmax(0, 1fr) 150px minmax(0, 1fr); border-top: 1px solid var(--line); }
+.ftable.one { grid-template-columns: 150px minmax(0, 1fr); }
+.frow { display: contents; }
+.fl, .fv { border-bottom: 1px solid var(--line); padding: 8px 12px; min-width: 0; }
+.fl { background: var(--band); font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fv { display: grid; gap: 4px; align-content: center; }
+.frow.wide .fv { grid-column: span 3; }
+@media (max-width: 860px) { .ftable { grid-template-columns: 130px minmax(0, 1fr); } .frow.wide .fv { grid-column: auto; } }
+@media (max-width: 520px) { .ftable, .ftable.one { grid-template-columns: minmax(0, 1fr); } .fl { border-bottom: 0; padding-bottom: 2px; background: transparent; } }
+.req { font-size: 10.5px; font-weight: 700; color: var(--surface); background: var(--danger); border-radius: 2px; padding: 0 4px; }
+.help { color: var(--muted); font-size: 12px; }
+.unit { display: flex; align-items: center; gap: 6px; }
+.unit .input { max-width: 110px; }
+.station-row { display: grid; grid-template-columns: 28px minmax(0, 1.2fr) minmax(0, 1fr) 110px; gap: 8px; align-items: center; }
+.station-row .idx { font-family: var(--font-num); color: var(--muted); text-align: center; }
+@media (max-width: 720px) { .station-row { grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1fr); } .station-row .walk { grid-column: 2 / -1; } }
+
+/* 設備（チェックボックス型） */
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.chk { min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer; text-align: left; font-weight: 700; }
+.chk .bx { flex: none; width: 18px; height: 18px; border: 1.5px solid var(--line-strong); border-radius: 2px; display: grid; place-items: center; font-size: 12px; color: transparent; background: var(--surface); }
+.chk:hover { border-color: var(--accent); }
+.chk[aria-pressed=&quot;true&quot;], .chk[aria-checked=&quot;true&quot;] { border-color: var(--accent); background: var(--accent-soft); }
+.chk[aria-pressed=&quot;true&quot;] .bx, .chk[aria-checked=&quot;true&quot;] .bx { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.group-label { font-size: 12px; font-weight: 700; color: var(--muted); }
+
+.note { display: flex; gap: 10px; padding: 10px 12px; border-left: 4px solid var(--accent); background: var(--accent-soft); font-size: 13.5px; align-items: flex-start; border-radius: 0 var(--r) var(--r) 0; }
+.note .ic { flex: none; font-weight: 700; font-family: var(--font-num); }
+.note.info .ic { color: var(--accent); }
+.note.warn { background: var(--warn-soft); border-left-color: var(--warn-line); }
+.note.warn .ic { color: var(--warn); }
+.note.ok { background: var(--ok-soft); border-left-color: var(--ok); }
+.note.ok .ic { color: var(--ok); }
+.note.err { background: var(--danger-soft); border-left-color: var(--danger); }
+.note.err .ic { color: var(--danger); }
+.note p { margin: 0; }
+
+/* ---------- 地図 ---------- */
+.map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .map-wrap { grid-template-columns: minmax(0, 1fr); } }
+.map { position: relative; width: 100%; max-width: 100%; aspect-ratio: 640 / 400; overflow: hidden; border: 1px solid var(--line-strong); background: var(--band); cursor: crosshair; }
+.map img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+.pin { position: absolute; width: 30px; height: 42px; transform: translate(-50%, -100%); pointer-events: none; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.map-tools { position: absolute; right: 8px; top: 8px; display: grid; border: 1px solid var(--line-strong); background: var(--surface); }
+.map-tools button { width: 36px; height: 36px; border: 0; background: var(--surface); font-size: 18px; font-weight: 700; cursor: pointer; }
+.map-tools button + button { border-top: 1px solid var(--line); }
+.map-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+.kv { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kv th { text-align: left; font-weight: 700; color: var(--muted); padding: 5px 8px 5px 0; width: 64px; border-bottom: 1px solid var(--line); }
+.kv td { padding: 5px 0; border-bottom: 1px solid var(--line); }
+
+/* ---------- 調査 ---------- */
+.plan { width: 100%; border-collapse: collapse; }
+.plan th, .plan td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.plan th { width: 170px; background: var(--band); font-size: 13px; }
+.plan td { color: var(--muted); font-size: 13px; }
+.progress { height: 4px; background: var(--accent-soft); overflow: hidden; }
+.progress i { display: block; height: 100%; width: 35%; background: var(--accent); animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+/* ---------- 確認 ---------- */
+.tabs { display: flex; gap: 0; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding: 0 14px; background: var(--band); }
+.tab { min-height: 42px; padding: 0 16px; border: 0; background: transparent; cursor: pointer; font-weight: 700; color: var(--muted);
+  border-bottom: 3px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px; }
+.tab[aria-selected=&quot;true&quot;] { color: var(--ink); border-bottom-color: var(--accent); background: var(--surface); }
+.count { font-family: var(--font-num); font-size: 11.5px; padding: 0 6px; border-radius: 2px; background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn-line); }
+.count.zero { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.review-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cat { display: grid; gap: 0; }
+.cat-head { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 2px solid var(--ink); }
+.cat-head h3 { margin: 0; font-size: 14px; }
+.cat-head span { color: var(--muted); font-size: 12px; }
+.rows { display: grid; }
+.row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 140px; gap: 4px 14px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+.row.flagged { background: linear-gradient(90deg, var(--warn-soft), transparent 60%); }
+.row.off .r-name { color: var(--muted); font-weight: 400; }
+.r-main { min-width: 0; display: grid; gap: 2px; }
+.r-name { font-weight: 700; overflow-wrap: anywhere; }
+.r-meta { color: var(--muted); font-size: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.r-dist { text-align: right; font-family: var(--font-num); font-weight: 700; font-size: 14px; white-space: nowrap; }
+.r-dist small { display: block; font-weight: 400; color: var(--muted); font-size: 11.5px; white-space: normal; }
+.r-flag { grid-column: 2 / -1; display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap;
+  border-left: 3px solid var(--warn-line); background: var(--warn-soft); padding: 6px 10px; font-size: 12.5px; }
+.r-flag.done { border-left-color: var(--ok); background: var(--ok-soft); }
+.row .chk { min-height: 34px; padding: 0 8px; font-size: 12.5px; }
+@media (max-width: 600px) { .row { grid-template-columns: 84px minmax(0, 1fr); } .r-dist { grid-column: 2; text-align: left; } .r-flag { grid-column: 1 / -1; } }
+details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700; font-size: 12.5px; min-height: 34px; display: flex; align-items: center; }
+
+/* ---------- 出力 ---------- */
+.out { width: 100%; border-collapse: collapse; }
+.out th { width: 160px; text-align: left; vertical-align: top; background: var(--band); font-size: 13px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.out td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.out td.val { white-space: pre-wrap; overflow-wrap: anywhere; }
+.out td.val.empty { color: var(--muted); }
+.out td.act { width: 84px; text-align: right; }
+@media (max-width: 640px) { .out th { width: 96px; } .out td.act { width: auto; } }
+.meter { display: grid; gap: 3px; margin-top: 6px; }
+.meter-bar { height: 4px; background: var(--band); overflow: hidden; }
+.meter-bar i { display: block; height: 100%; background: var(--ok); }
+.meter-bar i.over { background: var(--danger); }
+.meter small { color: var(--muted); font-size: 11.5px; }
+.handoff { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+@media (max-width: 640px) { .handoff { grid-template-columns: minmax(0, 1fr); } }
+.howto { margin: 0; padding-left: 1.4em; display: grid; gap: 2px; }
+.urlbox { display: flex; gap: 6px; }
+.urlbox .input { font-family: var(--font-num); font-size: 12px; }
+
+/* ---------- 下部の固定操作バー ---------- */
+.actionbar { position: sticky; bottom: 0; z-index: 4; background: var(--surface); border-top: 1px solid var(--line-strong);
+  padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.actionbar-inner { max-width: 1080px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+.actionbar .msg { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; }
+.saved { font-size: 12px; color: var(--muted); }
+.saved.ok { color: var(--ok); }
+
+.toast { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 20; background: var(--ink); color: var(--surface);
+  padding: 9px 16px; border-radius: var(--r); font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.25); max-width: calc(100% - 32px); }
+.busy { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 52px); left: 50%; transform: translateX(-50%); z-index: 25; display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r); padding: 8px 16px; font-weight: 700; color: var(--accent); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+.busy i { width: 16px; height: 16px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.drop { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--nav) 30%, transparent); display: grid; place-items: center; pointer-events: none; }
+.drop div { background: var(--surface); border: 2px dashed var(--accent); border-radius: var(--r); padding: 26px 34px; font-size: 16px; font-weight: 700; color: var(--accent); }
+.empty-state { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 56px 16px; color: var(--muted); }
+.empty-state h2 { color: var(--ink); margin: 0; font-size: 17px; }
+.inline-form { display: flex; gap: 6px; }
+.loading { color: var(--muted); padding: 40px 0; text-align: center; }
+&lt;/style>
+
+&lt;div class=&quot;app&quot; id=&quot;app&quot;>
+  &lt;header class=&quot;topbar&quot;>
+    &lt;div class=&quot;brand&quot;>マンスリー周辺調査&lt;small>周辺施設の調査とウェルモ入力&lt;/small>&lt;/div>
+    &lt;div class=&quot;spacer&quot;>&lt;/div>
+    &lt;button class=&quot;btn small queue-toggle&quot; id=&quot;queue-toggle&quot; type=&quot;button&quot; aria-controls=&quot;queue&quot; aria-expanded=&quot;true&quot;>物件一覧&lt;/button>
+  &lt;/header>
+  &lt;div class=&quot;setup-band&quot; id=&quot;setup-band&quot; hidden>
+    &lt;form id=&quot;key-form&quot; class=&quot;setup-inner&quot;>&lt;b>はじめに：Google Maps の APIキーを登録してください&lt;/b>
+      &lt;label class=&quot;sr&quot; for=&quot;api-key&quot;>APIキー&lt;/label>&lt;input class=&quot;input&quot; id=&quot;api-key&quot; placeholder=&quot;AIza で始まるAPIキー&quot; autocomplete=&quot;off&quot;>
+      &lt;button class=&quot;btn primary small&quot; type=&quot;submit&quot;>登録&lt;/button>&lt;span id=&quot;key-msg&quot; role=&quot;status&quot;>&lt;/span>&lt;/form>
+  &lt;/div>
+  &lt;div class=&quot;demo-band&quot; id=&quot;demo-band&quot; hidden>デモ版：架空のサンプルデータで動いています。Google API・スプレッドシート・ウェルモには接続しません。&lt;/div>
+  &lt;div class=&quot;layout&quot;>
+    &lt;aside class=&quot;queue&quot; id=&quot;queue&quot; aria-label=&quot;物件一覧&quot;>
+      &lt;div class=&quot;queue-head&quot;>
+        &lt;button type=&quot;button&quot; class=&quot;dropzone&quot; id=&quot;dropzone&quot;>
+          &lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.6&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;>&lt;path d=&quot;M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z&quot;/>&lt;path d=&quot;M14 3v5h5&quot;/>&lt;path d=&quot;M12 18v-6m-3 3 3-3 3 3&quot;/>&lt;/svg>
+          &lt;b id=&quot;dz-title&quot;>マイソクPDFをドロップ&lt;/b>
+          &lt;span id=&quot;dz-help&quot;>またはクリックして選択（複数可）&lt;/span>
+        &lt;/button>
+        &lt;input type=&quot;file&quot; id=&quot;file-input&quot; accept=&quot;application/pdf&quot; multiple class=&quot;sr&quot; tabindex=&quot;-1&quot; aria-hidden=&quot;true&quot;>
+        &lt;div class=&quot;q-tools&quot;>
+          &lt;label class=&quot;sr&quot; for=&quot;q-search&quot;>物件を検索&lt;/label>
+          &lt;input class=&quot;input&quot; id=&quot;q-search&quot; type=&quot;search&quot; placeholder=&quot;建物名・住所で検索&quot;>
+          &lt;div class=&quot;seg&quot; role=&quot;group&quot; aria-label=&quot;表示する物件&quot; id=&quot;q-filter&quot;>
+            &lt;button type=&quot;button&quot; data-filter=&quot;all&quot; aria-pressed=&quot;true&quot;>全件&lt;/button>
+            &lt;button type=&quot;button&quot; data-filter=&quot;todo&quot; aria-pressed=&quot;false&quot;>作業中&lt;/button>
+            &lt;button type=&quot;button&quot; data-filter=&quot;done&quot; aria-pressed=&quot;false&quot;>完了&lt;/button>
+          &lt;/div>
+        &lt;/div>
+        &lt;div id=&quot;manual-add&quot;>&lt;/div>
+      &lt;/div>
+      &lt;div class=&quot;queue-body&quot;>&lt;ul class=&quot;queue-list&quot; id=&quot;q-list&quot;>&lt;/ul>&lt;/div>
+    &lt;/aside>
+    &lt;main class=&quot;work&quot; id=&quot;work&quot; aria-live=&quot;polite&quot;>&lt;/main>
+  &lt;/div>
+&lt;/div>
+&lt;div class=&quot;toast&quot; id=&quot;toast&quot; role=&quot;status&quot; aria-live=&quot;polite&quot; hidden>&lt;/div>
+&lt;div class=&quot;busy&quot; id=&quot;busy&quot; role=&quot;status&quot; aria-live=&quot;polite&quot; hidden>&lt;i aria-hidden=&quot;true&quot;>&lt;/i>&lt;span>処理しています…&lt;/span>&lt;/div>
+&lt;div class=&quot;drop&quot; id=&quot;drop&quot; hidden>&lt;div>マイソクPDFをドロップして取り込み&lt;/div>&lt;/div>
+
+&lt;script>
+(function () {
+  'use strict';
+
+  /* ================= サーバー呼び出し（GAS / デモ） ================= */
+  var API = window.DEMO_BACKEND || {
+    call: function (fn) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      return new Promise(function (resolve, reject) {
+        var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+          reject(e instanceof Error ? e : new Error(String(e &amp;&amp; e.message || e)));
+        });
+        r[fn].apply(r, args);
+      });
+    }
+  };
+  if (window.DEMO_BACKEND) document.getElementById('demo-band').hidden = false;
+
+  /* ================= 定数 ================= */
+  var STEPS = [
+    { n: 1, t: '物件情報', d: 'マイソクの内容を確認' },
+    { n: 2, t: '位置', d: '建物の出入口を指定' },
+    { n: 3, t: '調査', d: '周辺施設・駅を調べる' },
+    { n: 4, t: '確認', d: '掲載する施設を選ぶ' },
+    { n: 5, t: 'ウェルモ入力', d: '一覧から選んで入力' }
+  ];
+  var KINDS = ['マンション', 'アパート', '一戸建て', 'その他'];
+  var STRUCTS = [['RC', 'RC（鉄筋コンクリート）'], ['SRC', 'SRC（鉄骨鉄筋コンクリート）'], ['S', 'S（鉄骨）'], ['軽量鉄骨', '軽量鉄骨'], ['木造', '木造'], ['その他', 'その他']];
+  var EQUIP_TITLE = [['駐車場', '駐車場'], ['無料Wi-Fi', '無料Wi-Fi'], ['角部屋', '角部屋'], ['バストイレ別', 'バストイレ別'], ['独立洗面台', '独立洗面台'],
+    ['全居室6帖以上', '全居室6帖以上'], ['リフォーム済', 'リフォーム済'], ['オートロック', 'オートロック'], ['エレベーター', 'エレベーター'],
+    ['宅配BOX', '宅配ボックス'], ['自転車駐輪可能', '駐輪場']];
+  var EQUIP_WELLMO = [['防犯カメラ', '防犯カメラ'], ['コンシェルジュ', 'コンシェルジュ'], ['自動販売機', '自動販売機'], ['TVドアホン', 'TVドアホン'], ['ゴミ捨て場', 'ゴミ捨て場']];
+  var WELLMO_EQUIP_KEYS = ['エレベーター', 'オートロック', '宅配BOX', '防犯カメラ', 'コンシェルジュ', '自転車駐輪可能', '自動販売機', 'TVドアホン', 'ゴミ捨て場'];
+  var WELLMO_URL = 'https://wm-system.com/';
+  var MAP_W = 640, MAP_H = 400;
+
+  /* ================= 状態 ================= */
+  var S = {
+    list: [], filter: 'all', query: '',
+    id: null, data: null, step: 1, tab: 'facility', onlyPending: false,
+    map: null, busy: '', surveyResult: null, error: '', addOpen: false, forceStep: 0, uploading: false
+  };
+
+  /* ================= 小道具 ================= */
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&amp;&lt;>&quot;']/g, function (c) { return { '&amp;': '&amp;amp;', '&lt;': '&amp;lt;', '>': '&amp;gt;', '&quot;': '&amp;quot;', &quot;'&quot;: '&amp;#39;' }[c]; }); }
+  function b(v) { return v === true || v === 'TRUE' || v === 'true'; }
+  function n(v) { if (v === '' || v == null) return null; var x = Number(String(v).normalize('NFKC').replace(/[^\d.\-]/g, '')); return isNaN(x) ? null : x; }
+  function has(v) { return v !== '' &amp;&amp; v != null; }
+  /* 処理中の表示（画面上部の帯）。数秒かかる操作で「止まっていない」ことが分かるように */
+  function showBusy(msg) { var b = $('busy'); b.querySelector('span').textContent = msg || '処理しています…'; b.hidden = false; }
+  function hideBusy() { $('busy').hidden = true; }
+  var toastTimer;
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2800);
+  }
+  function errorText(e) { return (e &amp;&amp; e.message) ? e.message : String(e); }
+  function copyText(text, label) {
+    var done = function () { toast((label || '内容') + 'をコピーしました'); };
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove();
+      if (ok) done(); else toast('コピーできませんでした。内容を選択してコピーしてください');
+    };
+    if (navigator.clipboard &amp;&amp; navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  }
+
+  /* 確認待ちの件数（サーバーの countUnconfirmed_ と同じ規則） */
+  function pendingCount(d) {
+    if (!d) return 0;
+    var c = 0;
+    d.facilities.forEach(function (r) { if (['採用', '該当なし', 'エラー'].indexOf(r['採否']) >= 0 &amp;&amp; r['要確認理由'] &amp;&amp; !b(r['確認済'])) c++; });
+    d.stations.forEach(function (r) { if (r['要確認理由'] &amp;&amp; !b(r['確認済'])) c++; });
+    d.access.forEach(function (r) { if (b(r['採用']) &amp;&amp; r['要確認理由'] &amp;&amp; !b(r['確認済'])) c++; });
+    return c;
+  }
+  function hasResults(d) { return d &amp;&amp; (d.facilities.length + d.stations.length + d.access.length) > 0; }
+  function maxStep(d) {
+    if (!d) return 1;
+    // 住所を入力した直後（保存の応答前）でも位置の確認へ進めるようにする
+    if (d.stage &lt; 2 &amp;&amp; String(d.prop['住所'] || '').trim()) return 2;
+    // 確認が残っていてもウェルモ入力の画面は見られる（残件数を知らせる）
+    if (d.stage === 4) return 5;
+    return d.stage;
+  }
+  function stageTag(stage, label, entered) {
+    var mark = entered ? '✓' : stage === 5 ? '✓' : stage === 4 ? '!' : String(stage);
+    return '&lt;span class=&quot;tag ' + (entered ? 'done' : 's' + stage) + '&quot;>&lt;span class=&quot;mk&quot; aria-hidden=&quot;true&quot;>' + mark + '&lt;/span>' + esc(label) + '&lt;/span>';
+  }
+
+  /* ================= 物件一覧 ================= */
+  function loadList(selectId) {
+    return API.call('api_listProperties').then(function (list) {
+      S.list = list || [];
+      renderList();
+      var target = selectId || S.id || (S.list[0] &amp;&amp; S.list[0].id);
+      if (target) return openProperty(target, !selectId &amp;&amp; S.id === target);
+      renderWork();
+    }).catch(function (e) { S.error = errorText(e); renderWork(); });
+  }
+
+  function renderList() {
+    var q = S.query.normalize('NFKC').toLowerCase();
+    var items = S.list.filter(function (p) {
+      var done = p.stage === 5 &amp;&amp; !!p.wellmoAt;
+      if (S.filter === 'todo' &amp;&amp; done) return false;
+      if (S.filter === 'done' &amp;&amp; !done) return false;
+      if (q &amp;&amp; (p.name + ' ' + p.address).normalize('NFKC').toLowerCase().indexOf(q) &lt; 0) return false;
+      return true;
+    });
+    $('q-list').innerHTML = items.length ? items.map(function (p) {
+      return '&lt;li>&lt;button type=&quot;button&quot; class=&quot;q-item&quot; data-open=&quot;' + esc(p.id) + '&quot; aria-current=&quot;' + (p.id === S.id) + '&quot;>' +
+        '&lt;span class=&quot;q-name&quot;>' + esc(p.name || '（建物名未入力）') + '&lt;/span>' +
+        '&lt;span class=&quot;q-addr&quot;>' + esc(p.address || '住所未入力') + '&lt;/span>' +
+        stageTag(p.stage, p.stageLabel, !!p.wellmoAt) + '&lt;/button>&lt;/li>';
+    }).join('') : '&lt;li class=&quot;q-empty&quot;>' + (S.list.length ? '条件に合う物件はありません' : 'まだ物件がありません。上の枠にマイソクPDFをドロップしてください。') + '&lt;/li>';
+  }
+
+  /* ================= 物件を開く ================= */
+  function openProperty(id, keepStep) {
+    var changed = S.id !== id;
+    S.id = id; S.error = '';
+    if (changed) { S.data = null; S.map = null; S.surveyResult = null; S.tab = 'facility'; S.onlyPending = false; }
+    renderList();
+    renderWork();
+    return API.call('api_getProperty', id).then(function (d) {
+      S.data = d;
+      if (S.forceStep) { S.step = S.forceStep; S.forceStep = 0; }
+      else if (changed || !keepStep) S.step = Math.min(d.stage, 5);
+      renderWork();
+      if (window.innerWidth &lt;= 900) setQueueOpen(false);
+    }).catch(function (e) { S.error = errorText(e); renderWork(); });
+  }
+
+  function applyData(d) {
+    S.data = d;
+    var item = S.list.filter(function (p) { return p.id === S.id; })[0];
+    if (item) {
+      item.stage = d.stage; item.stageLabel = d.stageLabel; item.pending = d.pending;
+      item.wellmoAt = String(d.prop['ウェルモ入力日時'] || '');
+      item.name = String(d.prop['建物名'] || d.prop['物件名'] || ''); item.address = String(d.prop['住所'] || '');
+      renderList();
+    }
+  }
+
+  /* ================= 作業面 ================= */
+  function card(title, hint, body) {
+    return '&lt;section class=&quot;card&quot;>&lt;h2>' + title + (hint ? ' &lt;span class=&quot;hint&quot;>' + hint + '&lt;/span>' : '') + '&lt;/h2>&lt;div class=&quot;card-body&quot;>' + body + '&lt;/div>&lt;/section>';
+  }
+  function note(kind, icon, html) { return '&lt;div class=&quot;note ' + kind + '&quot;>&lt;span class=&quot;ic&quot; aria-hidden=&quot;true&quot;>' + icon + '&lt;/span>&lt;div>' + html + '&lt;/div>&lt;/div>'; }
+
+  function renderWork() {
+    var w = $('work');
+    if (S.error &amp;&amp; !S.data) {
+      w.innerHTML = '&lt;div class=&quot;work-scroll&quot;>&lt;div class=&quot;work-inner&quot;>' + note('err', '×', '&lt;p>' + esc(S.error) + '&lt;/p>') + '&lt;/div>&lt;/div>';
+      return;
+    }
+    if (!S.id) {
+      w.innerHTML = '&lt;div class=&quot;work-scroll&quot;>&lt;div class=&quot;empty-state&quot;>&lt;h2>マイソクPDFを取り込んで始めます&lt;/h2>' +
+        '&lt;p>左上の枠にPDFをドロップしてください（複数まとめても大丈夫です）。&lt;br>物件名・所在地・交通・設備を読み取り、物件ごとに作業を始められます。&lt;/p>&lt;/div>&lt;/div>';
+      return;
+    }
+    if (!S.data) { w.innerHTML = '&lt;div class=&quot;work-scroll&quot;>&lt;p class=&quot;loading&quot;>読み込み中…&lt;/p>&lt;/div>'; return; }
+    var d = S.data, p = d.prop;
+    var body = S.step === 1 ? stepInfo(d) : S.step === 2 ? stepMap(d) : S.step === 3 ? stepSurvey(d) : S.step === 4 ? stepReview(d) : stepOutput(d);
+    w.innerHTML =
+      '&lt;div class=&quot;work-scroll&quot;>&lt;div class=&quot;work-inner&quot;>' +
+        '&lt;div class=&quot;prop-head&quot;>&lt;div>&lt;h1>' + esc(p['建物名'] || p['物件名'] || '（建物名未入力）') + '&lt;/h1>' +
+        '&lt;div class=&quot;sub&quot;>' + esc(p['物件ID']) + '　' + esc(p['住所'] || '住所未入力') + '&lt;/div>&lt;/div>' + stageTag(d.stage, d.stageLabel, !!p['ウェルモ入力日時']) + '&lt;/div>' +
+        stepper(d) + body +
+      '&lt;/div>&lt;/div>' + actionBar(d);
+    afterRender();
+  }
+
+  function stepper(d) {
+    var max = maxStep(d);
+    return '&lt;nav aria-label=&quot;作業の手順&quot;>&lt;ol class=&quot;steps&quot;>' + STEPS.map(function (s) {
+      var cls = s.n === S.step ? 'current' : s.n &lt; d.stage || (s.n === 5 &amp;&amp; p5done(d)) ? 'done' : '';
+      var disabled = s.n > max;
+      return '&lt;li class=&quot;step ' + cls + '&quot;>&lt;button type=&quot;button&quot; data-step=&quot;' + s.n + '&quot;' + (disabled ? ' disabled title=&quot;前の手順を終えると進めます&quot;' : '') +
+        (s.n === S.step ? ' aria-current=&quot;step&quot;' : '') + '>&lt;span class=&quot;n&quot; aria-hidden=&quot;true&quot;>' + (cls === 'done' ? '✓' : s.n) + '&lt;/span>' +
+        '&lt;span class=&quot;t&quot;>&lt;b>' + s.t + '&lt;/b>&lt;small>' + s.d + '&lt;/small>&lt;/span>&lt;/button>&lt;/li>';
+    }).join('') + '&lt;/ol>&lt;/nav>';
+  }
+  function p5done(d) { return !!d.prop['ウェルモ入力日時']; }
+
+  /* 下部の固定バー：その手順で次にやることを1つだけ大きく */
+  function actionBar(d) {
+    var back = S.step > 1 ? '&lt;button class=&quot;btn&quot; type=&quot;button&quot; data-step=&quot;' + (S.step - 1) + '&quot;>← 戻る&lt;/button>' : '';
+    var msg = '', primary = '';
+    var p = d.prop;
+    if (S.step === 1) {
+      var missing = [];
+      if (!String(p['建物名'] || '').trim()) missing.push('建物名');
+      if (!String(p['住所'] || '').trim()) missing.push('所在地');
+      msg = missing.length ? missing.join('・') + 'を入力すると次へ進めます' : '&lt;span class=&quot;saved&quot; id=&quot;save-state&quot;>入力は自動で保存されます&lt;/span>';
+      primary = '&lt;button class=&quot;btn primary big&quot; type=&quot;button&quot; data-step=&quot;2&quot;' + (missing.length ? ' disabled' : '') + '>位置の確認へ →&lt;/button>';
+    } else if (S.step === 2) {
+      msg = '地図をクリックして、ピンを建物の出入口に合わせてください';
+      primary = '&lt;button class=&quot;btn primary big&quot; type=&quot;button&quot; data-act=&quot;confirm-origin&quot;' + (S.map &amp;&amp; S.map.pinLat != null ? '' : ' disabled') + '>この位置で確定 →&lt;/button>';
+    } else if (S.step === 3) {
+      if (S.busy === 'survey') { msg = '調査中です。画面を閉じずにお待ちください'; primary = '&lt;button class=&quot;btn primary big&quot; type=&quot;button&quot; disabled>調査中…&lt;/button>'; }
+      else if (hasResults(d) &amp;&amp; d.stage >= 4) { msg = '調査は完了しています'; primary = '&lt;button class=&quot;btn primary big&quot; type=&quot;button&quot; data-step=&quot;4&quot;>結果の確認へ →&lt;/button>'; }
+      else { msg = '1物件あたり1〜2分かかります'; primary = '&lt;button class=&quot;btn primary big&quot; type=&quot;button&quot; data-act=&quot;survey&quot;>調査を開始する&lt;/button>'; }
+    } else if (S.step === 4) {
+      var pc = pendingCount(d);
+      msg = pc ? '&lt;b style=&quot;color:var(--warn)&quot;>確認が' + pc + '件残っています&lt;/b>（変更はすぐに出力へ反映されます）' : '&lt;span style=&quot;color:var(--ok)&quot;>✓ すべて確認しました&lt;/span>';
+      primary = '&lt;button class=&quot;btn primary big&quot; type=&quot;button&quot; data-step=&quot;5&quot;>ウェルモ入力へ →&lt;/button>';
+    } else {
+      msg = p['ウェルモ入力日時'] ? 'ウェルモ入力済（' + esc(p['ウェルモ入力日時']) + '）' : 'ウェルモの建物編集画面で「周辺調査から入力」を押し、この物件を選びます';
+      primary = '&lt;a class=&quot;btn primary big&quot; href=&quot;' + WELLMO_URL + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモを開く ↗&lt;/a>';
+    }
+    return '&lt;div class=&quot;actionbar&quot;>&lt;div class=&quot;actionbar-inner&quot;>' + back + '&lt;div class=&quot;msg&quot;>' + msg + '&lt;/div>' + primary + '&lt;/div>&lt;/div>';
+  }
+
+  /* ---------- 手順1：物件情報 ---------- */
+  function input(field, opt) {
+    opt = opt || {};
+    var v = S.data.prop[field];
+    var missing = opt.required &amp;&amp; !String(v || '').trim();
+    var el = '&lt;input class=&quot;input' + (missing ? ' missing' : '') + (opt.num ? ' num' : '') + '&quot; id=&quot;f-' + esc(field) + '&quot; data-field=&quot;' + esc(field) + '&quot; value=&quot;' + esc(v) + '&quot;' +
+      (opt.num ? ' inputmode=&quot;numeric&quot;' : '') + (opt.ph ? ' placeholder=&quot;' + esc(opt.ph) + '&quot;' : '') + '>';
+    if (opt.suffix) el = '&lt;div class=&quot;unit&quot;>' + el + '&lt;span>' + esc(opt.suffix) + '&lt;/span>&lt;/div>';
+    return el + (opt.help ? '&lt;div class=&quot;help&quot;>' + esc(opt.help) + '&lt;/div>' : '');
+  }
+  function frow(label, field, html, opt) {
+    opt = opt || {};
+    return '&lt;div class=&quot;frow' + (opt.wide ? ' wide' : '') + '&quot;>&lt;div class=&quot;fl&quot;>' + (field ? '&lt;label for=&quot;f-' + esc(field) + '&quot;>' + esc(label) + '&lt;/label>' : esc(label)) +
+      (opt.required ? '&lt;span class=&quot;req&quot;>必須&lt;/span>' : '') + '&lt;/div>&lt;div class=&quot;fv&quot;>' + html + '&lt;/div>&lt;/div>';
+  }
+  function checks(list) {
+    return '&lt;div class=&quot;checks&quot;>' + list.map(function (e) {
+      var on = b(S.data.prop[e[0]]);
+      return '&lt;button type=&quot;button&quot; class=&quot;chk&quot; data-toggle=&quot;' + esc(e[0]) + '&quot; aria-pressed=&quot;' + on + '&quot;>&lt;span class=&quot;bx&quot; aria-hidden=&quot;true&quot;>✓&lt;/span>' + esc(e[1]) + '&lt;/button>';
+    }).join('') + '&lt;/div>';
+  }
+
+  function stepInfo(d) {
+    var p = d.prop;
+    var memo = String(p['マイソク取込メモ'] || '');
+    var memoNote = memo ? note(/要確認|エラー/.test(memo) ? 'warn' : 'info', 'i',
+      '&lt;p>&lt;b>マイソクの読み取り結果&lt;/b>（' + esc(p['マイソク取込日時'] || '') + '）' +
+      (p['マイソクPDF'] ? ' &lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-act=&quot;reimport&quot;>再読み取り&lt;/button>' : '') + '&lt;/p>&lt;p>' + esc(memo) + '&lt;/p>') : '';
+    var kind = String(p['物件種別'] || '');
+    var stations = [1, 2, 3].map(function (i) {
+      var k = 'マイソク駅' + i;
+      return '&lt;div class=&quot;station-row&quot;>&lt;span class=&quot;idx&quot;>' + i + '&lt;/span>' +
+        '&lt;input class=&quot;input&quot; aria-label=&quot;駅' + i + 'の路線&quot; data-field=&quot;' + k + '_路線&quot; placeholder=&quot;路線（例：東山線）&quot; value=&quot;' + esc(p[k + '_路線']) + '&quot;>' +
+        '&lt;input class=&quot;input&quot; aria-label=&quot;駅' + i + 'の駅名&quot; data-field=&quot;' + k + '_駅名&quot; placeholder=&quot;駅名（例：今池）&quot; value=&quot;' + esc(p[k + '_駅名']) + '&quot;>' +
+        '&lt;div class=&quot;unit walk&quot;>&lt;input class=&quot;input num&quot; aria-label=&quot;駅' + i + 'の徒歩分&quot; data-field=&quot;' + k + '_徒歩分&quot; inputmode=&quot;numeric&quot; placeholder=&quot;徒歩&quot; value=&quot;' + esc(p[k + '_徒歩分']) + '&quot;>&lt;span>分&lt;/span>&lt;/div>&lt;/div>';
+    }).join('');
+    var seg = '&lt;div class=&quot;seg&quot; role=&quot;group&quot; aria-label=&quot;物件種別&quot;>' +
+      KINDS.map(function (k) { return '&lt;button type=&quot;button&quot; data-set=&quot;物件種別&quot; data-value=&quot;' + k + '&quot; aria-pressed=&quot;' + (kind === k) + '&quot;>' + k + '&lt;/button>'; }).join('') + '&lt;/div>';
+    var struct = '&lt;select class=&quot;select&quot; id=&quot;f-建物構造&quot; data-field=&quot;建物構造&quot;>&lt;option value=&quot;&quot;>選択してください&lt;/option>' +
+      STRUCTS.map(function (s) { return '&lt;option value=&quot;' + s[0] + '&quot;' + (String(p['建物構造']) === s[0] ? ' selected' : '') + '>' + s[1] + '&lt;/option>'; }).join('') + '&lt;/select>';
+    return memoNote +
+      '&lt;section class=&quot;card&quot;>&lt;h2>基本情報 &lt;span class=&quot;hint&quot;>項目名はウェルモと同じです&lt;/span>&lt;/h2>&lt;div class=&quot;ftable&quot;>' +
+        frow('建物名', '建物名', input('建物名', { required: true }), { required: true }) +
+        frow('ふりがな', 'ふりがな', input('ふりがな', { required: true, ph: 'ひらがな', help: 'カタカナ・ひらがなの建物名は自動で入ります。漢字・英字を含む名前は手入力してください' }), { required: true }) +
+        frow('物件種別', '', seg) +
+        frow('郵便番号', '郵便番号', input('郵便番号', { num: true, ph: '464-0850' })) +
+        frow('所在地', '住所', input('住所', { required: true, ph: '愛知県名古屋市千種区今池3丁目39-21' }), { required: true, wide: true }) +
+        frow('エリア', 'エリア', input('エリア', { help: 'タイトル用。所在地から自動で入ります（名古屋市は区のみ）' })) +
+        frow('その他アピール', 'その他アピール', input('その他アピール', { ph: 'mozoワンダーシティ徒歩5分', help: 'タイトル用。近くに有名な施設がある場合' })) +
+      '&lt;/div>&lt;/section>' +
+      card('交通', 'マイソクの記載。足りない駅は調査で補います', stations) +
+      card('設備', 'クリックでON/OFF',
+        '&lt;div class=&quot;group-label&quot;>タイトル・ウェルモ共通&lt;/div>' + checks(EQUIP_TITLE) +
+        '&lt;div class=&quot;group-label&quot;>ウェルモの建物設備のみ&lt;/div>' + checks(EQUIP_WELLMO) +
+        '&lt;div class=&quot;ftable&quot; style=&quot;margin-top:4px&quot;>' +
+          frow('最も広い洋室', '最大洋室帖数', input('最大洋室帖数', { num: true, suffix: '帖' })) +
+          frow('Wi-Fiサービス名', 'Wi-Fiサービス名', input('Wi-Fiサービス名', { help: 'USEN AIR はタイトルの「無料Wi-Fi」に含めません' })) +
+        '&lt;/div>') +
+      '&lt;section class=&quot;card&quot;>&lt;h2>その他建物情報&lt;/h2>&lt;div class=&quot;ftable&quot;>' +
+        frow('建物構造', '建物構造', struct) +
+        frow('建物階数', '地上階数', '&lt;div class=&quot;unit&quot;>&lt;span>地上&lt;/span>' + input('地上階数', { num: true }).replace('&lt;div class=&quot;unit&quot;>', '') + '&lt;span>階　地下&lt;/span>&lt;input class=&quot;input num&quot; style=&quot;max-width:80px&quot; aria-label=&quot;地下階数&quot; data-field=&quot;地下階数&quot; inputmode=&quot;numeric&quot; value=&quot;' + esc(p['地下階数']) + '&quot;>&lt;span>階&lt;/span>&lt;/div>') +
+        frow('築年月', '築年', '&lt;div class=&quot;unit&quot;>' + '&lt;input class=&quot;input num&quot; id=&quot;f-築年&quot; data-field=&quot;築年&quot; inputmode=&quot;numeric&quot; value=&quot;' + esc(p['築年']) + '&quot;>&lt;span>年&lt;/span>&lt;input class=&quot;input num&quot; style=&quot;max-width:70px&quot; aria-label=&quot;築月&quot; data-field=&quot;築月&quot; inputmode=&quot;numeric&quot; value=&quot;' + esc(p['築月']) + '&quot;>&lt;span>月&lt;/span>&lt;/div>') +
+        frow('総戸数', '総戸数', input('総戸数', { num: true, suffix: '戸' })) +
+      '&lt;/div>&lt;/section>';
+  }
+
+  /* 自動保存（入力をやめて0.6秒後） */
+  var pending = {}, saveTimer = null, saving = false;
+  function queueSave(field, value) {
+    pending[field] = value;
+    S.data.prop[field] = value;
+    refreshActionBar();
+    setSaveState('保存中…');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 600);
+  }
+  function flushSave() {
+    if (saving || !Object.keys(pending).length) return;
+    var patch = pending; pending = {}; saving = true;
+    var id = S.id;
+    API.call('api_saveProperty', id, patch).then(function (d) {
+      saving = false;
+      if (S.id !== id) return;
+      var stepBefore = S.step;
+      var stageChanged = d.stage !== S.data.stage;
+      // 入力中の値は画面のものを優先（保存中に打った文字を消さない）
+      Object.keys(pending).forEach(function (k) { d.prop[k] = pending[k]; });
+      applyData(d);
+      if ('住所' in patch) S.map = null;
+      // 入力中のフォームは描き直さない（フォーカスと入力位置を守る）。見出し・手順・操作バーだけ更新
+      if (stageChanged &amp;&amp; stepBefore !== 1) renderWork(); else refreshChrome();
+      setSaveState('✓ 保存しました', true);
+      if (Object.keys(pending).length) flushSave();
+    }).catch(function (e) { saving = false; setSaveState('保存できませんでした：' + errorText(e)); });
+  }
+  function setSaveState(t, ok) { var el = $('save-state'); if (el) { el.textContent = t; el.className = 'saved' + (ok ? ' ok' : ''); } }
+  function refreshChrome() {
+    var nav = document.querySelector('nav[aria-label=&quot;作業の手順&quot;]');
+    if (nav) { var t1 = document.createElement('div'); t1.innerHTML = stepper(S.data); nav.replaceWith(t1.firstChild); }
+    var tg = document.querySelector('.prop-head > .tag');
+    if (tg) { var t2 = document.createElement('div'); t2.innerHTML = stageTag(S.data.stage, S.data.stageLabel, !!S.data.prop['ウェルモ入力日時']); tg.replaceWith(t2.firstChild); }
+    var h = document.querySelector('.prop-head h1');
+    if (h) h.textContent = S.data.prop['建物名'] || S.data.prop['物件名'] || '（建物名未入力）';
+    refreshActionBar();
+  }
+  function refreshActionBar() {
+    var bar = document.querySelector('.actionbar');
+    if (bar) { var tmp = document.createElement('div'); tmp.innerHTML = actionBar(S.data); bar.replaceWith(tmp.firstChild); }
+  }
+
+  /* ---------- 手順2：位置 ---------- */
+  function project(lat, lng, z) {
+    var s = 256 * Math.pow(2, z), sin = Math.sin(lat * Math.PI / 180);
+    return { x: (lng + 180) / 360 * s, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * s };
+  }
+  function unproject(x, y, z) {
+    var s = 256 * Math.pow(2, z), k = Math.PI - 2 * Math.PI * y / s;
+    return { lat: 180 / Math.PI * Math.atan(0.5 * (Math.exp(k) - Math.exp(-k))), lng: x / s * 360 - 180 };
+  }
+
+  function stepMap(d) {
+    var m = S.map;
+    if (!m) { startMap(); return card('建物の出入口を指定', '', '&lt;p class=&quot;loading&quot;>住所から位置を求めています…&lt;/p>'); }
+    if (m.error &amp;&amp; m.lat == null) return note('err', '×', '&lt;p>' + esc(m.error) + '&lt;/p>');
+    var warns = (m.warnings || []).map(function (w) { return note('warn', '!', '&lt;p>' + esc(w) + '&lt;/p>'); }).join('');
+    var pinStyle = '';
+    if (m.img &amp;&amp; m.pinLat != null) {
+      var c = project(m.img.lat, m.img.lng, m.img.zoom), pp = project(m.pinLat, m.pinLng, m.img.zoom);
+      pinStyle = 'left:' + ((pp.x - c.x + MAP_W / 2) / MAP_W * 100) + '%;top:' + ((pp.y - c.y + MAP_H / 2) / MAP_H * 100) + '%';
+    }
+    var gmap = 'https://www.google.com/maps/search/?api=1&amp;query=' + m.pinLat + ',' + m.pinLng;
+    return warns + card('建物の出入口を指定', '徒歩分は出入口から計算します（公正競争規約）',
+      '&lt;div class=&quot;map-wrap&quot;>&lt;div>' +
+        '&lt;div class=&quot;map&quot; id=&quot;map&quot; role=&quot;application&quot; aria-label=&quot;地図。クリックした位置にピンを置きます&quot;>' +
+          (m.img &amp;&amp; m.img.dataUrl ? '&lt;img id=&quot;map-img&quot; src=&quot;' + m.img.dataUrl + '&quot; alt=&quot;物件周辺の地図&quot;>' : '') +
+          (m.img &amp;&amp; !m.loading ? '&lt;svg class=&quot;pin&quot; style=&quot;' + pinStyle + '&quot; viewBox=&quot;0 0 34 46&quot; aria-hidden=&quot;true&quot;>&lt;path d=&quot;M17 1C8.2 1 1 8 1 16.8 1 28.6 17 45 17 45s16-16.4 16-28.2C33 8 25.8 1 17 1z&quot; fill=&quot;#c62828&quot; stroke=&quot;#fff&quot; stroke-width=&quot;2&quot;/>&lt;circle cx=&quot;17&quot; cy=&quot;17&quot; r=&quot;6&quot; fill=&quot;#fff&quot;/>&lt;/svg>' : '') +
+          (m.loading ? '&lt;div class=&quot;map-loading&quot;>地図を読み込み中…&lt;/div>' : '') +
+          (m.img &amp;&amp; m.img.error ? '&lt;div class=&quot;map-loading&quot;>' + esc(m.img.error) + '&lt;/div>' : '') +
+          '&lt;div class=&quot;map-tools&quot;>&lt;button type=&quot;button&quot; data-act=&quot;zoom-in&quot; aria-label=&quot;拡大&quot;>＋&lt;/button>&lt;button type=&quot;button&quot; data-act=&quot;zoom-out&quot; aria-label=&quot;縮小&quot;>−&lt;/button>&lt;/div>' +
+        '&lt;/div>&lt;p class=&quot;help&quot;>ピンの先端が&lt;b>建物の出入口&lt;/b>に来るように地図をクリックします。＋／−で拡大縮小できます。&lt;/p>&lt;/div>' +
+        '&lt;div style=&quot;display:grid;gap:10px&quot;>' +
+          '&lt;table class=&quot;kv num&quot;>&lt;tr>&lt;th>緯度&lt;/th>&lt;td>' + (m.pinLat != null ? m.pinLat.toFixed(6) : '—') + '&lt;/td>&lt;/tr>&lt;tr>&lt;th>経度&lt;/th>&lt;td>' + (m.pinLng != null ? m.pinLng.toFixed(6) : '—') + '&lt;/td>&lt;/tr>&lt;tr>&lt;th>縮尺&lt;/th>&lt;td>' + m.zoom + '&lt;/td>&lt;/tr>&lt;/table>' +
+          (m.geocodedAddress ? '&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>住所の検索結果：' + esc(m.geocodedAddress) + '&lt;/p>' : '') +
+          '&lt;a class=&quot;btn small&quot; href=&quot;' + esc(gmap) + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>Googleマップで周辺を見る ↗&lt;/a>' +
+          '&lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-act=&quot;recenter&quot;>ピンを中心に再表示&lt;/button>' +
+          (b(d.prop['起点確認済']) ? note('ok', '✓', '&lt;p>位置は確定済みです。変更すると再調査が必要になります。&lt;/p>') : '') +
+        '&lt;/div>&lt;/div>');
+  }
+
+  function startMap() {
+    var id = S.id;
+    S.map = { loading: true, zoom: 18 };
+    API.call('api_locate', id).then(function (loc) {
+      if (S.id !== id) return;
+      S.map = { lat: loc.lat, lng: loc.lng, pinLat: loc.lat, pinLng: loc.lng, zoom: 18, warnings: loc.warnings, geocodedAddress: loc.geocodedAddress, loading: true };
+      loadMapImage(loc.lat, loc.lng, 18);
+      API.call('api_getProperty', id).then(function (d) { if (S.id === id) applyData(d); });
+    }).catch(function (e) { S.map = { error: errorText(e) }; renderWork(); });
+  }
+  function loadMapImage(lat, lng, zoom) {
+    var id = S.id;
+    S.map.loading = true; renderWork();
+    showBusy('地図を読み込んでいます…');
+    API.call('api_mapImage', lat, lng, zoom).then(function (img) {
+      hideBusy();
+      if (S.id !== id || !S.map) return;
+      S.map.img = img; S.map.zoom = img.zoom || zoom; S.map.loading = false; renderWork();
+    }).catch(function (e) { hideBusy(); S.map.img = { error: errorText(e), lat: lat, lng: lng, zoom: zoom }; S.map.loading = false; renderWork(); });
+  }
+  function onMapClick(ev) {
+    if (ev.target.closest('.map-tools, a, button')) return; // ＋／−ボタンの押下は地図のクリックとして扱わない
+    var m = S.map; if (!m || !m.img || m.img.error || m.loading) return;
+    var box = $('map').getBoundingClientRect();
+    var lx = (ev.clientX - box.left) / box.width * MAP_W, ly = (ev.clientY - box.top) / box.height * MAP_H;
+    var c = project(m.img.lat, m.img.lng, m.img.zoom);
+    var pp = unproject(c.x + lx - MAP_W / 2, c.y + ly - MAP_H / 2, m.img.zoom);
+    m.pinLat = Math.round(pp.lat * 1e6) / 1e6; m.pinLng = Math.round(pp.lng * 1e6) / 1e6;
+    renderWork();
+  }
+
+  /* ---------- 手順3：調査 ---------- */
+  function stepSurvey(d) {
+    var cats = d.categories.slice().sort(function (a, c) { return a.order - c.order; }).map(function (c) { return c.label; });
+    var res = S.surveyResult;
+    var resultNote = '';
+    if (res) {
+      var bad = res.error || /エラー/.test(res.status);
+      resultNote = res.error ? note('err', '×', '&lt;p>&lt;b>調査できませんでした&lt;/b>&lt;/p>&lt;p>' + esc(res.error) + '&lt;/p>')
+        : note(bad ? 'warn' : 'ok', bad ? '!' : '✓', '&lt;p>&lt;b>' + esc(res.status) + '&lt;/b>（Google API ' + esc(res.apiCalls) + '回）&lt;/p>&lt;p>' + esc(res.message) + '&lt;/p>');
+    }
+    var running = S.busy === 'survey' ? card('調査中', '', '&lt;div class=&quot;progress&quot; role=&quot;progressbar&quot; aria-label=&quot;調査中&quot;>&lt;i>&lt;/i>&lt;/div>&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>Googleから施設・駅・経路を取得し、道路距離から徒歩分（80m＝1分）を計算しています。&lt;/p>') : '';
+    var again = hasResults(d) &amp;&amp; S.busy !== 'survey'
+      ? note('info', 'i', '&lt;p>この物件は調査済みです。もう一度調査すると結果を最新にします（掲載のON/OFF・路線などの入力は引き継ぎます）。 &lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-act=&quot;survey&quot;>再調査する&lt;/button>&lt;/p>') : '';
+    return resultNote + running + card('調査する内容', '距離はすべてGoogleの道路距離。AIによる推定は行いません',
+      '&lt;table class=&quot;plan&quot;>&lt;tr>&lt;th>周辺施設&lt;/th>&lt;td>' + esc(cats.join('・')) + '&lt;/td>&lt;/tr>' +
+      '&lt;tr>&lt;th>最寄り駅（3駅）&lt;/th>&lt;td>マイソク記載駅＋Googleで近い順。徒歩30分以上はバス／車の所要時間&lt;/td>&lt;/tr>' +
+      '&lt;tr>&lt;th>その他アクセス&lt;/th>&lt;td>最寄りバス停からの徒歩分&lt;/td>&lt;/tr>' +
+      '&lt;tr>&lt;th>空港からのアクセス&lt;/th>&lt;td>中部国際空港・県営名古屋空港のうち近い方（渋滞の少ない深夜の車移動）&lt;/td>&lt;/tr>&lt;/table>') + again;
+  }
+
+  function runSurvey() {
+    var id = S.id;
+    S.busy = 'survey'; S.surveyResult = null; renderWork();
+    API.call('api_runSurvey', id).then(function (r) {
+      S.busy = '';
+      if (S.id !== id) return;
+      S.surveyResult = r; applyData(r.data);
+      if (r.data.stage >= 4) { S.step = 4; toast('調査が完了しました。結果を確認してください'); }
+      renderWork();
+    }).catch(function (e) { S.busy = ''; S.surveyResult = { error: errorText(e) }; renderWork(); });
+  }
+
+  /* ---------- 手順4：確認 ---------- */
+  function distText(r) {
+    var car = n(r['車所要分']);
+    if (car != null) return '車 約' + car + '分&lt;small>徒歩' + esc(r['徒歩分']) + '分・' + esc(r['道路距離m']) + 'm&lt;/small>';
+    if (!has(r['徒歩分'])) return '';
+    return '徒歩 ' + esc(r['徒歩分']) + '分&lt;small>道路距離 ' + esc(r['道路距離m']) + 'm&lt;/small>';
+  }
+  function flagBox(kind, key, r) {
+    if (!r['要確認理由']) return '';
+    var done = b(r['確認済']);
+    return '&lt;div class=&quot;r-flag' + (done ? ' done' : '') + '&quot;>&lt;span>' + (done ? '✓ 確認済：' : '! 要確認：') + esc(r['要確認理由']) + '&lt;/span>' +
+      '&lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-confirm=&quot;' + kind + '&quot; data-key=&quot;' + esc(key) + '&quot; data-val=&quot;' + (!done) + '&quot;>' + (done ? '確認を取り消す' : '確認した') + '&lt;/button>&lt;/div>';
+  }
+  function checkCell(attr, key, on, label, aria) {
+    return '&lt;button type=&quot;button&quot; class=&quot;chk&quot; role=&quot;checkbox&quot; aria-checked=&quot;' + on + '&quot; aria-label=&quot;' + esc(aria) + '&quot; ' + attr + '=&quot;' + esc(key) + '&quot;>&lt;span class=&quot;bx&quot; aria-hidden=&quot;true&quot;>✓&lt;/span>' + label + '&lt;/button>';
+  }
+  function facilityRow(r) {
+    var key = r['カテゴリID'] + '|' + (r['place_id'] || r['採否']);
+    if (r['採否'] === '該当なし' || r['採否'] === 'エラー') {
+      return '&lt;div class=&quot;row flagged&quot;>&lt;span>&lt;/span>&lt;div class=&quot;r-main&quot;>&lt;span class=&quot;r-name&quot;>' + (r['採否'] === 'エラー' ? '取得できませんでした' : '見つかりませんでした') + '&lt;/span>&lt;/div>&lt;span>&lt;/span>' + flagBox('facility', key, r) + '&lt;/div>';
+    }
+    var on = b(r['掲載']);
+    var flagged = r['要確認理由'] &amp;&amp; !b(r['確認済']);
+    return '&lt;div class=&quot;row' + (flagged ? ' flagged' : '') + (on ? '' : ' off') + '&quot;>' +
+      checkCell('data-publish', key, on, '掲載', r['名称'] + 'を掲載') +
+      '&lt;div class=&quot;r-main&quot;>&lt;span class=&quot;r-name&quot;>' + esc(r['名称']) + '&lt;/span>&lt;span class=&quot;r-meta&quot;>' +
+        (r['採用理由'] ? '&lt;span class=&quot;tag info&quot;>' + esc(r['採用理由']) + '&lt;/span>' : '') + (r['採否'] === '候補' ? '&lt;span class=&quot;tag&quot;>候補&lt;/span>' : '') +
+        (r['住所'] ? '&lt;span>' + esc(String(r['住所']).replace(/^日本、/, '')) + '&lt;/span>' : '') + '&lt;/span>&lt;/div>' +
+      '&lt;div class=&quot;r-dist&quot;>' + distText(r) + '&lt;/div>' + flagBox('facility', key, r) + '&lt;/div>';
+  }
+  function reviewFacilities(d) {
+    var cats = d.categories.slice().sort(function (a, c) { return a.order - c.order; });
+    var html = cats.map(function (c) {
+      var rows = d.facilities.filter(function (r) { return r['カテゴリID'] === c.id; });
+      var main = rows.filter(function (r) { return r['採否'] !== '候補'; });
+      var others = rows.filter(function (r) { return r['採否'] === '候補'; });
+      if (S.onlyPending) {
+        main = main.filter(function (r) { return r['要確認理由'] &amp;&amp; !b(r['確認済']); });
+        if (!main.length) return '';
+        others = [];
+      }
+      var published = rows.filter(function (r) { return b(r['掲載']); }).length;
+      return '&lt;section class=&quot;cat&quot;>&lt;div class=&quot;cat-head&quot;>&lt;h3>' + esc(c.label) + '&lt;/h3>&lt;span>掲載 ' + published + '件&lt;/span>&lt;/div>&lt;div class=&quot;rows&quot;>' +
+        (main.length ? main.map(facilityRow).join('') : '&lt;p class=&quot;help&quot;>条件に合う施設はありません（「あれば掲載」の項目です）&lt;/p>') + '&lt;/div>' +
+        (others.length ? '&lt;details class=&quot;more&quot;>&lt;summary>ほかの候補（' + others.length + '件）&lt;/summary>&lt;div class=&quot;rows&quot;>' + others.map(facilityRow).join('') + '&lt;/div>&lt;/details>' : '') +
+      '&lt;/section>';
+    }).join('');
+    return html || note('ok', '✓', '&lt;p>確認が必要な施設はありません。&lt;/p>');
+  }
+  function reviewStations(d) {
+    var rows = d.stations.slice().sort(function (a, c) { return n(a['枠']) - n(c['枠']); });
+    if (S.onlyPending) rows = rows.filter(function (r) { return r['要確認理由'] &amp;&amp; !b(r['確認済']); });
+    if (!rows.length) return note('ok', '✓', '&lt;p>確認が必要な駅はありません。&lt;/p>');
+    return '&lt;div class=&quot;rows&quot;>' + rows.map(function (r) {
+      var key = String(r['枠']);
+      var alt = has(r['代替所要分']) ? '&lt;span class=&quot;tag info&quot;>' + esc(r['代替手段']) + 'で' + esc(r['代替所要分']) + '分&lt;/span>' : '';
+      return '&lt;div class=&quot;row' + (r['要確認理由'] &amp;&amp; !b(r['確認済']) ? ' flagged' : '') + '&quot;>' +
+        '&lt;div class=&quot;num&quot; style=&quot;font-weight:700;color:var(--muted)&quot;>駅' + esc(r['枠']) + '&lt;/div>' +
+        '&lt;div class=&quot;r-main&quot;>&lt;span class=&quot;r-name&quot;>「' + esc(String(r['駅名']).replace(/駅$/, '')) + '」駅 &lt;span class=&quot;tag&quot;>' + esc(r['出典']) + '&lt;/span> ' + alt + '&lt;/span>' +
+          '&lt;span class=&quot;r-meta&quot;>マイソク ' + (has(r['マイソク徒歩分']) ? esc(r['マイソク徒歩分']) + '分' : '—') + ' ／ Google ' + (has(r['Google徒歩分']) ? esc(r['Google徒歩分']) + '分（' + esc(r['道路距離m']) + 'm）' : '—') + ' → 採用：' + esc(r['採用元']) + '&lt;/span>' +
+          '&lt;div class=&quot;unit&quot; style=&quot;margin-top:4px;max-width:420px&quot;>&lt;label for=&quot;line-' + key + '&quot; style=&quot;font-weight:700;font-size:12.5px;white-space:nowrap&quot;>路線&lt;/label>' +
+          '&lt;input class=&quot;input' + (String(r['路線'] || '').trim() ? '' : ' missing') + '&quot; style=&quot;max-width:none&quot; id=&quot;line-' + key + '&quot; data-line=&quot;' + esc(key) + '&quot; value=&quot;' + esc(r['路線']) + '&quot; placeholder=&quot;利用者の多い路線（例：名古屋市東山線）&quot;>&lt;/div>&lt;/div>' +
+        '&lt;div class=&quot;r-dist&quot;>' + (has(r['採用徒歩分']) ? '徒歩 ' + esc(r['採用徒歩分']) + '分' : '—') + (has(r['代替詳細']) ? '&lt;small>' + esc(r['代替詳細']) + '&lt;/small>' : '') + '&lt;/div>' +
+        flagBox('station', key, r) + '&lt;/div>';
+    }).join('') + '&lt;/div>';
+  }
+  function reviewAccess(d) {
+    var bus = d.access.filter(function (r) { return r['種別'] === 'バス停'; });
+    var air = d.access.filter(function (r) { return r['種別'] === '空港'; });
+    var busHtml = bus.map(function (r) {
+      var key = r['種別'] + '|' + (r['place_id'] || r['名称']);
+      var on = b(r['採用']);
+      if (!r['名称']) return '&lt;div class=&quot;row flagged&quot;>&lt;span>&lt;/span>&lt;div class=&quot;r-main&quot;>&lt;span class=&quot;r-name&quot;>バス停が見つかりませんでした&lt;/span>&lt;/div>&lt;span>&lt;/span>' + flagBox('access', key, r) + '&lt;/div>';
+      return '&lt;div class=&quot;row' + (on &amp;&amp; r['要確認理由'] &amp;&amp; !b(r['確認済']) ? ' flagged' : '') + (on ? '' : ' off') + '&quot;>' +
+        checkCell('data-usebus', key, on, '使う', '「' + r['名称'] + '」停を使う') +
+        '&lt;div class=&quot;r-main&quot;>&lt;span class=&quot;r-name&quot;>「' + esc(r['名称']) + '」停&lt;/span>' +
+          (on ? '&lt;div class=&quot;unit&quot; style=&quot;margin-top:4px;max-width:420px&quot;>&lt;label for=&quot;op-' + esc(r['place_id']) + '&quot; style=&quot;font-weight:700;font-size:12.5px;white-space:nowrap&quot;>運行会社&lt;/label>&lt;input class=&quot;input' + (String(r['運行会社'] || '').trim() ? '' : ' missing') + '&quot; style=&quot;max-width:none&quot; id=&quot;op-' + esc(r['place_id']) + '&quot; data-operator=&quot;' + esc(key) + '&quot; value=&quot;' + esc(r['運行会社']) + '&quot; placeholder=&quot;例：名古屋市営バス&quot;>&lt;/div>' : '') +
+        '&lt;/div>&lt;div class=&quot;r-dist&quot;>徒歩 ' + esc(r['徒歩分']) + '分&lt;small>' + esc(r['道路距離m']) + 'm&lt;/small>&lt;/div>' + (on ? flagBox('access', key, r) : '') + '&lt;/div>';
+    }).join('');
+    var airHtml = air.map(function (r) {
+      var on = b(r['採用']);
+      return '&lt;div class=&quot;row' + (on ? '' : ' off') + '&quot;>&lt;div class=&quot;num&quot; style=&quot;font-weight:700;color:var(--muted)&quot;>' + (on ? '採用' : '—') + '&lt;/div>&lt;div class=&quot;r-main&quot;>&lt;span class=&quot;r-name&quot;>' + esc(r['名称']) + '&lt;/span>' +
+        '&lt;span class=&quot;r-meta&quot;>' + esc(r['詳細'] || r['要確認理由']) + '&lt;/span>&lt;/div>&lt;div class=&quot;r-dist&quot;>' + (has(r['車所要分']) ? '車 約' + esc(r['車所要分']) + '分' : '—') + (r['有料道路'] ? '&lt;small>有料道路あり&lt;/small>' : '') + '&lt;/div>&lt;/div>';
+    }).join('');
+    return '&lt;section class=&quot;cat&quot;>&lt;div class=&quot;cat-head&quot;>&lt;h3>最寄りバス停&lt;/h3>&lt;span>「その他アクセス」に使うバス停を1つ選びます&lt;/span>&lt;/div>&lt;div class=&quot;rows&quot;>' + (busHtml || '&lt;p class=&quot;help&quot;>データがありません&lt;/p>') + '&lt;/div>&lt;/section>' +
+      '&lt;section class=&quot;cat&quot;>&lt;div class=&quot;cat-head&quot;>&lt;h3>空港からのアクセス&lt;/h3>&lt;span>近い方を自動で採用&lt;/span>&lt;/div>&lt;div class=&quot;rows&quot;>' + (airHtml || '&lt;p class=&quot;help&quot;>データがありません&lt;/p>') + '&lt;/div>&lt;/section>';
+  }
+  function stepReview(d) {
+    var cf = d.facilities.filter(function (r) { return ['採用', '該当なし', 'エラー'].indexOf(r['採否']) >= 0 &amp;&amp; r['要確認理由'] &amp;&amp; !b(r['確認済']); }).length;
+    var cs = d.stations.filter(function (r) { return r['要確認理由'] &amp;&amp; !b(r['確認済']); }).length;
+    var ca = d.access.filter(function (r) { return b(r['採用']) &amp;&amp; r['要確認理由'] &amp;&amp; !b(r['確認済']); }).length;
+    var tab = function (id, label, c) {
+      return '&lt;button type=&quot;button&quot; class=&quot;tab&quot; role=&quot;tab&quot; id=&quot;tab-' + id + '&quot; aria-selected=&quot;' + (S.tab === id) + '&quot; aria-controls=&quot;panel&quot; data-tab=&quot;' + id + '&quot;>' + label + '&lt;span class=&quot;count' + (c ? '' : ' zero') + '&quot;>' + (c ? '要確認 ' + c : '✓') + '&lt;/span>&lt;/button>';
+    };
+    var body = S.tab === 'facility' ? reviewFacilities(d) : S.tab === 'station' ? reviewStations(d) : reviewAccess(d);
+    return '&lt;section class=&quot;card&quot;>&lt;div class=&quot;tabs&quot; role=&quot;tablist&quot; aria-label=&quot;確認する内容&quot;>' + tab('facility', '周辺施設', cf) + tab('station', '最寄り駅', cs) + tab('access', 'バス・空港', ca) + '&lt;/div>' +
+      '&lt;div class=&quot;card-body&quot;>&lt;div class=&quot;review-tools&quot;>&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>「掲載」にチェックした施設だけが周辺環境に載ります。注意が出ている行は内容を確かめて「確認した」を押してください。&lt;/p>' +
+      '&lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-act=&quot;only-pending&quot; aria-pressed=&quot;' + S.onlyPending + '&quot;>' + (S.onlyPending ? 'すべて表示' : '要確認だけ表示') + '&lt;/button>&lt;/div>' +
+      '&lt;div id=&quot;panel&quot; role=&quot;tabpanel&quot; aria-labelledby=&quot;tab-' + S.tab + '&quot; style=&quot;display:grid;gap:18px&quot;>' + body + '&lt;/div>&lt;/div>&lt;/section>';
+  }
+
+  function updateResult(kind, key, patch) {
+    var id = S.id;
+    // 先に画面へ反映（押した手応えをすぐ返す）
+    var list = kind === 'facility' ? S.data.facilities : kind === 'station' ? S.data.stations : S.data.access;
+    var keyOf = kind === 'facility' ? function (r) { return r['カテゴリID'] + '|' + (r['place_id'] || r['採否']); }
+      : kind === 'station' ? function (r) { return String(r['枠']); } : function (r) { return r['種別'] + '|' + (r['place_id'] || r['名称']); };
+    var row = list.filter(function (r) { return keyOf(r) === key; })[0];
+    if (row) {
+      Object.keys(patch).forEach(function (k) { row[k] = patch[k]; });
+      if (kind === 'access' &amp;&amp; patch['採用'] === true) list.forEach(function (r) { if (r !== row &amp;&amp; r['種別'] === row['種別']) r['採用'] = false; });
+    }
+    var y = scrollY();
+    var rerender = !('路線' in patch || '運行会社' in patch);
+    if (rerender) { renderWork(); setScroll(y); } else refreshActionBar();
+    return API.call('api_updateResult', kind, id, key, patch).then(function (d) {
+      if (S.id !== id) return;
+      applyData(d);
+      if (rerender) { var y2 = scrollY(); renderWork(); setScroll(y2); } else refreshActionBar();
+    }).catch(function (e) { toast('保存できませんでした：' + errorText(e)); openProperty(id, true); });
+  }
+  function scrollY() { var el = document.querySelector('.work-scroll'); return el ? el.scrollTop : 0; }
+  function setScroll(y) { var el = document.querySelector('.work-scroll'); if (el) el.scrollTop = y; }
+
+  /* ---------- 手順5：ウェルモ入力 ---------- */
+  function outRow(label, value, copyLabel, extra) {
+    var empty = !String(value || '').trim();
+    return '&lt;tr>&lt;th scope=&quot;row&quot;>' + esc(label) + '&lt;/th>&lt;td class=&quot;val' + (empty ? ' empty' : '') + '&quot;>' + (empty ? '（なし）' : esc(value)) + (extra || '') + '&lt;/td>' +
+      '&lt;td class=&quot;act&quot;>' + (empty ? '' : '&lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-copy=&quot;' + esc(copyLabel || label) + '&quot; data-text=&quot;' + esc(value) + '&quot;>コピー&lt;/button>') + '&lt;/td>&lt;/tr>';
+  }
+  function stepOutput(d) {
+    var o = d.output;
+    if (!o) return note('info', 'i', '&lt;p>調査が終わると、ここにウェルモへ入力する内容が表示されます。&lt;/p>');
+    var p = d.prop;
+    var len = n(o['タイトル文字数']) || 0, max = d.config.titleMax;
+    var meter = '&lt;div class=&quot;meter&quot;>&lt;div class=&quot;meter-bar&quot;>&lt;i class=&quot;' + (len > max ? 'over' : '') + '&quot; style=&quot;width:' + Math.min(100, len / max * 100) + '%&quot;>&lt;/i>&lt;/div>' +
+      '&lt;small class=&quot;num&quot;>' + len + ' / ' + max + '文字' + (o['タイトル注記'] ? '　' + esc(o['タイトル注記']) : '') + '&lt;/small>&lt;/div>';
+    var stations = [1, 2, 3].map(function (i) {
+      var label = o['駅' + i];
+      if (!label) return '';
+      var walk = has(o['駅' + i + '_徒歩分']) &amp;&amp; String(o['駅' + i + '_徒歩分']) !== '' ? '　徒歩 ' + o['駅' + i + '_徒歩分'] + '分' : '';
+      var other = o['駅' + i + '_その他'] ? '　' + o['駅' + i + '_その他'] : '';
+      return outRow('最寄り駅', label + walk + other, '最寄り駅' + i);
+    }).join('');
+    var pc = pendingCount(d);
+    var equip = EQUIP_TITLE.concat(EQUIP_WELLMO).filter(function (e) { return WELLMO_EQUIP_KEYS.indexOf(e[0]) >= 0 &amp;&amp; b(p[e[0]]); }).map(function (e) { return e[1]; }).join('・');
+    var building = [p['建物構造'], has(p['地上階数']) ? '地上' + p['地上階数'] + '階' + (n(p['地下階数']) ? '・地下' + p['地下階数'] + '階' : '') : '',
+      has(p['築年']) ? p['築年'] + '年' + (has(p['築月']) ? p['築月'] + '月' : '') + '築' : '', has(p['総戸数']) ? p['総戸数'] + '戸' : ''].filter(String).join(' ／ ');
+    var url = d.config.webAppUrl || '';
+    var entered = p['ウェルモ入力日時'];
+    var howto = card('ウェルモへの入力', entered ? '入力済（' + esc(entered) + '）' : 'コピー＆貼り付けは不要です',
+      '&lt;div class=&quot;handoff&quot;>&lt;ol class=&quot;howto&quot;>' +
+        '&lt;li>ウェルモで&lt;b>建物管理の新規登録／編集画面&lt;/b>を開く&lt;/li>' +
+        '&lt;li>右下の&lt;b>「周辺調査から入力」&lt;/b>を押し、一覧から&lt;b>' + esc(p['建物名'] || 'この物件') + '&lt;/b>の「入力」を押す&lt;/li>' +
+        '&lt;li>全項目が入ります。右上の結果で赤字の項目（住所検索など）だけ手で直す&lt;/li>' +
+        '&lt;li>内容を確認して&lt;b>「保存」&lt;/b>を押すと、ここに「ウェルモ入力済」と記録されます&lt;/li>&lt;/ol>' +
+        '&lt;a class=&quot;btn primary&quot; href=&quot;' + WELLMO_URL + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモを開く ↗&lt;/a>&lt;/div>' +
+      '&lt;details class=&quot;more&quot;>&lt;summary>はじめて使うときの設定（1回だけ）&lt;/summary>&lt;div style=&quot;display:grid;gap:8px;padding-top:6px&quot;>' +
+        '&lt;ol class=&quot;howto&quot;>&lt;li>Chromeに拡張機能「Tampermonkey」を追加&lt;/li>&lt;li>ウェルモ自動入力スクリプト（wellmo-autofill.user.js）をTampermonkeyに追加&lt;/li>' +
+        '&lt;li>ウェルモで「周辺調査から入力」→「設定」を押し、次のURLを貼り付けて保存&lt;/li>&lt;/ol>' +
+        (url ? '&lt;div class=&quot;urlbox&quot;>&lt;input class=&quot;input&quot; readonly value=&quot;' + esc(url) + '&quot; aria-label=&quot;周辺調査アプリのURL&quot;>&lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-copy=&quot;URL&quot; data-text=&quot;' + esc(url) + '&quot;>コピー&lt;/button>&lt;/div>'
+          : '&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>ウェブアプリとしてデプロイすると、ここにURLが表示されます。&lt;/p>') +
+        '&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>スクリプトを使えないパソコンでは、予備として「ウェルモ用データをコピー」→ブックマークレットで入力できます。 &lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-act=&quot;copy-json&quot;>ウェルモ用データをコピー&lt;/button>&lt;/p>' +
+      '&lt;/div>&lt;/details>');
+    var kanaNote = String(p['ふりがな'] || '').trim() ? '' : note('warn', '!', '&lt;p>&lt;b>ふりがなが未入力です。&lt;/b>ウェルモでは必須の項目です。 &lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-step=&quot;1&quot;>物件情報で入力する&lt;/button>&lt;/p>');
+    return kanaNote + (pc ? note('warn', '!', '&lt;p>&lt;b>確認が' + pc + '件残っています。&lt;/b>このまま入力することもできますが、先に確認すると安心です。 &lt;button class=&quot;btn small&quot; type=&quot;button&quot; data-step=&quot;4&quot;>確認に戻る&lt;/button>&lt;/p>') : '') +
+      howto +
+      '&lt;section class=&quot;card&quot;>&lt;h2>入力される内容 &lt;span class=&quot;hint&quot;>ウェルモの項目名で表示しています&lt;/span>&lt;/h2>&lt;div style=&quot;overflow-x:auto&quot;>&lt;table class=&quot;out&quot;>' +
+        outRow('マンスリー表示名', o['タイトル'], 'タイトル', meter) +
+        outRow('建物名', p['建物名']) + outRow('ふりがな', p['ふりがな']) + outRow('物件種別', p['物件種別']) +
+        outRow('所在地', (p['郵便番号'] ? '〒' + p['郵便番号'] + ' ' : '') + (p['住所'] || ''), '所在地') +
+        outRow('周辺環境', o['周辺施設'], '周辺環境') +
+        stations +
+        outRow('その他アクセス', o['その他アクセス']) +
+        outRow('空港からのアクセス', o['空港からのアクセス']) +
+        outRow('建物設備', equip) +
+        outRow('その他建物情報', building) +
+      '&lt;/table>&lt;/div>&lt;div class=&quot;card-body&quot; style=&quot;padding-top:8px&quot;>&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>出典表記：' + esc(o['出典表記'] || '') + '&lt;/p>&lt;/div>&lt;/section>';
+  }
+
+  /* ================= 描画後の処理・イベント ================= */
+  function afterRender() {
+    var map = $('map');
+    if (map) map.addEventListener('click', onMapClick);
+  }
+
+  function go(step) {
+    step = Math.max(1, Math.min(5, step));
+    if (S.data &amp;&amp; step > maxStep(S.data)) return;
+    flushSave();
+    S.step = step;
+    if (step === 2 &amp;&amp; S.map &amp;&amp; S.map.error) S.map = null;
+    renderWork();
+    setScroll(0);
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest('button, a');
+    if (!t) return;
+    var ds = t.dataset;
+    if (t.id === 'dropzone') { if (!S.uploading) $('file-input').click(); return; }
+    if (ds.open) { flushSave(); openProperty(ds.open); return; }
+    if (ds.filter) {
+      S.filter = ds.filter;
+      Array.prototype.forEach.call(document.querySelectorAll('#q-filter button'), function (x) { x.setAttribute('aria-pressed', x === t); });
+      renderList(); return;
+    }
+    if (ds.step) { go(Number(ds.step)); return; }
+    if (ds.toggle) {
+      var on = !b(S.data.prop[ds.toggle]);
+      t.setAttribute('aria-pressed', on); queueSave(ds.toggle, on); return;
+    }
+    if (ds.set) {
+      Array.prototype.forEach.call(t.parentNode.querySelectorAll('button'), function (x) { x.setAttribute('aria-pressed', x === t); });
+      queueSave(ds.set, ds.value); return;
+    }
+    if (ds.tab) { S.tab = ds.tab; renderWork(); return; }
+    if (ds.publish) { var r = S.data.facilities.filter(function (x) { return x['カテゴリID'] + '|' + (x['place_id'] || x['採否']) === ds.publish; })[0]; updateResult('facility', ds.publish, { '掲載': !b(r &amp;&amp; r['掲載']) }); return; }
+    if (ds.confirm) { updateResult(ds.confirm, ds.key, { '確認済': ds.val === 'true' }); return; }
+    if (ds.usebus) { updateResult('access', ds.usebus, { '採用': true }); return; }
+    if (ds.copy) { copyText(ds.text, ds.copy); return; }
+    switch (ds.act) {
+      case 'survey': runSurvey(); break;
+      case 'only-pending': S.onlyPending = !S.onlyPending; renderWork(); break;
+      case 'copy-json': if (S.data.output) copyText(S.data.output['ウェルモJSON'], 'ウェルモ用データ'); break;
+      case 'zoom-in': case 'zoom-out':
+        var z = S.map.zoom + (ds.act === 'zoom-in' ? 1 : -1);
+        if (z &lt; 14 || z > 20) return;
+        S.map.zoom = z; loadMapImage(S.map.pinLat, S.map.pinLng, z); break;
+      case 'recenter': loadMapImage(S.map.pinLat, S.map.pinLng, S.map.zoom); break;
+      case 'confirm-origin':
+        var id = S.id;
+        t.disabled = true;
+        t.textContent = '確定しています…';
+        showBusy('位置を保存しています…');
+        API.call('api_confirmOrigin', id, S.map.pinLat, S.map.pinLng).then(function (d) {
+          hideBusy(); applyData(d); S.step = 3; toast('位置を確定しました'); renderWork();
+        }).catch(function (e) { hideBusy(); toast('確定できませんでした：' + errorText(e)); t.disabled = false; t.textContent = 'この位置で確定 →'; });
+        break;
+      case 'reimport':
+        t.disabled = true; t.textContent = '読み取り中…';
+        API.call('api_reimportMysoku', S.id).then(function (r) { applyData(r.data); toast(r.filled.length ? r.filled.length + '項目を反映しました' : '新しく反映する項目はありませんでした'); renderWork(); })
+          .catch(function (e) { toast('読み取れませんでした：' + errorText(e)); t.disabled = false; t.textContent = '再読み取り'; });
+        break;
+      case 'manual-add': S.addOpen = !S.addOpen; renderManualAdd(); break;
+    }
+  });
+
+  document.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (el.id === 'q-search') { S.query = el.value; renderList(); return; }
+    if (el.dataset.field &amp;&amp; el.tagName !== 'SELECT') { el.classList.remove('missing'); queueSave(el.dataset.field, el.value); }
+  });
+  document.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (el.dataset.field &amp;&amp; el.tagName === 'SELECT') queueSave(el.dataset.field, el.value);
+    if (el.dataset.line) updateResult('station', el.dataset.line, { '路線': el.value.trim() });
+    if (el.dataset.operator) updateResult('access', el.dataset.operator, { '運行会社': el.value.trim() });
+    if (el.id === 'file-input' &amp;&amp; el.files.length) { uploadFiles(Array.prototype.slice.call(el.files)); el.value = ''; }
+  });
+
+  /* ---------- マイソクの取り込み（ドロップ・複数可） ---------- */
+  function renderManualAdd() {
+    $('manual-add').innerHTML = S.addOpen
+      ? '&lt;form class=&quot;inline-form&quot; id=&quot;add-form&quot;>&lt;label class=&quot;sr&quot; for=&quot;add-name&quot;>建物名&lt;/label>&lt;input class=&quot;input&quot; id=&quot;add-name&quot; placeholder=&quot;建物名&quot; required>&lt;button class=&quot;btn small&quot; type=&quot;submit&quot;>追加&lt;/button>&lt;/form>'
+      : '&lt;button class=&quot;btn small link&quot; type=&quot;button&quot; data-act=&quot;manual-add&quot;>マイソクがない物件を手入力で追加&lt;/button>';
+    var f = $('add-form');
+    if (f) {
+      $('add-name').focus();
+      f.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var name = $('add-name').value.trim(); if (!name) return;
+        API.call('api_createProperty', name).then(function (r) { S.addOpen = false; renderManualAdd(); S.forceStep = 1; return loadList(r.id); });
+      });
+    }
+  }
+  renderManualAdd();
+
+  function setDropzone(title, help, busy) {
+    $('dz-title').textContent = title; $('dz-help').textContent = help;
+    $('dropzone').classList.toggle('busy', !!busy);
+  }
+  function readBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result).split(',')[1]); };
+      reader.onerror = function () { reject(new Error('ファイルを読み込めませんでした')); };
+      reader.readAsDataURL(file);
+    });
+  }
+  /** 選ばれた／ドロップされたPDFを1件ずつ取り込む */
+  function uploadFiles(files) {
+    var pdfs = files.filter(function (f) { return /\.pdf$/i.test(f.name) || f.type === 'application/pdf'; });
+    if (!pdfs.length) { toast('PDFファイルをドロップしてください'); return; }
+    if (S.uploading) { toast('取り込み中です。終わってからもう一度ドロップしてください'); return; }
+    S.uploading = true;
+    var ids = [], errors = [];
+    var next = function (i) {
+      if (i >= pdfs.length) return Promise.resolve();
+      setDropzone((pdfs.length > 1 ? (i + 1) + ' / ' + pdfs.length + '件目を' : '') + '読み取り中…', pdfs[i].name, true);
+      return readBase64(pdfs[i]).then(function (b64) { return API.call('api_uploadMysoku', pdfs[i].name, b64); })
+        .then(function (r) { ids.push(r.id); }, function (e) { errors.push(pdfs[i].name + '：' + errorText(e)); })
+        .then(function () { return next(i + 1); });
+    };
+    next(0).then(function () {
+      S.uploading = false;
+      setDropzone('マイソクPDFをドロップ', 'またはクリックして選択（複数可）', false);
+      if (errors.length) toast('読み取れなかったファイル：' + errors.join(' ／ '));
+      else toast(ids.length + '件のマイソクを取り込みました。内容を確認してください');
+      if (ids.length) { S.forceStep = 1; return loadList(ids[0]); }
+    });
+  }
+  var dragDepth = 0;
+  function hasFiles(e) { return e.dataTransfer &amp;&amp; Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; }
+  window.addEventListener('dragenter', function (e) { if (hasFiles(e)) { dragDepth++; $('drop').hidden = false; $('dropzone').classList.add('over'); } });
+  window.addEventListener('dragleave', function () { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) { $('drop').hidden = true; $('dropzone').classList.remove('over'); } });
+  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('drop', function (e) {
+    e.preventDefault(); dragDepth = 0; $('drop').hidden = true; $('dropzone').classList.remove('over');
+    if (e.dataTransfer &amp;&amp; e.dataTransfer.files.length) uploadFiles(Array.prototype.slice.call(e.dataTransfer.files));
+  });
+
+  /* ---------- 狭い画面：物件一覧の開閉 ---------- */
+  function setQueueOpen(open) {
+    $('queue').classList.toggle('collapsed', !open);
+    $('queue-toggle').setAttribute('aria-expanded', open);
+  }
+  $('queue-toggle').addEventListener('click', function () { setQueueOpen($('queue').classList.contains('collapsed')); });
+
+  window.addEventListener('beforeunload', flushSave);
+  // APIキーが未登録なら、画面上部で登録できるようにする
+  API.call('api_status').then(function (st) { if (!st.hasApiKey) $('setup-band').hidden = false; }).catch(function () {});
+  $('key-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    $('key-msg').textContent = '登録中…';
+    API.call('api_setApiKey', $('api-key').value).then(function () {
+      $('setup-band').hidden = true; toast('APIキーを登録しました');
+    }).catch(function (e) { $('key-msg').textContent = errorText(e); });
+  });
+  loadList();
+})();
+&lt;/script>
+</textarea>
+<p style="font-size:13px;color:var(--muted)">コピーできない場合は、枠の中をクリックして Ctrl+A → Ctrl+C</p>
 </div></section>
 <section><h2><span class="no">3</span>新しいバージョンとして公開する</h2><div class="body">
 <ol><li>右上 <b class="ui">デプロイ ▼</b> → <b class="ui">デプロイを管理</b></li>
-<li>「本番」を選んで <b class="ui">鉛筆マーク</b></li>
+<li>「アクティブ」のデプロイ（本番）を選んで右上の <b class="ui">鉛筆マーク</b></li>
 <li>「バージョン」を <b class="ui">新バージョン</b> にする（アクセスできるユーザーは「ファミリアグループ 内の全員」のまま）</li>
 <li><b class="ui">デプロイ</b> → <b class="ui">完了</b></li></ol>
 <p>アプリのURLは変わりません。ウェルモ側の設定もそのままで使えます。</p>
 </div></section>
 </main>
 <script>
-document.getElementById('copy').addEventListener('click', function () {
-  var ta = document.getElementById('code'), ok = document.getElementById('ok');
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('[data-copy]'); if (!b) return;
+  var id = b.getAttribute('data-copy'), ta = document.getElementById(id), ok = document.getElementById('ok-' + id);
   var done = function () { ok.textContent = '✓ コピーしました'; };
   var fb = function () { ta.focus(); ta.select(); try { if (document.execCommand('copy')) return done(); } catch (e) {} ok.textContent = '枠の中をクリックして Ctrl+A → Ctrl+C'; };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(done, fb); else fb();

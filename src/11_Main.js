@@ -128,7 +128,7 @@ function buildContext_() {
 }
 
 function runSurvey_(filterFn) {
-  var lock = LockService.getDocumentLock();
+  var lock = LockService.getScriptLock(); // スプレッドシートに紐付かないスクリプトでも使えるロック
   if (!lock.tryLock(10000)) {
     SpreadsheetApp.getUi().alert('他の調査が実行中です。しばらくしてから再実行してください。');
     return;
@@ -254,7 +254,8 @@ function geocodeProperty_(prop, ctx) {
     'Geocode住所': g.formattedAddress
   };
   if (!nfkc_(prop['エリア']).trim()) {
-    patch['エリア'] = areaFromGeocode_(g.components, g.formattedAddress, {
+    var areaOpt = { wardCities: splitList_(ctx.settings.title_ward_cities), otherStyle: nfkc_(ctx.settings.title_area_other_style).trim() };
+    patch['エリア'] = areaFromAddress_(prop['住所'], areaOpt) || areaFromGeocode_(g.components, g.formattedAddress, {
       wardCities: splitList_(ctx.settings.title_ward_cities),
       otherStyle: nfkc_(ctx.settings.title_area_other_style).trim()
     });

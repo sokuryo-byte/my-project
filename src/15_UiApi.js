@@ -185,6 +185,18 @@ function api_saveProperty(id, patch) {
   Object.keys(patch || {}).forEach(function (k) {
     if (allowed.indexOf(k) >= 0) clean[k] = patch[k];
   });
+  // エリア・ふりがなが空なら、所在地・建物名から自動で入れる
+  var settings = loadSettings_();
+  var addr = '住所' in clean ? clean['住所'] : p['住所'];
+  if (addr && !String(('エリア' in clean ? clean['エリア'] : p['エリア']) || '').trim()) {
+    var area = areaFromAddress_(addr, { wardCities: splitList_(settings.title_ward_cities), otherStyle: nfkc_(settings.title_area_other_style).trim() });
+    if (area) clean['エリア'] = area;
+  }
+  var bname = '建物名' in clean ? clean['建物名'] : p['建物名'];
+  if (bname && !String(('ふりがな' in clean ? clean['ふりがな'] : p['ふりがな']) || '').trim()) {
+    var kana = kanaFromName_(bname);
+    if (kana) clean['ふりがな'] = kana;
+  }
   // 住所が変わったら起点をやり直す
   if ('住所' in clean && String(clean['住所']) !== String(p['住所']) && p['起点緯度'] !== '') {
     clean['起点緯度'] = '';
@@ -292,7 +304,7 @@ function api_confirmOrigin(id, lat, lng) {
 /* ---------------- 調査 ---------------- */
 
 function api_runSurvey(id) {
-  var lock = LockService.getDocumentLock();
+  var lock = LockService.getScriptLock(); // スプレッドシートに紐付かないスクリプトでも使えるロック
   if (!lock.tryLock(15000)) throw new Error('他の調査が実行中です。1分ほど待ってからもう一度押してください。');
   try {
     var ctx = buildContext_();

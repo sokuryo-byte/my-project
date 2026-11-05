@@ -189,6 +189,8 @@ function mysokuPatch_(prop, parsed) {
   };
   setIfBlank('物件名', parsed.fields['物件名']);
   setIfBlank('建物名', parsed.fields['物件名']);
+  setIfBlank('ふりがな', kanaFromName_(parsed.fields['物件名']));
+  setIfBlank('エリア', parsed.fields['住所'] ? areaFromAddress_(parsed.fields['住所'], { wardCities: ['名古屋市'], otherStyle: '県+市' }) : '');
   setIfBlank('号室', parsed.fields['号室']);
   setIfBlank('住所', parsed.fields['住所']);
   setIfBlank('最大洋室帖数', parsed.fields['最大洋室帖数']);

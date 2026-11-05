@@ -242,3 +242,20 @@ test('必須の種別：Googleの分類が一致するか、チェーン辞書�
   assert.equal(g.typeAllowed_({ types: ['grocery_store'] }, cat, { fromDict: false }), false, '個人の食料品店');
   assert.equal(g.typeAllowed_({ types: ['restaurant'] }, {}, { fromDict: false }), true, '指定なしは全部');
 });
+
+test('ふりがな：カナだけの建物名はひらがなに、漢字・英字を含む名前は空（手入力）', () => {
+  assert.equal(g.kanaFromName_('サンコーレジデンス'), 'さんこーれじでんす');
+  assert.equal(g.kanaFromName_('ハイツ・サクラ'), 'はいつさくら');
+  assert.equal(g.kanaFromName_('ｸﾞﾗﾝｼｴﾙ'), 'ぐらんしえる');
+  assert.equal(g.kanaFromName_('名信ビル'), '');
+  assert.equal(g.kanaFromName_('casa桜・千種'), '');
+  assert.equal(g.kanaFromName_('Ｓ－ＦＯＲＴ'), '');
+});
+
+test('エリア：所在地の文字列から（名古屋市は区のみ、それ以外は県＋市）', () => {
+  const o = { wardCities: ['名古屋市'], otherStyle: '県+市' };
+  assert.equal(g.areaFromAddress_('愛知県名古屋市千種区今池3丁目39-21', o), '千種区');
+  assert.equal(g.areaFromAddress_('愛知県名古屋市天白区鴻の巣1丁目703', o), '天白区');
+  assert.equal(g.areaFromAddress_('愛知県豊田市小川町1-1', o), '愛知県豊田市');
+  assert.equal(g.areaFromAddress_('愛知県西春日井郡豊山町豊場', o), '愛知県西春日井郡豊山町');
+});

@@ -9,6 +9,8 @@ const code = '/**\n * マンスリー周辺調査（自動生成：tools/build-u
   files.map((f) => '/* ======== ' + f + ' ======== */\n' + fs.readFileSync(path.join(src, f), 'utf8')).join('\n');
 const deploy = fs.existsSync(path.join(root, 'dist', 'deploy.json')) ? JSON.parse(fs.readFileSync(path.join(root, 'dist', 'deploy.json'), 'utf8')) : {};
 const scriptUrl = (deploy.scriptUrl || 'https://script.google.com/') + (deploy.scriptUrl ? '?authuser=info@monthly-familia.com' : '');
+const app = fs.readFileSync(path.join(src, 'App.html'), 'utf8');
+const note = process.env.UPDATE_NOTE || '最新版';
 const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const stamp = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
 const html = `<title>周辺調査プログラムの更新</title>
@@ -35,29 +37,34 @@ a { color: var(--accent); overflow-wrap: anywhere; }
 textarea { width: 100%; height: 80px; border: 1px solid var(--line); background: var(--code); color: var(--muted); font: 11.5px/1.4 ui-monospace, monospace; }
 :focus-visible { outline: 2px solid #e09a00; outline-offset: 2px; }
 </style>
-<header><h1>周辺調査プログラムの更新</h1><p>${stamp} 版（施設の選び方の改善・マイソク読み取りの改善） ／ info@monthly-familia.com で作業</p></header>
+<header><h1>周辺調査プログラムの更新</h1><p>${stamp} 版（${esc(note)}） ／ info@monthly-familia.com で作業</p></header>
 <main>
-<section><h2><span class="no">1</span>新しいプログラムをコピーする</h2><div class="body">
-<p><button class="btn" type="button" id="copy">プログラムをコピー</button> <span class="ok" id="ok" role="status"></span></p>
-<label for="code" style="font-size:13px;color:var(--muted)">コピーできない場合は、枠の中をクリックして Ctrl+A → Ctrl+C</label>
-<textarea id="code" readonly>${esc(code)}</textarea>
-</div></section>
-<section><h2><span class="no">2</span>Apps Script に貼り付けて保存する</h2><div class="body">
+<section><h2><span class="no">1</span>プログラム（コード.gs）を貼り替える</h2><div class="body">
 <ol><li>プログラムを開く：<a href="${esc(scriptUrl)}" target="_blank" rel="noopener">${esc(scriptUrl)}</a></li>
-<li>左の一覧で <b class="ui">コード.gs</b> を選ぶ（App.html は変更不要）</li>
-<li>コードの部分をクリックして <b>Ctrl+A</b> → <b>Ctrl+V</b> → <b>Ctrl+S</b></li></ol>
+<li>下の「コード.gs をコピー」を押す</li>
+<li>Apps Script の左の一覧で <b class="ui">コード.gs</b> を選び、コードの部分をクリックして <b>Ctrl+A</b> → <b>Ctrl+V</b> → <b>Ctrl+S</b></li></ol>
+<p><button class="btn" type="button" data-copy="code">コード.gs をコピー</button> <span class="ok" id="ok-code" role="status"></span></p>
+<textarea id="code" readonly aria-label="コード.gs">${esc(code)}</textarea>
+</div></section>
+<section><h2><span class="no">2</span>画面（App.html）を貼り替える</h2><div class="body">
+<ol><li>下の「App.html をコピー」を押す</li>
+<li>Apps Script の左の一覧で <b class="ui">App.html</b> を選び、<b>Ctrl+A</b> → <b>Ctrl+V</b> → <b>Ctrl+S</b></li></ol>
+<p><button class="btn" type="button" data-copy="app">App.html をコピー</button> <span class="ok" id="ok-app" role="status"></span></p>
+<textarea id="app" readonly aria-label="App.html">${esc(app)}</textarea>
+<p style="font-size:13px;color:var(--muted)">コピーできない場合は、枠の中をクリックして Ctrl+A → Ctrl+C</p>
 </div></section>
 <section><h2><span class="no">3</span>新しいバージョンとして公開する</h2><div class="body">
 <ol><li>右上 <b class="ui">デプロイ ▼</b> → <b class="ui">デプロイを管理</b></li>
-<li>「本番」を選んで <b class="ui">鉛筆マーク</b></li>
+<li>「アクティブ」のデプロイ（本番）を選んで右上の <b class="ui">鉛筆マーク</b></li>
 <li>「バージョン」を <b class="ui">新バージョン</b> にする（アクセスできるユーザーは「ファミリアグループ 内の全員」のまま）</li>
 <li><b class="ui">デプロイ</b> → <b class="ui">完了</b></li></ol>
 <p>アプリのURLは変わりません。ウェルモ側の設定もそのままで使えます。</p>
 </div></section>
 </main>
 <script>
-document.getElementById('copy').addEventListener('click', function () {
-  var ta = document.getElementById('code'), ok = document.getElementById('ok');
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('[data-copy]'); if (!b) return;
+  var id = b.getAttribute('data-copy'), ta = document.getElementById(id), ok = document.getElementById('ok-' + id);
   var done = function () { ok.textContent = '✓ コピーしました'; };
   var fb = function () { ta.focus(); ta.select(); try { if (document.execCommand('copy')) return done(); } catch (e) {} ok.textContent = '枠の中をクリックして Ctrl+A → Ctrl+C'; };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(done, fb); else fb();

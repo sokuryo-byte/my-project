@@ -55,6 +55,28 @@ function areaFromGeocode_(comps, formatted, opt) {
   return pref + city;
 }
 
+/**
+ * 住所の文字列からエリアを作る（純粋関数）。名古屋市は「〇〇区」、それ以外は「県＋市（町村）」。
+ * 例: 愛知県名古屋市千種区今池3丁目 → 千種区 ／ 愛知県豊田市小川町 → 愛知県豊田市
+ */
+function areaFromAddress_(address, opt) {
+  return areaFromGeocode_([], address, opt);
+}
+
+/**
+ * 建物名からふりがなを作る（純粋関数）。カタカナ・ひらがな（と数字・長音）だけの名前に限り、ひらがなにする。
+ * 漢字や英字を含む名前は読み方を機械的に決められないため空を返す（担当者が入力）。
+ * 例: サンコーレジデンス → さんこーれじでんす
+ */
+function kanaFromName_(name) {
+  var n = nfkc_(name).trim();
+  if (!n) return '';
+  if (/[A-Za-z\u4E00-\u9FFF\u3400-\u4DBF々〆ヵヶ]/.test(n)) return '';
+  if (!/^[\u3041-\u3096\u30A1-\u30FA\u30FC\u30FB0-9０-９\s・]+$/.test(n)) return '';
+  return n.replace(/[\u30A1-\u30F6]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); })
+    .replace(/[\s・]/g, '');
+}
+
 /** 採用徒歩分の最も短い駅（純粋関数） */
 function nearestStation_(stRows) {
   var best = null;
