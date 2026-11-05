@@ -137,6 +137,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .work-scroll { flex: 1; overflow: auto; padding-block: 16px 28px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .work-inner { max-width: 1080px; margin: 0 auto; display: grid; gap: 14px; }
 .prop-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; }
+.head-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.btn.del { color: var(--danger); font-weight: 400; min-height: 28px; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+.del-confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--danger); background: var(--danger-soft); padding: 4px 8px; border-radius: var(--r); }
 .prop-head h1 { margin: 0; font-size: 19px; line-height: 1.35; text-wrap: balance; }
 .prop-head .sub { color: var(--muted); font-size: 12.5px; }
 
@@ -1882,6 +1886,13 @@ function buildWellmoData_(prop, out, stRows) {
       p['マイソク取込メモ'] = 'デモのため、選んだPDFではなくサンプルの内容を読み取りました / 反映: ' + r.filled.join('、');
       return { id: id, filled: r.filled, notes: [] };
     },
+    api_deleteProperty: function (id) {
+      findProp(id);
+      DB.props = DB.props.filter(function (p) { return p['物件ID'] !== id; });
+      ['fac', 'st', 'ac'].forEach(function (k) { DB[k] = DB[k].filter(function (r) { return r['物件ID'] !== id; }); });
+      delete DB.out[id];
+      return { ok: true, trashedPdf: true };
+    },
     api_reimportMysoku: function (id) { return { filled: [], skipped: [], data: api.api_getProperty(id) }; },
     api_createProperty: function (name) {
       var id = 'P' + ('0000' + (++DB.seq)).slice(-5);
@@ -1990,7 +2001,8 @@ function buildWellmoData_(prop, out, stRows) {
   var S = {
     list: [], filter: 'all', query: '',
     id: null, data: null, step: 1, tab: 'facility', onlyPending: false,
-    map: null, busy: '', surveyResult: null, error: '', addOpen: false, forceStep: 0, uploading: false
+    map: null, busy: '', surveyResult: null, error: '', addOpen: false, forceStep: 0, uploading: false,
+    cache: {}, inflight: {}, confirmDelete: ''
   };
 
   /* ================= 小道具 ================= */
@@ -2072,23 +2084,54 @@ function buildWellmoData_(prop, out, stRows) {
   }
 
   /* ================= 物件を開く ================= */
+  /* 物件の詳細を読む。同じ物件の読み込みが進行中なら、それを待つ（重複して読まない） */
+  function fetchProperty(id) {
+    if (S.inflight[id]) return S.inflight[id];
+    var p = API.call('api_getProperty', id).then(function (d) {
+      delete S.inflight[id]; S.cache[id] = d; return d;
+    }, function (e) { delete S.inflight[id]; throw e; });
+    S.inflight[id] = p;
+    return p;
+  }
+  /* 一覧にカーソルを合わせた時点で先に読み始める（クリック時には読み終わっていることが多い） */
+  var prefetchTimer;
+  function prefetch(id) {
+    clearTimeout(prefetchTimer);
+    prefetchTimer = setTimeout(function () { if (id !== S.id && !S.cache[id]) fetchProperty(id).catch(function () {}); }, 120);
+  }
+  function editing() {
+    var a = document.activeElement;
+    return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && $('work').contains(a);
+  }
+
   function openProperty(id, keepStep) {
     var changed = S.id !== id;
-    S.id = id; S.error = '';
+    S.id = id; S.error = ''; S.confirmDelete = '';
     if (changed) { S.data = null; S.map = null; S.surveyResult = null; S.tab = 'facility'; S.onlyPending = false; }
-    renderList();
-    renderWork();
-    return API.call('api_getProperty', id).then(function (d) {
-      S.data = d;
+    var setStep = function (d) {
       if (S.forceStep) { S.step = S.forceStep; S.forceStep = 0; }
       else if (changed || !keepStep) S.step = Math.min(d.stage, 5);
-      renderWork();
-      if (window.innerWidth <= 900) setQueueOpen(false);
-    }).catch(function (e) { S.error = errorText(e); renderWork(); });
+    };
+    // 一度開いた物件は、前回の内容をすぐに表示してから最新に更新する
+    var cached = changed && S.cache[id];
+    if (cached) { S.data = cached; setStep(cached); }
+    renderList();
+    renderWork();
+    if (window.innerWidth <= 900) setQueueOpen(false);
+    return fetchProperty(id).then(function (d) {
+      if (S.id !== id) return;
+      if (cached) {
+        if (JSON.stringify(d) === JSON.stringify(cached) || editing()) { if (!editing()) S.data = d; return; }
+        S.data = d; renderWork();
+        return;
+      }
+      S.data = d; setStep(d); renderWork();
+    }).catch(function (e) { if (S.id === id) { S.error = errorText(e); renderWork(); } });
   }
 
   function applyData(d) {
     S.data = d;
+    if (S.id) S.cache[S.id] = d;
     var item = S.list.filter(function (p) { return p.id === S.id; })[0];
     if (item) {
       item.stage = d.stage; item.stageLabel = d.stageLabel; item.pending = d.pending;
@@ -2115,16 +2158,33 @@ function buildWellmoData_(prop, out, stRows) {
         '<p>左上の枠にPDFをドロップしてください（複数まとめても大丈夫です）。<br>物件名・所在地・交通・設備を読み取り、物件ごとに作業を始められます。</p></div></div>';
       return;
     }
-    if (!S.data) { w.innerHTML = '<div class="work-scroll"><p class="loading">読み込み中…</p></div>'; return; }
+    if (!S.data) {
+      var it = S.list.filter(function (x) { return x.id === S.id; })[0] || {};
+      w.innerHTML = '<div class="work-scroll"><div class="work-inner"><div class="prop-head"><div><h1>' + esc(it.name || '読み込み中') + '</h1>' +
+        '<div class="sub">' + esc(it.address || '') + '</div></div>' + (it.stage ? stageTag(it.stage, it.stageLabel, !!it.wellmoAt) : '') + '</div>' +
+        '<div class="card"><div class="card-body"><div class="progress" role="progressbar" aria-label="読み込み中"><i></i></div><p class="help" style="margin:0">物件の情報を読み込んでいます…</p></div></div></div></div>';
+      return;
+    }
     var d = S.data, p = d.prop;
     var body = S.step === 1 ? stepInfo(d) : S.step === 2 ? stepMap(d) : S.step === 3 ? stepSurvey(d) : S.step === 4 ? stepReview(d) : stepOutput(d);
     w.innerHTML =
       '<div class="work-scroll"><div class="work-inner">' +
         '<div class="prop-head"><div><h1>' + esc(p['建物名'] || p['物件名'] || '（建物名未入力）') + '</h1>' +
-        '<div class="sub">' + esc(p['物件ID']) + '　' + esc(p['住所'] || '住所未入力') + '</div></div>' + stageTag(d.stage, d.stageLabel, !!p['ウェルモ入力日時']) + '</div>' +
+        '<div class="sub">' + esc(p['物件ID']) + '　' + esc(p['住所'] || '住所未入力') + '</div></div>' +
+        '<div class="head-tools">' + stageTag(d.stage, d.stageLabel, !!p['ウェルモ入力日時']) + deleteControl() + '</div></div>' +
         stepper(d) + body +
       '</div></div>' + actionBar(d);
     afterRender();
+  }
+
+  /* 削除：1回目で確認に切り替え、もう一度押すと削除（誤操作防止） */
+  function deleteControl() {
+    if (S.confirmDelete === S.id) {
+      return '<span class="del-confirm">この物件と調査結果を削除します（マイソクPDFはゴミ箱へ）' +
+        '<button class="btn small danger" type="button" data-act="delete-yes">本当に削除する</button>' +
+        '<button class="btn small" type="button" data-act="delete-no">やめる</button></span>';
+    }
+    return '<button class="btn small link del" type="button" data-act="delete">削除</button>';
   }
 
   function stepper(d) {
@@ -2264,11 +2324,14 @@ function buildWellmoData_(prop, out, stRows) {
     }).catch(function (e) { saving = false; setSaveState('保存できませんでした：' + errorText(e)); });
   }
   function setSaveState(t, ok) { var el = $('save-state'); if (el) { el.textContent = t; el.className = 'saved' + (ok ? ' ok' : ''); } }
+  function refreshHead() {
+    var ht = document.querySelector('.head-tools');
+    if (ht) { var tmp = document.createElement('div'); tmp.innerHTML = '<div class="head-tools">' + stageTag(S.data.stage, S.data.stageLabel, !!S.data.prop['ウェルモ入力日時']) + deleteControl() + '</div>'; ht.replaceWith(tmp.firstChild); }
+  }
   function refreshChrome() {
     var nav = document.querySelector('nav[aria-label="作業の手順"]');
     if (nav) { var t1 = document.createElement('div'); t1.innerHTML = stepper(S.data); nav.replaceWith(t1.firstChild); }
-    var tg = document.querySelector('.prop-head > .tag');
-    if (tg) { var t2 = document.createElement('div'); t2.innerHTML = stageTag(S.data.stage, S.data.stageLabel, !!S.data.prop['ウェルモ入力日時']); tg.replaceWith(t2.firstChild); }
+    refreshHead();
     var h = document.querySelector('.prop-head h1');
     if (h) h.textContent = S.data.prop['建物名'] || S.data.prop['物件名'] || '（建物名未入力）';
     refreshActionBar();
@@ -2625,8 +2688,27 @@ function buildWellmoData_(prop, out, stRows) {
           .catch(function (e) { toast('読み取れませんでした：' + errorText(e)); t.disabled = false; t.textContent = '再読み取り'; });
         break;
       case 'manual-add': S.addOpen = !S.addOpen; renderManualAdd(); break;
+      case 'delete': S.confirmDelete = S.id; refreshHead(); break;
+      case 'delete-no': S.confirmDelete = ''; refreshHead(); break;
+      case 'delete-yes':
+        var delId = S.id;
+        t.disabled = true; t.textContent = '削除しています…';
+        showBusy('物件を削除しています…');
+        API.call('api_deleteProperty', delId).then(function (r) {
+          hideBusy();
+          delete S.cache[delId];
+          S.list = S.list.filter(function (x) { return x.id !== delId; });
+          S.id = null; S.data = null; S.confirmDelete = '';
+          toast('削除しました' + (r && r.trashedPdf ? '（マイソクPDFはGoogleドライブのゴミ箱にあります）' : ''));
+          renderList();
+          if (S.list[0]) openProperty(S.list[0].id); else renderWork();
+        }).catch(function (e) { hideBusy(); toast('削除できませんでした：' + errorText(e)); S.confirmDelete = ''; refreshHead(); });
+        break;
     }
   });
+
+  $('q-list').addEventListener('mouseover', function (ev) { var b = ev.target.closest('[data-open]'); if (b) prefetch(b.dataset.open); });
+  $('q-list').addEventListener('focusin', function (ev) { var b = ev.target.closest('[data-open]'); if (b) prefetch(b.dataset.open); });
 
   document.addEventListener('input', function (ev) {
     var el = ev.target;

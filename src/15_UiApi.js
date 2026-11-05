@@ -144,13 +144,23 @@ function api_listProperties() {
   });
 }
 
+/** 変更の少ない設定は少しの間キャッシュして、画面の表示を速くする（調査処理は常に最新を読む） */
+function cachedJson_(key, seconds, fn) {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get(key);
+  if (hit) { try { return JSON.parse(hit); } catch (e) { /* 読み直す */ } }
+  var v = fn();
+  try { cache.put(key, JSON.stringify(v), seconds); } catch (e) { /* 大きすぎる場合はキャッシュしない */ }
+  return v;
+}
+
 function api_getProperty(id) {
   var p = findProp_(id);
   var f = rowsOf_(SHEETS.FACILITIES, id);
   var s = rowsOf_(SHEETS.STATIONS, id);
   var a = rowsOf_(SHEETS.ACCESS, id);
   var out = rowsOf_(SHEETS.OUTPUT, id)[0];
-  var settings = loadSettings_();
+  var settings = cachedJson_('ui_settings_v1', 120, loadSettings_);
   var pending = countUnconfirmed_(f, s, a);
   var stg = stageOf_(p, f.length + s.length + a.length > 0, pending);
   return {
@@ -159,8 +169,10 @@ function api_getProperty(id) {
     stations: s.map(plainRow_),
     access: a.map(plainRow_),
     output: out ? plainRow_(out) : null,
-    categories: loadCategories_().filter(function (c) { return c.enabled; })
-      .map(function (c) { return { id: c.id, label: c.label, order: c.order }; }),
+    categories: cachedJson_('ui_categories_v1', 120, function () {
+      return loadCategories_().filter(function (c) { return c.enabled; })
+        .map(function (c) { return { id: c.id, label: c.label, order: c.order }; });
+    }),
     stage: stg.stage,
     stageLabel: stg.label,
     pending: pending,
@@ -208,6 +220,34 @@ function api_saveProperty(id, patch) {
   updateRow_(SHEETS.PROPERTIES, p._row, clean);
   if (rowsOf_(SHEETS.OUTPUT, id).length) regenerateOutput_(id);
   return api_getProperty(id);
+}
+
+/* ---------------- 削除 ---------------- */
+
+/**
+ * 物件を削除する。物件の行と、調査結果・出力の行を消す。
+ * マイソクPDFはGoogleドライブのゴミ箱へ（30日間は元に戻せる）。
+ */
+function api_deleteProperty(id) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error('ほかの処理が実行中です。少し待ってからもう一度押してください。');
+  try {
+    var p = findProp_(id);
+    var fileId = driveFileId_(p['マイソクPDF']);
+    var none = function () { return ''; };
+    [SHEETS.FACILITIES, SHEETS.STATIONS, SHEETS.ACCESS, SHEETS.OUTPUT].forEach(function (name) {
+      replacePropertyRows_(name, id, [], none, []);
+    });
+    sheet_(SHEETS.PROPERTIES).deleteRow(p._row);
+    var trashed = false;
+    if (fileId) {
+      try { DriveApp.getFileById(fileId).setTrashed(true); trashed = true; } catch (e) { /* 見つからない・権限なしは無視 */ }
+    }
+    appendLog_('', id, '削除', '完了', 0, (p['建物名'] || p['物件名'] || '') + (trashed ? '（マイソクPDFはゴミ箱へ）' : ''));
+    return { ok: true, trashedPdf: trashed };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ---------------- マイソク ---------------- */

@@ -108,6 +108,26 @@ const SHOT = process.env.SHOT_DIR;
   assert.match(await page.locator('#save-state').innerText(), /保存しました/);
   if (SHOT) await page.screenshot({ path: SHOT + '/info.png' });
 
+  // 削除（1回目は確認に切り替わり、もう一度押すと削除）
+  const countBefore = await page.locator('.q-item').count();
+  await page.getByRole('button', { name: '削除', exact: true }).click();
+  await page.waitForSelector('text=本当に削除する');
+  await page.getByRole('button', { name: 'やめる' }).click();
+  assert.equal(await page.locator('.q-item').count(), countBefore, '「やめる」なら消えない');
+  await page.getByRole('button', { name: '削除', exact: true }).click();
+  await page.getByRole('button', { name: '本当に削除する' }).click();
+  await page.waitForSelector('text=削除しました');
+  assert.equal(await page.locator('.q-item').count(), countBefore - 1);
+  // 一度開いた物件は、2回目はすぐ表示される（先読み・キャッシュ）
+  await page.locator('.q-item', { hasText: '名信ビル' }).click();
+  await page.waitForSelector('.tabs');
+  await page.locator('.q-item', { hasText: 'サンコーレジデンス' }).click();
+  await page.waitForSelector('text=入力される内容');
+  const t0 = Date.now();
+  await page.locator('.q-item', { hasText: '名信ビル' }).click();
+  await page.waitForSelector('.tabs');
+  assert.ok(Date.now() - t0 < 120, '2回目はキャッシュですぐ表示（' + (Date.now() - t0) + 'ms）');
+
   // スマホ幅でも横スクロールしない
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(200);

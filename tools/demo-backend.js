@@ -281,6 +281,13 @@
       p['マイソク取込メモ'] = 'デモのため、選んだPDFではなくサンプルの内容を読み取りました / 反映: ' + r.filled.join('、');
       return { id: id, filled: r.filled, notes: [] };
     },
+    api_deleteProperty: function (id) {
+      findProp(id);
+      DB.props = DB.props.filter(function (p) { return p['物件ID'] !== id; });
+      ['fac', 'st', 'ac'].forEach(function (k) { DB[k] = DB[k].filter(function (r) { return r['物件ID'] !== id; }); });
+      delete DB.out[id];
+      return { ok: true, trashedPdf: true };
+    },
     api_reimportMysoku: function (id) { return { filled: [], skipped: [], data: api.api_getProperty(id) }; },
     api_createProperty: function (name) {
       var id = 'P' + ('0000' + (++DB.seq)).slice(-5);

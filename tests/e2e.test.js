@@ -20,6 +20,7 @@ function makeSheet(name) {
     }, 0),
     getRange: (r, c, nr = 1, nc = 1) => makeRange(sh, r, c, nr, nc),
     appendRow: (vals) => { data[sh.getLastRow()] = vals.slice(); },
+    deleteRow: (r) => { data.splice(r - 1, 1); },
     setFrozenRows: () => {}
   };
   return sh;
@@ -175,6 +176,7 @@ const g = loadGas({
   PropertiesService: { getScriptProperties: () => ({ getProperty: () => 'TEST_KEY', setProperty: () => {} }) },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }), getDocumentLock: () => null }, // 紐付けなしスクリプトではDocumentLockはnull
   Utilities: { sleep: () => {}, formatDate: () => '03:00' },
+  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {} }) },
   DriveApp: { getFileById: (id) => ({ getName: () => 'mysoku.pdf', getBlob: () => ({}), setTrashed: () => {} }) },
   Drive: { Files: {
     create: (meta, blob, opt) => { driveOps.push(['create', meta.mimeType, opt.ocrLanguage]); return { id: 'tmpdoc' }; },
@@ -322,4 +324,23 @@ test('E2E: マイソクPDF取り込み → 物件シートの空欄に反映', (
   assert.equal(after['建物構造'], 'RC');
   assert.match(after['マイソク取込メモ'], /要確認: .*帖数/);
   eq(driveOps, [['create', 'application/vnd.google-apps.document', 'ja'], ['remove', 'tmpdoc']]); // 一時ドキュメントは削除
+});
+
+test('E2E: アプリ画面のAPI（詳細の取得・物件の削除）', () => {
+  const before = g.api_listProperties();
+  const target = before.find((p) => p.name === '名信ビル');
+  assert.ok(target, '取り込んだ物件が一覧にある');
+  const d = g.api_getProperty(target.id);
+  assert.equal(d.prop['建物名'], '名信ビル');
+  assert.ok(d.categories.length > 0);
+  driveOps.length = 0;
+  const r = g.api_deleteProperty(target.id);
+  assert.equal(r.ok, true);
+  assert.equal(r.trashedPdf, true, 'マイソクPDFはゴミ箱へ');
+  const after = g.api_listProperties();
+  assert.equal(after.length, before.length - 1);
+  assert.equal(after.some((p) => p.id === target.id), false);
+  // ほかの物件の調査結果は残る
+  assert.ok(table('施設結果').some((x) => x['物件ID'] === 'P00002'));
+  assert.equal(table('施設結果').some((x) => x['物件ID'] === target.id), false);
 });
