@@ -22,7 +22,7 @@ a { color: var(--accent); overflow-wrap: anywhere; }
 textarea { width: 100%; height: 80px; border: 1px solid var(--line); background: var(--code); color: var(--muted); font: 11.5px/1.4 ui-monospace, monospace; }
 :focus-visible { outline: 2px solid #e09a00; outline-offset: 2px; }
 </style>
-<header><h1>周辺調査プログラムの更新</h1><p>2026-11-05 19:45 版（一括読み込みで表示を速く・調査の進み具合・確認したの表示修正・掲載2件まで・ジャンル名・名古屋市営バス・新規作成へ自動入力） ／ info@monthly-familia.com で作業</p></header>
+<header><h1>周辺調査プログラムの更新</h1><p>2026-11-06 11:30 版（ウェルモ新規作成ボタン・一括読み込み・調査の進み具合・確認したの修正・掲載2件まで・ジャンル名・名古屋市営バス） ／ info@monthly-familia.com で作業</p></header>
 <main>
 <section><h2><span class="no">1</span>プログラム（コード.gs）を貼り替える</h2><div class="body">
 <ol><li>プログラムを開く：<a href="https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com" target="_blank" rel="noopener">https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com</a></li>
@@ -3748,7 +3748,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       primary = '&lt;button class=&quot;btn primary big&quot; type=&quot;button&quot; data-step=&quot;5&quot;>ウェルモ入力へ →&lt;/button>';
     } else {
       msg = p['ウェルモ入力日時'] ? 'ウェルモ入力済（' + esc(p['ウェルモ入力日時']) + '）' : '新規作成画面が開き、自動で入力されます。内容を確認して「保存」を押してください';
-      primary = '&lt;a class=&quot;btn primary big&quot; href=&quot;' + esc(wellmoCreateUrl(p['物件ID'])) + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモで新規作成して入力 ↗&lt;/a>';
+      primary = '&lt;a class=&quot;btn primary big&quot; href=&quot;' + esc(wellmoCreateUrl(p['物件ID'])) + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモ新規作成 ↗&lt;/a>';
     }
     return '&lt;div class=&quot;actionbar&quot;>&lt;div class=&quot;actionbar-inner&quot;>' + back + '&lt;div class=&quot;msg&quot;>' + msg + '&lt;/div>' + primary + '&lt;/div>&lt;/div>';
   }
@@ -4169,11 +4169,11 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     var entered = p['ウェルモ入力日時'];
     var howto = card('ウェルモへの入力', entered ? '入力済（' + esc(entered) + '）' : 'コピー＆貼り付けは不要です',
       '&lt;div class=&quot;handoff&quot;>&lt;ol class=&quot;howto&quot;>' +
-        '&lt;li>右の&lt;b>「ウェルモで新規作成して入力」&lt;/b>を押す&lt;/li>' +
+        '&lt;li>右の&lt;b>「ウェルモ新規作成」&lt;/b>を押す&lt;/li>' +
         '&lt;li>ウェルモの「物件・料金管理」の&lt;b>建物の新規作成画面&lt;/b>が開き、&lt;b>' + esc(p['建物名'] || 'この物件') + '&lt;/b>の内容が自動で入力されます&lt;/li>' +
         '&lt;li>右上の結果で赤字の項目だけ手で直す&lt;/li>' +
         '&lt;li>内容を確認して&lt;b>「保存」&lt;/b>を押すと、ここに「ウェルモ入力済」と記録されます&lt;/li>&lt;/ol>' +
-        '&lt;a class=&quot;btn primary&quot; href=&quot;' + esc(wellmoCreateUrl(p['物件ID'])) + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモで新規作成して入力 ↗&lt;/a>&lt;/div>' +
+        '&lt;a class=&quot;btn primary&quot; href=&quot;' + esc(wellmoCreateUrl(p['物件ID'])) + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>ウェルモ新規作成 ↗&lt;/a>&lt;/div>' +
         '&lt;p class=&quot;help&quot; style=&quot;margin:0&quot;>既存の建物を更新するときは、ウェルモの建物編集画面で右下の「周辺調査から入力」から選べます。&lt;/p>' +
       '&lt;details class=&quot;more&quot;>&lt;summary>はじめて使うときの設定（1回だけ）&lt;/summary>&lt;div style=&quot;display:grid;gap:8px;padding-top:6px&quot;>' +
         '&lt;ol class=&quot;howto&quot;>&lt;li>Chromeに拡張機能「Tampermonkey」を追加&lt;/li>&lt;li>ウェルモ自動入力スクリプト（wellmo-autofill.user.js）をTampermonkeyに追加&lt;/li>' +

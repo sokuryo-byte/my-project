@@ -88,7 +88,7 @@ const SHOT = process.env.SHOT_DIR;
   assert.match(title, /^【東区\/.*】グランシエル高岳/);
   assert.match(await page.locator('.out tr', { hasText: 'その他アクセス' }).innerText(), /名古屋市営バス「.*」停から徒歩約3分/);
   assert.match(await page.locator('.howto').first().innerText(), /新規作成画面/);
-  const href = await page.locator('a', { hasText: 'ウェルモで新規作成して入力' }).first().getAttribute('href');
+  const href = await page.locator('a', { hasText: 'ウェルモ新規作成' }).first().getAttribute('href');
   assert.match(href, /^https:\/\/wm-system\.com\/build\/create#wmfill=P\d+$/, 'ウェルモの新規作成画面へ物件IDつきで開く');
   if (SHOT) await page.screenshot({ path: SHOT + '/output.png', fullPage: false });
   assert.match(await page.locator('.q-item[aria-current="true"] .tag').innerText(), /準備ができました/);

@@ -616,7 +616,7 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       primary = '<button class="btn primary big" type="button" data-step="5">ウェルモ入力へ →</button>';
     } else {
       msg = p['ウェルモ入力日時'] ? 'ウェルモ入力済（' + esc(p['ウェルモ入力日時']) + '）' : '新規作成画面が開き、自動で入力されます。内容を確認して「保存」を押してください';
-      primary = '<a class="btn primary big" href="' + esc(wellmoCreateUrl(p['物件ID'])) + '" target="_blank" rel="noopener">ウェルモで新規作成して入力 ↗</a>';
+      primary = '<a class="btn primary big" href="' + esc(wellmoCreateUrl(p['物件ID'])) + '" target="_blank" rel="noopener">ウェルモ新規作成 ↗</a>';
     }
     return '<div class="actionbar"><div class="actionbar-inner">' + back + '<div class="msg">' + msg + '</div>' + primary + '</div></div>';
   }
@@ -1037,11 +1037,11 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
     var entered = p['ウェルモ入力日時'];
     var howto = card('ウェルモへの入力', entered ? '入力済（' + esc(entered) + '）' : 'コピー＆貼り付けは不要です',
       '<div class="handoff"><ol class="howto">' +
-        '<li>右の<b>「ウェルモで新規作成して入力」</b>を押す</li>' +
+        '<li>右の<b>「ウェルモ新規作成」</b>を押す</li>' +
         '<li>ウェルモの「物件・料金管理」の<b>建物の新規作成画面</b>が開き、<b>' + esc(p['建物名'] || 'この物件') + '</b>の内容が自動で入力されます</li>' +
         '<li>右上の結果で赤字の項目だけ手で直す</li>' +
         '<li>内容を確認して<b>「保存」</b>を押すと、ここに「ウェルモ入力済」と記録されます</li></ol>' +
-        '<a class="btn primary" href="' + esc(wellmoCreateUrl(p['物件ID'])) + '" target="_blank" rel="noopener">ウェルモで新規作成して入力 ↗</a></div>' +
+        '<a class="btn primary" href="' + esc(wellmoCreateUrl(p['物件ID'])) + '" target="_blank" rel="noopener">ウェルモ新規作成 ↗</a></div>' +
         '<p class="help" style="margin:0">既存の建物を更新するときは、ウェルモの建物編集画面で右下の「周辺調査から入力」から選べます。</p>' +
       '<details class="more"><summary>はじめて使うときの設定（1回だけ）</summary><div style="display:grid;gap:8px;padding-top:6px">' +
         '<ol class="howto"><li>Chromeに拡張機能「Tampermonkey」を追加</li><li>ウェルモ自動入力スクリプト（wellmo-autofill.user.js）をTampermonkeyに追加</li>' +
