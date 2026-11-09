@@ -96,6 +96,15 @@ function ensureIds_() {
   });
 }
 
+/**
+ * 画面でGoogleマップ（Maps JavaScript API）を表示するためのキー。
+ * サーバー用のキーとは別に作り、「ウェブサイト（HTTPリファラー）」で *.googleusercontent.com に制限する。
+ * スクリプト プロパティ MAPS_BROWSER_KEY に登録すると、地図がドラッグ・ピンのドラッグ対応のGoogleマップになる。
+ */
+function mapsBrowserKey_() {
+  return PropertiesService.getScriptProperties().getProperty('MAPS_BROWSER_KEY') || '';
+}
+
 function webAppUrl_() {
   try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
 }
@@ -175,7 +184,8 @@ function api_bootstrap() {
     titleMax: toNum_(settings.title_max_length) || 60,
     welmoLimit: toNum_(settings.welmo_walk_limit_min) || 30,
     hasApiKey: !!(PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY) || BOOTSTRAP.apiKey),
-    webAppUrl: webAppUrl_()
+    webAppUrl: webAppUrl_(),
+    mapsBrowserKey: mapsBrowserKey_()
   };
   var list = [], details = {};
   props.forEach(function (p) {
@@ -321,7 +331,8 @@ function api_getProperty(id) {
       titleMax: toNum_(settings.title_max_length) || 60,
       welmoLimit: toNum_(settings.welmo_walk_limit_min) || 30,
       hasApiKey: !!PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_API_KEY),
-      webAppUrl: webAppUrl_()
+      webAppUrl: webAppUrl_(),
+      mapsBrowserKey: mapsBrowserKey_()
     }
   };
 }

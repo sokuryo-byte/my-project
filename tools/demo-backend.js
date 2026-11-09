@@ -270,7 +270,7 @@
         output: DB.out[id] ? clone(DB.out[id]) : null,
         categories: CATEGORIES.map(function (c) { return { id: c.id, label: c.label, order: c.order }; }),
         stage: s.stage, stageLabel: s.label, pending: s.pending,
-        config: { titleMax: 60, welmoLimit: 30, hasApiKey: true, webAppUrl: 'https://script.google.com/macros/s/（デモ）/exec' }
+        config: { titleMax: 60, welmoLimit: 30, hasApiKey: true, webAppUrl: 'https://script.google.com/macros/s/（デモ）/exec', mapsBrowserKey: window.DEMO_MAPS_KEY || '' }
       };
     },
     api_saveProperty: function (id, patch) {

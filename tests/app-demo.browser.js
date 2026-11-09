@@ -40,6 +40,24 @@ const SHOT = process.env.SHOT_DIR;
   await page.waitForFunction(() => !document.querySelector('.map-loading'));
   assert.equal(await page.locator('.kv td').first().innerText(), after, '縮小でピンが飛ばない');
   if (SHOT) await page.screenshot({ path: SHOT + '/map.png' });
+  // ピンをドラッグして動かせる
+  const pinBox = await page.locator('#map-pin').boundingBox();
+  const beforeDrag = await page.locator('.kv td').first().innerText();
+  await page.mouse.move(pinBox.x + pinBox.width / 2, pinBox.y + pinBox.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(pinBox.x + pinBox.width / 2 - 60, pinBox.y + pinBox.height * 0.3 + 40, { steps: 8 });
+  await page.mouse.up();
+  const afterDrag = await page.locator('.kv td').first().innerText();
+  assert.notEqual(afterDrag, beforeDrag, 'ピンのドラッグで緯度が変わる');
+  // 地図をドラッグすると周りを読み込む（ピンの座標は変わらない）
+  const mapBox = await page.locator('#map').boundingBox();
+  const srcBefore = await page.locator('#map-img').getAttribute('src');
+  await page.mouse.move(mapBox.x + 80, mapBox.y + mapBox.height - 60);
+  await page.mouse.down();
+  await page.mouse.move(mapBox.x + 280, mapBox.y + mapBox.height - 160, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction((s) => document.getElementById('map-img') && document.getElementById('map-img').getAttribute('src') !== s, srcBefore, { timeout: 5000 });
+  assert.equal(await page.locator('.kv td').first().innerText(), afterDrag, '地図の移動ではピンの座標は変わらない');
   await page.getByRole('button', { name: 'この位置で確定 →' }).click();
   await page.waitForSelector('text=調査する内容');
 
@@ -148,6 +166,27 @@ const SHOT = process.env.SHOT_DIR;
   if (SHOT) await page.screenshot({ path: SHOT + '/phone.png' });
 
   assert.deepEqual(errors, [], errors.join('\n'));
+
+  // ---- 地図表示用キーがある場合はGoogleマップ（ここではGoogleの部品を模擬）：ピンのドラッグで座標が変わる ----
+  const page2 = await ctx.newPage();
+  await page2.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  await page2.addInitScript(() => {
+    window.DEMO_MAPS_KEY = 'TEST';
+    const ls = (o) => { o.l = {}; o.addListener = (n, f) => { o.l[n] = f; }; return o; };
+    window.google = { maps: {
+      Map: function (el, opt) { el.innerHTML = '<div id="fake-gmap">Google Map</div>'; ls(this); this.getCenter = () => ({ toJSON: () => opt.center }); this.getZoom = () => opt.zoom; this.panTo = () => {}; window.__gm = this; },
+      Marker: function (opt) { ls(this); this.pos = opt.position; this.setPosition = (p) => { this.pos = p; }; window.__mk = this; }
+    } };
+  });
+  await page2.goto('file://' + path.join(__dirname, '..', 'dist', 'demo.html'));
+  await page2.waitForSelector('.q-item');
+  await page2.locator('.q-item', { hasText: 'グランシエル高岳' }).click();
+  await page2.waitForSelector('#fake-gmap');
+  const lat0 = await page2.locator('#coord-lat').innerText();
+  await page2.evaluate(() => window.__mk.l.dragend({ latLng: { lat: () => 35.181234, lng: () => 136.912345 } }));
+  assert.equal(await page2.locator('#coord-lat').innerText(), '35.181234', 'Googleマップでピンをドラッグすると座標が変わる');
+  assert.notEqual(lat0, '35.181234');
+  assert.equal(await page2.getByRole('button', { name: 'この位置で確定 →' }).isEnabled(), true);
   await browser.close();
   console.log('app demo browser test: OK');
 })().catch((e) => { console.error(e); process.exit(1); });

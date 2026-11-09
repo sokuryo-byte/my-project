@@ -208,8 +208,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
 @media (max-width: 900px) { .map-wrap { grid-template-columns: minmax(0, 1fr); } }
 .map { position: relative; width: 100%; max-width: 100%; aspect-ratio: 640 / 400; overflow: hidden; border: 1px solid var(--line-strong); background: var(--band); cursor: crosshair; }
-.map img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
-.pin { position: absolute; width: 30px; height: 42px; transform: translate(-50%, -100%); pointer-events: none; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.map img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+.map { touch-action: none; cursor: grab; }
+.map.panning { cursor: grabbing; }
+.map-layer { position: absolute; inset: 0; }
+.pin { position: absolute; width: 30px; height: 42px; transform: translate(-50%, -100%); cursor: grab; touch-action: none; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.map.gmap { cursor: default; touch-action: auto; }
 .map-tools { position: absolute; right: 8px; top: 8px; display: grid; border: 1px solid var(--line-strong); background: var(--surface); }
 .map-tools button { width: 36px; height: 36px; border: 0; background: var(--surface); font-size: 18px; font-weight: 700; cursor: pointer; }
 .map-tools button + button { border-top: 1px solid var(--line); }
@@ -1902,7 +1906,7 @@ function buildWellmoData_(prop, out, stRows) {
         output: DB.out[id] ? clone(DB.out[id]) : null,
         categories: CATEGORIES.map(function (c) { return { id: c.id, label: c.label, order: c.order }; }),
         stage: s.stage, stageLabel: s.label, pending: s.pending,
-        config: { titleMax: 60, welmoLimit: 30, hasApiKey: true, webAppUrl: 'https://script.google.com/macros/s/（デモ）/exec' }
+        config: { titleMax: 60, welmoLimit: 30, hasApiKey: true, webAppUrl: 'https://script.google.com/macros/s/（デモ）/exec', mapsBrowserKey: window.DEMO_MAPS_KEY || '' }
       };
     },
     api_saveProperty: function (id, patch) {
@@ -2404,33 +2408,158 @@ function buildWellmoData_(prop, out, stRows) {
     return { lat: 180 / Math.PI * Math.atan(0.5 * (Math.exp(k) - Math.exp(-k))), lng: x / s * 360 - 180 };
   }
 
+  /* Googleマップ（Maps JavaScript API）を使えるか。地図表示用のキーが登録されていれば使い、なければ地図画像で操作する */
+  function useGmap() { return !!(S.data && S.data.config && S.data.config.mapsBrowserKey) && !(S.map && S.map.useStatic); }
+
   function stepMap(d) {
     var m = S.map;
     if (!m) { startMap(); return card('建物の出入口を指定', '', '<p class="loading">住所から位置を求めています…</p>'); }
     if (m.error && m.lat == null) return note('err', '×', '<p>' + esc(m.error) + '</p>');
     var warns = (m.warnings || []).map(function (w) { return note('warn', '!', '<p>' + esc(w) + '</p>'); }).join('');
-    var pinStyle = '';
-    if (m.img && m.pinLat != null) {
-      var c = project(m.img.lat, m.img.lng, m.img.zoom), pp = project(m.pinLat, m.pinLng, m.img.zoom);
-      pinStyle = 'left:' + ((pp.x - c.x + MAP_W / 2) / MAP_W * 100) + '%;top:' + ((pp.y - c.y + MAP_H / 2) / MAP_H * 100) + '%';
-    }
-    var gmap = 'https://www.google.com/maps/search/?api=1&query=' + m.pinLat + ',' + m.pinLng;
-    return warns + card('建物の出入口を指定', '徒歩分は出入口から計算します（公正競争規約）',
-      '<div class="map-wrap"><div>' +
-        '<div class="map" id="map" role="application" aria-label="地図。クリックした位置にピンを置きます">' +
-          (m.img && m.img.dataUrl ? '<img id="map-img" src="' + m.img.dataUrl + '" alt="物件周辺の地図">' : '') +
-          (m.img && !m.loading ? '<svg class="pin" style="' + pinStyle + '" viewBox="0 0 34 46" aria-hidden="true"><path d="M17 1C8.2 1 1 8 1 16.8 1 28.6 17 45 17 45s16-16.4 16-28.2C33 8 25.8 1 17 1z" fill="#c62828" stroke="#fff" stroke-width="2"/><circle cx="17" cy="17" r="6" fill="#fff"/></svg>' : '') +
+    var gm = useGmap();
+    var mapHtml;
+    if (gm) {
+      mapHtml = '<div class="map gmap" id="gmap" role="application" aria-label="地図。ピンをドラッグして建物の出入口に合わせます"><div class="map-loading">地図を読み込み中…</div></div>' +
+        '<p class="help">ピンを<b>ドラッグ</b>して、先端を<b>建物の出入口</b>に合わせます。地図はドラッグで移動、ホイールや＋／−で拡大縮小できます（地図をクリックしてもピンが移動します）。</p>';
+    } else {
+      var pinStyle = '';
+      if (m.img && m.pinLat != null) {
+        var c = project(m.img.lat, m.img.lng, m.img.zoom), pp = project(m.pinLat, m.pinLng, m.img.zoom);
+        pinStyle = 'left:' + ((pp.x - c.x + MAP_W / 2) / MAP_W * 100) + '%;top:' + ((pp.y - c.y + MAP_H / 2) / MAP_H * 100) + '%';
+      }
+      mapHtml = '<div class="map" id="map" role="application" aria-label="地図。ピンをドラッグして建物の出入口に合わせます">' +
+          '<div class="map-layer" id="map-layer">' +
+            (m.img && m.img.dataUrl ? '<img id="map-img" src="' + m.img.dataUrl + '" alt="物件周辺の地図" draggable="false">' : '') +
+            (m.img && !m.loading ? '<svg class="pin" id="map-pin" style="' + pinStyle + '" viewBox="0 0 34 46" aria-hidden="true"><path d="M17 1C8.2 1 1 8 1 16.8 1 28.6 17 45 17 45s16-16.4 16-28.2C33 8 25.8 1 17 1z" fill="#c62828" stroke="#fff" stroke-width="2"/><circle cx="17" cy="17" r="6" fill="#fff"/></svg>' : '') +
+          '</div>' +
           (m.loading ? '<div class="map-loading">地図を読み込み中…</div>' : '') +
           (m.img && m.img.error ? '<div class="map-loading">' + esc(m.img.error) + '</div>' : '') +
           '<div class="map-tools"><button type="button" data-act="zoom-in" aria-label="拡大">＋</button><button type="button" data-act="zoom-out" aria-label="縮小">−</button></div>' +
-        '</div><p class="help">ピンの先端が<b>建物の出入口</b>に来るように地図をクリックします。＋／−で拡大縮小できます。</p></div>' +
+        '</div><p class="help">ピンを<b>ドラッグ</b>して、先端を<b>建物の出入口</b>に合わせます。地図はドラッグで移動（離すと周りを読み込みます）、ホイールや＋／−で拡大縮小できます。</p>';
+    }
+    var gmapLink = 'https://www.google.com/maps/search/?api=1&query=' + m.pinLat + ',' + m.pinLng;
+    return warns + card('建物の出入口を指定', '徒歩分は出入口から計算します（公正競争規約）',
+      '<div class="map-wrap"><div>' + mapHtml + '</div>' +
         '<div style="display:grid;gap:10px">' +
-          '<table class="kv num"><tr><th>緯度</th><td>' + (m.pinLat != null ? m.pinLat.toFixed(6) : '—') + '</td></tr><tr><th>経度</th><td>' + (m.pinLng != null ? m.pinLng.toFixed(6) : '—') + '</td></tr><tr><th>縮尺</th><td>' + m.zoom + '</td></tr></table>' +
+          '<table class="kv num"><tr><th>緯度</th><td id="coord-lat">' + (m.pinLat != null ? m.pinLat.toFixed(6) : '—') + '</td></tr><tr><th>経度</th><td id="coord-lng">' + (m.pinLng != null ? m.pinLng.toFixed(6) : '—') + '</td></tr><tr><th>縮尺</th><td id="coord-zoom">' + m.zoom + '</td></tr></table>' +
           (m.geocodedAddress ? '<p class="help" style="margin:0">住所の検索結果：' + esc(m.geocodedAddress) + '</p>' : '') +
-          '<a class="btn small" href="' + esc(gmap) + '" target="_blank" rel="noopener">Googleマップで周辺を見る ↗</a>' +
-          '<button class="btn small" type="button" data-act="recenter">ピンを中心に再表示</button>' +
+          '<a class="btn small" id="gmap-link" href="' + esc(gmapLink) + '" target="_blank" rel="noopener">Googleマップで周辺を見る ↗</a>' +
+          '<button class="btn small" type="button" data-act="recenter">ピンを中心に表示</button>' +
+          (m.gmapError ? '<p class="help" style="margin:0">' + esc(m.gmapError) + '（地図画像で表示しています）</p>' : '') +
           (b(d.prop['起点確認済']) ? note('ok', '✓', '<p>位置は確定済みです。変更すると再調査が必要になります。</p>') : '') +
         '</div></div>');
+  }
+
+  /* ピンの位置が変わったら、座標の表示と確定ボタンだけ更新（地図は描き直さない） */
+  function setPin(lat, lng) {
+    S.map.pinLat = Math.round(lat * 1e6) / 1e6; S.map.pinLng = Math.round(lng * 1e6) / 1e6;
+    updateCoords(); refreshActionBar();
+  }
+  function updateCoords() {
+    var m = S.map; if (!m) return;
+    if ($('coord-lat')) $('coord-lat').textContent = m.pinLat != null ? m.pinLat.toFixed(6) : '—';
+    if ($('coord-lng')) $('coord-lng').textContent = m.pinLng != null ? m.pinLng.toFixed(6) : '—';
+    if ($('coord-zoom')) $('coord-zoom').textContent = m.zoom;
+    if ($('gmap-link')) $('gmap-link').href = 'https://www.google.com/maps/search/?api=1&query=' + m.pinLat + ',' + m.pinLng;
+  }
+
+  /* ---- Googleマップ（Maps JavaScript API） ---- */
+  var gmapsLoading = null;
+  function loadGoogleMaps(key) {
+    if (window.google && google.maps && google.maps.Map) return Promise.resolve();
+    if (gmapsLoading) return gmapsLoading;
+    gmapsLoading = new Promise(function (resolve, reject) {
+      window.__gmapsReady = resolve;
+      var sc = document.createElement('script');
+      sc.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&language=ja&region=JP&callback=__gmapsReady';
+      sc.async = true;
+      sc.onerror = function () { gmapsLoading = null; reject(new Error('Googleマップを読み込めませんでした')); };
+      document.head.appendChild(sc);
+    });
+    return gmapsLoading;
+  }
+  // キーの制限などで地図が使えないとき（Googleが呼ぶ）。地図画像の操作に切り替える
+  window.gm_authFailure = function () { fallbackToStatic('Googleマップのキーが使えませんでした'); };
+  function fallbackToStatic(msg) {
+    if (!S.map || S.map.useStatic) return;
+    S.map.useStatic = true; S.map.gmapError = msg;
+    loadMapImage(S.map.pinLat, S.map.pinLng, Math.min(20, S.map.zoom || 18));
+  }
+  function initGoogleMap() {
+    var el = $('gmap'); if (!el) return;
+    var m = S.map;
+    loadGoogleMaps(S.data.config.mapsBrowserKey).then(function () {
+      if (!$('gmap') || S.map !== m) return;
+      var pos = { lat: m.pinLat, lng: m.pinLng };
+      var map = new google.maps.Map($('gmap'), {
+        center: m.view || pos, zoom: m.zoom || 19, mapTypeControl: false, streetViewControl: false,
+        fullscreenControl: false, clickableIcons: false, gestureHandling: 'greedy'
+      });
+      var marker = new google.maps.Marker({ position: pos, map: map, draggable: true, title: '建物の出入口' });
+      marker.addListener('dragend', function (e) { setPin(e.latLng.lat(), e.latLng.lng()); });
+      map.addListener('click', function (e) { marker.setPosition(e.latLng); setPin(e.latLng.lat(), e.latLng.lng()); });
+      map.addListener('idle', function () { m.view = map.getCenter().toJSON(); m.zoom = map.getZoom(); updateCoords(); });
+      m.gmap = map; m.marker = marker;
+    }).catch(function (e) { fallbackToStatic(errorText(e)); });
+  }
+
+  /* ---- 地図画像（Maps Static API）：ピンのドラッグ・地図のドラッグ移動・ホイールで拡大縮小 ---- */
+  function bindStaticMap() {
+    var box = $('map'); if (!box) return;
+    var drag = null;
+    var toLogical = function (dxPx, dyPx) { var r = box.getBoundingClientRect(); return { x: dxPx / r.width * MAP_W, y: dyPx / r.height * MAP_H }; };
+    box.addEventListener('pointerdown', function (ev) {
+      if (ev.button !== 0 || ev.target.closest('.map-tools, a, button')) return;
+      var m = S.map; if (!m || !m.img || m.img.error || m.loading) return;
+      drag = { mode: ev.target.closest('#map-pin') ? 'pin' : 'pan', x: ev.clientX, y: ev.clientY, moved: false };
+      box.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+    });
+    box.addEventListener('pointermove', function (ev) {
+      if (!drag) return;
+      var dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+      if (!drag.moved) return;
+      if (drag.mode === 'pin') {
+        var r = box.getBoundingClientRect(), pin = $('map-pin');
+        pin.style.left = ((ev.clientX - r.left) / r.width * 100) + '%';
+        pin.style.top = ((ev.clientY - r.top) / r.height * 100) + '%';
+      } else {
+        $('map-layer').style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        box.classList.add('panning');
+      }
+    });
+    var end = function (ev) {
+      if (!drag) return;
+      var d0 = drag; drag = null; box.classList.remove('panning');
+      var m = S.map, c = project(m.img.lat, m.img.lng, m.img.zoom), r = box.getBoundingClientRect();
+      if (d0.mode === 'pin' || !d0.moved) {
+        // ピンを離した位置／地図をクリックした位置にピンを置く
+        var lx = (ev.clientX - r.left) / r.width * MAP_W, ly = (ev.clientY - r.top) / r.height * MAP_H;
+        var pp = unproject(c.x + lx - MAP_W / 2, c.y + ly - MAP_H / 2, m.img.zoom);
+        setPin(pp.lat, pp.lng);
+        var pin = $('map-pin');
+        if (pin && !d0.moved) { pin.style.left = (lx / MAP_W * 100) + '%'; pin.style.top = (ly / MAP_H * 100) + '%'; }
+        return;
+      }
+      // 地図をドラッグして離したら、その位置を中心に周りを読み込む（ピンの座標はそのまま）
+      var dl = toLogical(ev.clientX - d0.x, ev.clientY - d0.y);
+      var nc = unproject(c.x - dl.x, c.y - dl.y, m.img.zoom);
+      loadMapImage(nc.lat, nc.lng, m.img.zoom, true);
+    };
+    box.addEventListener('pointerup', end);
+    box.addEventListener('pointercancel', function () { drag = null; box.classList.remove('panning'); var l = $('map-layer'); if (l) l.style.transform = ''; });
+    var wheelTimer;
+    box.addEventListener('wheel', function (ev) {
+      ev.preventDefault();
+      clearTimeout(wheelTimer);
+      var dir = ev.deltaY < 0 ? 1 : -1;
+      wheelTimer = setTimeout(function () {
+        var m = S.map, z = (m.img ? m.img.zoom : m.zoom) + dir;
+        if (z < 14 || z > 20 || !m.img) return;
+        m.zoom = z; loadMapImage(m.img.lat, m.img.lng, z, true);
+      }, 120);
+    }, { passive: false });
   }
 
   function startMap() {
@@ -2438,15 +2567,16 @@ function buildWellmoData_(prop, out, stRows) {
     S.map = { loading: true, zoom: 18 };
     API.call('api_locate', id).then(function (loc) {
       if (S.id !== id) return;
-      S.map = { lat: loc.lat, lng: loc.lng, pinLat: loc.lat, pinLng: loc.lng, zoom: 18, warnings: loc.warnings, geocodedAddress: loc.geocodedAddress, loading: true };
-      loadMapImage(loc.lat, loc.lng, 18);
+      S.map = { lat: loc.lat, lng: loc.lng, pinLat: loc.lat, pinLng: loc.lng, zoom: 18, warnings: loc.warnings, geocodedAddress: loc.geocodedAddress, loading: !useGmap() };
+      if (useGmap()) { S.map.zoom = 19; renderWork(); } else loadMapImage(loc.lat, loc.lng, 18);
       var e0 = S.edits;
       API.call('api_getProperty', id).then(function (d) { if (S.id === id && S.edits === e0) applyData(d); });
     }).catch(function (e) { S.map = { error: errorText(e) }; renderWork(); });
   }
-  function loadMapImage(lat, lng, zoom) {
+  /* keep=true のときは、新しい画像が届くまで今の画像（ドラッグ位置）をそのまま見せる */
+  function loadMapImage(lat, lng, zoom, keep) {
     var id = S.id;
-    S.map.loading = true; renderWork();
+    if (!keep || !S.map.img) { S.map.loading = true; renderWork(); }
     showBusy('地図を読み込んでいます…');
     API.call('api_mapImage', lat, lng, zoom).then(function (img) {
       hideBusy();
@@ -2454,17 +2584,6 @@ function buildWellmoData_(prop, out, stRows) {
       S.map.img = img; S.map.zoom = img.zoom || zoom; S.map.loading = false; renderWork();
     }).catch(function (e) { hideBusy(); S.map.img = { error: errorText(e), lat: lat, lng: lng, zoom: zoom }; S.map.loading = false; renderWork(); });
   }
-  function onMapClick(ev) {
-    if (ev.target.closest('.map-tools, a, button')) return; // ＋／−ボタンの押下は地図のクリックとして扱わない
-    var m = S.map; if (!m || !m.img || m.img.error || m.loading) return;
-    var box = $('map').getBoundingClientRect();
-    var lx = (ev.clientX - box.left) / box.width * MAP_W, ly = (ev.clientY - box.top) / box.height * MAP_H;
-    var c = project(m.img.lat, m.img.lng, m.img.zoom);
-    var pp = unproject(c.x + lx - MAP_W / 2, c.y + ly - MAP_H / 2, m.img.zoom);
-    m.pinLat = Math.round(pp.lat * 1e6) / 1e6; m.pinLng = Math.round(pp.lng * 1e6) / 1e6;
-    renderWork();
-  }
-
   /* ---------- 手順3：調査 ---------- */
   function stepSurvey(d) {
     var cats = d.categories.slice().sort(function (a, c) { return a.order - c.order; }).map(function (c) { return c.label; });
@@ -2727,8 +2846,8 @@ function buildWellmoData_(prop, out, stRows) {
 
   /* ================= 描画後の処理・イベント ================= */
   function afterRender() {
-    var map = $('map');
-    if (map) map.addEventListener('click', onMapClick);
+    if ($('gmap')) initGoogleMap();
+    if ($('map')) bindStaticMap();
   }
 
   function go(step) {
@@ -2771,10 +2890,14 @@ function buildWellmoData_(prop, out, stRows) {
       case 'only-pending': S.onlyPending = !S.onlyPending; renderWork(); break;
       case 'copy-json': if (S.data.output) copyText(S.data.output['ウェルモJSON'], 'ウェルモ用データ'); break;
       case 'zoom-in': case 'zoom-out':
-        var z = S.map.zoom + (ds.act === 'zoom-in' ? 1 : -1);
+        // 拡大縮小は、いま見ている範囲の中心のまま（ピンの位置は変えない）
+        var cz = S.map.img ? S.map.img.zoom : S.map.zoom;
+        var z = cz + (ds.act === 'zoom-in' ? 1 : -1);
         if (z < 14 || z > 20) return;
-        S.map.zoom = z; loadMapImage(S.map.pinLat, S.map.pinLng, z); break;
-      case 'recenter': loadMapImage(S.map.pinLat, S.map.pinLng, S.map.zoom); break;
+        S.map.zoom = z; loadMapImage(S.map.img ? S.map.img.lat : S.map.pinLat, S.map.img ? S.map.img.lng : S.map.pinLng, z, true); break;
+      case 'recenter':
+        if (S.map.gmap) { S.map.gmap.panTo({ lat: S.map.pinLat, lng: S.map.pinLng }); break; }
+        loadMapImage(S.map.pinLat, S.map.pinLng, S.map.zoom); break;
       case 'confirm-origin':
         var id = S.id;
         t.disabled = true;
