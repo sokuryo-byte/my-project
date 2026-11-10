@@ -945,6 +945,17 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
 
   function startMap() {
     var id = S.id;
+    // 位置が保存済みなら、通信を待たずにすぐ地図を出す
+    var pr = S.data && S.data.prop, lat0 = pr && n(pr['起点緯度']), lng0 = pr && n(pr['起点経度']);
+    if (lat0 != null && lng0 != null) {
+      var w0 = [];
+      if (pr['Geocode種別'] && pr['Geocode種別'] !== 'ROOFTOP') w0.push('住所から求めた位置の精度が建物単位ではありません（' + pr['Geocode種別'] + '）');
+      if (pr['Geocode部分一致']) w0.push('住所の一部だけが一致しました');
+      S.map = { lat: lat0, lng: lng0, pinLat: lat0, pinLng: lng0, zoom: useGmap() ? 19 : 18, warnings: w0, geocodedAddress: String(pr['Geocode住所'] || ''), loading: !useGmap() };
+      // 描画の途中で呼ばれるため、描き直しは次の瞬間に行う
+      setTimeout(function () { if (S.id !== id) return; if (useGmap()) renderWork(); else loadMapImage(lat0, lng0, 18); }, 0);
+      return;
+    }
     S.map = { loading: true, zoom: 18 };
     API.call('api_locate', id).then(function (loc) {
       if (S.id !== id) return;
@@ -1297,18 +1308,21 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       case 'delete': S.confirmDelete = S.id; refreshHead(); break;
       case 'delete-no': S.confirmDelete = ''; refreshHead(); break;
       case 'delete-yes':
-        var delId = S.id;
-        t.disabled = true; t.textContent = '削除しています…';
-        showBusy('物件を削除しています…');
+        // 画面からはすぐに消し、削除処理は裏で行う（失敗したら一覧に戻す）
+        var delId = S.id, delItem = S.list.filter(function (x) { return x.id === delId; })[0], delIndex = S.list.indexOf(delItem), delData = S.cache[delId];
+        delete S.cache[delId];
+        S.list = S.list.filter(function (x) { return x.id !== delId; });
+        S.id = null; S.data = null; S.map = null; S.confirmDelete = '';
+        renderList();
+        if (S.list[0]) openProperty(S.list[0].id); else renderWork();
+        toast('削除しています…');
         API.call('api_deleteProperty', delId).then(function (r) {
-          hideBusy();
-          delete S.cache[delId];
-          S.list = S.list.filter(function (x) { return x.id !== delId; });
-          S.id = null; S.data = null; S.confirmDelete = '';
           toast('削除しました' + (r && r.trashedPdf ? '（マイソクPDFはGoogleドライブのゴミ箱にあります）' : ''));
-          renderList();
-          if (S.list[0]) openProperty(S.list[0].id); else renderWork();
-        }).catch(function (e) { hideBusy(); toast('削除できませんでした：' + errorText(e)); S.confirmDelete = ''; refreshHead(); });
+          saveSnapshot({ list: S.list, details: S.cache });
+        }).catch(function (e) {
+          toast('削除できませんでした：' + errorText(e));
+          if (delItem) { S.list.splice(Math.max(0, delIndex), 0, delItem); if (delData) S.cache[delId] = delData; renderList(); }
+        });
         break;
     }
   });

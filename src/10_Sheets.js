@@ -125,6 +125,32 @@ function replacePropertyRows_(name, propertyId, newRows, keyFn, preserveCols, on
   }
 }
 
+/** その物件の行を削除する。続いている行はまとめて消す（下から消すので行番号がずれない） */
+function deletePropertyRows_(name, propertyId) {
+  var sh = sheet_(name);
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return 0;
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  var c = headers.indexOf('物件ID');
+  if (c < 0) return 0;
+  var ids = sh.getRange(2, c + 1, lastRow - 1, 1).getValues();
+  var rows = [];
+  ids.forEach(function (v, i) { if (String(v[0]) === String(propertyId)) rows.push(i + 2); });
+  if (rows.length === lastRow - 1) {
+    // 全行が対象のときは、見出し行を残すため中身だけ消す
+    var body = sh.getRange(2, 1, lastRow - 1, lastCol);
+    body.clearContent(); body.clearDataValidations();
+    return rows.length;
+  }
+  for (var i = rows.length - 1; i >= 0;) {
+    var end = rows[i], start = end;
+    while (i - 1 >= 0 && rows[i - 1] === start - 1) { i--; start--; }
+    sh.deleteRows(start, end - start + 1);
+    i--;
+  }
+  return rows.length;
+}
+
 /** 1行の一部の列を更新 */
 function updateRow_(name, rowNum, patch) {
   var sh = sheet_(name);

@@ -389,9 +389,9 @@ function api_deleteProperty(id) {
   try {
     var p = findProp_(id);
     var fileId = driveFileId_(p['マイソクPDF']);
-    var none = function () { return ''; };
+    // 該当物件の行だけを消す（シート全体の書き直しはしない）
     [SHEETS.FACILITIES, SHEETS.STATIONS, SHEETS.ACCESS, SHEETS.OUTPUT].forEach(function (name) {
-      replacePropertyRows_(name, id, [], none, []);
+      deletePropertyRows_(name, id);
     });
     sheet_(SHEETS.PROPERTIES).deleteRow(p._row);
     var trashed = false;

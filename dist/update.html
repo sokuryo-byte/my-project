@@ -22,7 +22,7 @@ a { color: var(--accent); overflow-wrap: anywhere; }
 textarea { width: 100%; height: 80px; border: 1px solid var(--line); background: var(--code); color: var(--muted); font: 11.5px/1.4 ui-monospace, monospace; }
 :focus-visible { outline: 2px solid #e09a00; outline-offset: 2px; }
 </style>
-<header><h1>周辺調査プログラムの更新</h1><p>2026-11-10 09:58 版（起動を速くしました（2回目以降は前回の内容をすぐ表示し、裏で最新に更新）。読み込み中の表示を最初から出します。） ／ info@monthly-familia.com で作業</p></header>
+<header><h1>周辺調査プログラムの更新</h1><p>2026-11-10 10:06 版（削除をすぐ反映（裏で処理）・該当行だけ削除して高速化。位置確定済みの物件は地図をすぐ表示。起動の高速化も含みます。） ／ info@monthly-familia.com で作業</p></header>
 <main>
 <section><h2><span class="no">1</span>プログラム（コード.gs）を貼り替える</h2><div class="body">
 <ol><li>プログラムを開く：<a href="https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com" target="_blank" rel="noopener">https://script.google.com/d/1TiDlH40IiJHEcCn9zls4TUSlB1bodDGkHI66pnbM5sykzU-iHyXz3rU6/edit?authuser=info@monthly-familia.com</a></li>
@@ -1611,6 +1611,32 @@ function replacePropertyRows_(name, propertyId, newRows, keyFn, preserveCols, on
   }
 }
 
+/** その物件の行を削除する。続いている行はまとめて消す（下から消すので行番号がずれない） */
+function deletePropertyRows_(name, propertyId) {
+  var sh = sheet_(name);
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow &lt; 2 || lastCol &lt; 1) return 0;
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  var c = headers.indexOf('物件ID');
+  if (c &lt; 0) return 0;
+  var ids = sh.getRange(2, c + 1, lastRow - 1, 1).getValues();
+  var rows = [];
+  ids.forEach(function (v, i) { if (String(v[0]) === String(propertyId)) rows.push(i + 2); });
+  if (rows.length === lastRow - 1) {
+    // 全行が対象のときは、見出し行を残すため中身だけ消す
+    var body = sh.getRange(2, 1, lastRow - 1, lastCol);
+    body.clearContent(); body.clearDataValidations();
+    return rows.length;
+  }
+  for (var i = rows.length - 1; i >= 0;) {
+    var end = rows[i], start = end;
+    while (i - 1 >= 0 &amp;&amp; rows[i - 1] === start - 1) { i--; start--; }
+    sh.deleteRows(start, end - start + 1);
+    i--;
+  }
+  return rows.length;
+}
+
 /** 1行の一部の列を更新 */
 function updateRow_(name, rowNum, patch) {
   var sh = sheet_(name);
@@ -2989,9 +3015,9 @@ function api_deleteProperty(id) {
   try {
     var p = findProp_(id);
     var fileId = driveFileId_(p['マイソクPDF']);
-    var none = function () { return ''; };
+    // 該当物件の行だけを消す（シート全体の書き直しはしない）
     [SHEETS.FACILITIES, SHEETS.STATIONS, SHEETS.ACCESS, SHEETS.OUTPUT].forEach(function (name) {
-      replacePropertyRows_(name, id, [], none, []);
+      deletePropertyRows_(name, id);
     });
     sheet_(SHEETS.PROPERTIES).deleteRow(p._row);
     var trashed = false;
@@ -4094,6 +4120,17 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
 
   function startMap() {
     var id = S.id;
+    // 位置が保存済みなら、通信を待たずにすぐ地図を出す
+    var pr = S.data &amp;&amp; S.data.prop, lat0 = pr &amp;&amp; n(pr['起点緯度']), lng0 = pr &amp;&amp; n(pr['起点経度']);
+    if (lat0 != null &amp;&amp; lng0 != null) {
+      var w0 = [];
+      if (pr['Geocode種別'] &amp;&amp; pr['Geocode種別'] !== 'ROOFTOP') w0.push('住所から求めた位置の精度が建物単位ではありません（' + pr['Geocode種別'] + '）');
+      if (pr['Geocode部分一致']) w0.push('住所の一部だけが一致しました');
+      S.map = { lat: lat0, lng: lng0, pinLat: lat0, pinLng: lng0, zoom: useGmap() ? 19 : 18, warnings: w0, geocodedAddress: String(pr['Geocode住所'] || ''), loading: !useGmap() };
+      // 描画の途中で呼ばれるため、描き直しは次の瞬間に行う
+      setTimeout(function () { if (S.id !== id) return; if (useGmap()) renderWork(); else loadMapImage(lat0, lng0, 18); }, 0);
+      return;
+    }
     S.map = { loading: true, zoom: 18 };
     API.call('api_locate', id).then(function (loc) {
       if (S.id !== id) return;
@@ -4446,18 +4483,21 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
       case 'delete': S.confirmDelete = S.id; refreshHead(); break;
       case 'delete-no': S.confirmDelete = ''; refreshHead(); break;
       case 'delete-yes':
-        var delId = S.id;
-        t.disabled = true; t.textContent = '削除しています…';
-        showBusy('物件を削除しています…');
+        // 画面からはすぐに消し、削除処理は裏で行う（失敗したら一覧に戻す）
+        var delId = S.id, delItem = S.list.filter(function (x) { return x.id === delId; })[0], delIndex = S.list.indexOf(delItem), delData = S.cache[delId];
+        delete S.cache[delId];
+        S.list = S.list.filter(function (x) { return x.id !== delId; });
+        S.id = null; S.data = null; S.map = null; S.confirmDelete = '';
+        renderList();
+        if (S.list[0]) openProperty(S.list[0].id); else renderWork();
+        toast('削除しています…');
         API.call('api_deleteProperty', delId).then(function (r) {
-          hideBusy();
-          delete S.cache[delId];
-          S.list = S.list.filter(function (x) { return x.id !== delId; });
-          S.id = null; S.data = null; S.confirmDelete = '';
           toast('削除しました' + (r &amp;&amp; r.trashedPdf ? '（マイソクPDFはGoogleドライブのゴミ箱にあります）' : ''));
-          renderList();
-          if (S.list[0]) openProperty(S.list[0].id); else renderWork();
-        }).catch(function (e) { hideBusy(); toast('削除できませんでした：' + errorText(e)); S.confirmDelete = ''; refreshHead(); });
+          saveSnapshot({ list: S.list, details: S.cache });
+        }).catch(function (e) {
+          toast('削除できませんでした：' + errorText(e));
+          if (delItem) { S.list.splice(Math.max(0, delIndex), 0, delItem); if (delData) S.cache[delId] = delData; renderList(); }
+        });
         break;
     }
   });

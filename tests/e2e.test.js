@@ -21,6 +21,7 @@ function makeSheet(name) {
     getRange: (r, c, nr = 1, nc = 1) => makeRange(sh, r, c, nr, nc),
     appendRow: (vals) => { data[sh.getLastRow()] = vals.slice(); },
     deleteRow: (r) => { data.splice(r - 1, 1); },
+    deleteRows: (r, n) => { data.splice(r - 1, n); },
     clearContents: () => { data.length = 0; return sh; },
     setFrozenRows: () => {}
   };
