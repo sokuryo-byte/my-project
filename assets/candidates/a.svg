@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect x="8" y="8" width="240" height="240" rx="60" fill="#FFE9A8"/>
+  <!-- ねこ -->
+  <path d="M60 104 L66 46 L108 78 Z" fill="#F4A259" stroke="#5B3A29" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M168 104 L162 46 L120 78 Z" fill="#F4A259" stroke="#5B3A29" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M72 62 L76 88 L94 76 Z" fill="#FFC9C9"/><path d="M156 62 L152 88 L134 76 Z" fill="#FFC9C9"/>
+  <ellipse cx="114" cy="132" rx="72" ry="64" fill="#F4A259" stroke="#5B3A29" stroke-width="6"/>
+  <ellipse cx="114" cy="152" rx="40" ry="30" fill="#FFF3E0"/>
+  <path d="M100 70 Q114 82 128 70" fill="none" stroke="#D9822B" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="88" cy="128" r="9" fill="#3B2418"/><circle cx="140" cy="128" r="9" fill="#3B2418"/>
+  <circle cx="91" cy="124" r="3" fill="#fff"/><circle cx="143" cy="124" r="3" fill="#fff"/>
+  <path d="M108 146 L120 146 L114 153 Z" fill="#E86A7A"/>
+  <path d="M114 153 Q106 163 98 157 M114 153 Q122 163 130 157" fill="none" stroke="#5B3A29" stroke-width="4" stroke-linecap="round"/>
+  <ellipse cx="72" cy="150" rx="10" ry="6" fill="#FF9AA8" opacity=".8"/><ellipse cx="156" cy="150" rx="10" ry="6" fill="#FF9AA8" opacity=".8"/>
+  <!-- 虫めがね -->
+  <line x1="196" y1="196" x2="226" y2="226" stroke="#5B3A29" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="178" cy="178" r="34" fill="#CFF1FF" fill-opacity=".85" stroke="#5B3A29" stroke-width="9"/>
+  <path d="M162 166 Q168 156 180 154" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+  <!-- 前足 -->
+  <ellipse cx="160" cy="206" rx="16" ry="12" fill="#F4A259" stroke="#5B3A29" stroke-width="5"/>
+</svg>
