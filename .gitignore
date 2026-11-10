@@ -2,3 +2,4 @@
 .clasprc.json
 node_modules/
 dist/deploy.json
+dist/apikeys-*.txt
