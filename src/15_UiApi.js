@@ -16,11 +16,15 @@ function menuOpenApp() {
  * ウェブアプリとして開く（ブラウザのタブ全体を使える。推奨）。
  * ?api=… のときはウェルモ自動入力（Tampermonkey）向けのJSONを返す。
  */
+// タブとデスクトップのショートカットに出るアイコン（リポジトリの assets/icon-256.png を固定版で配信）
+var APP_ICON_URL = 'https://cdn.jsdelivr.net/gh/sokuryo-byte/my-project@7b0a98bb3d3292f486dff5eb6173166ad88af39d/assets/icon-256.png';
+
 function doGet(e) {
   var api = e && e.parameter ? e.parameter.api : '';
   if (api) return wellmoApi_(api, e.parameter);
   return HtmlService.createHtmlOutputFromFile('App')
     .setTitle(APP_TITLE)
+    .setFaviconUrl(APP_ICON_URL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
