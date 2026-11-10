@@ -88,12 +88,16 @@ function stageOf_(p, hasResults, pending) {
 }
 
 /** 物件IDが空の行に採番する */
+/** IDのない行にIDを振る。振り直しがなければ読んだ表をそのまま返す（読み直しを省く） */
 function ensureIds_() {
-  readTable_(SHEETS.PROPERTIES).rows.forEach(function (p) {
+  var t = readTable_(SHEETS.PROPERTIES), changed = false;
+  t.rows.forEach(function (p) {
     if (!String(p['物件ID'] || '').trim() && (p['住所'] || p['マイソクPDF'] || p['建物名'] || p['物件名'])) {
       updateRow_(SHEETS.PROPERTIES, p._row, { '物件ID': 'P' + ('0000' + p._row).slice(-5) });
+      changed = true;
     }
   });
+  return changed ? readTable_(SHEETS.PROPERTIES) : t;
 }
 
 /**
@@ -170,8 +174,7 @@ function migrate_() {
  */
 function api_bootstrap() {
   migrate_();
-  ensureIds_();
-  var props = readTable_(SHEETS.PROPERTIES).rows.filter(function (p) { return String(p['物件ID'] || '').trim(); });
+  var props = ensureIds_().rows.filter(function (p) { return String(p['物件ID'] || '').trim(); });
   var group = function (name) {
     var m = {};
     readTable_(name).rows.forEach(function (r) { var k = String(r['物件ID']); (m[k] = m[k] || []).push(plainRow_(r)); });

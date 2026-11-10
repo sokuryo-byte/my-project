@@ -338,9 +338,9 @@ details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700
         </div>
         <div id="manual-add"></div>
       </div>
-      <div class="queue-body"><ul class="queue-list" id="q-list"></ul></div>
+      <div class="queue-body"><ul class="queue-list" id="q-list"><li class="q-empty">物件一覧を読み込んでいます…</li></ul></div>
     </aside>
-    <main class="work" id="work" aria-live="polite"></main>
+    <main class="work" id="work" aria-live="polite"><div class="work-scroll"><div class="work-inner"><div class="card"><div class="card-body"><div class="progress" role="progressbar" aria-label="読み込み中"><i></i></div><p class="help" style="margin:0">スプレッドシートから物件の情報を読み込んでいます。数秒かかります…</p></div></div></div></div></main>
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
@@ -2105,8 +2105,48 @@ function buildWellmoData_(prop, out, stRows) {
 
   /* ================= 物件一覧 ================= */
   /* 一覧と全物件の詳細を1回の通信でまとめて読む（以降のクリックはすぐ表示） */
+  /* 前回読み込んだ内容をこの端末に控えておき、次に開いたときはまずそれを表示する（その後すぐ最新に置き換える） */
+  var SNAP_KEY = 'surveyBootstrap_v1';
+  function saveSnapshot(r) {
+    try { var s = JSON.stringify(r); if (s.length < 2000000) localStorage.setItem(SNAP_KEY, s); } catch (e) { /* 保存できなくても動作には影響しない */ }
+  }
+  function loadSnapshot() {
+    try { var s = localStorage.getItem(SNAP_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+  }
+  function applyBootstrap(r) {
+    S.list = r.list || [];
+    Object.keys(r.details || {}).forEach(function (k) { S.cache[k] = r.details[k]; });
+  }
+  function firstLoad() {
+    var snap = window.DEMO_BACKEND ? null : loadSnapshot();
+    if (!snap || !snap.list || !snap.list.length) return loadList();
+    applyBootstrap(snap);
+    renderList();
+    var target = S.list[0].id;
+    if (target) openProperty(target);
+    showBusy('最新の内容に更新しています…');
+    return API.call('api_bootstrap').then(function (r) {
+      hideBusy();
+      saveSnapshot(r);
+      var editsBefore = S.edits;
+      S.list = r.list || [];
+      Object.keys(r.details || {}).forEach(function (k) {
+        // 表示中の物件を画面で変更していたら、その物件だけは上書きしない
+        if (k === S.id && (S.edits !== editsBefore || editing())) return;
+        S.cache[k] = r.details[k];
+      });
+      renderList();
+      if (S.id && S.cache[S.id] && S.data && JSON.stringify(S.cache[S.id]) !== JSON.stringify(S.data) && !editing()) {
+        S.data = S.cache[S.id]; renderWork();
+      } else if (S.id && !S.cache[S.id]) {
+        S.id = null; S.data = null; if (S.list[0]) openProperty(S.list[0].id); else renderWork();
+      }
+      if (r.status && !r.status.hasApiKey) $('setup-band').hidden = false;
+    }).catch(function () { hideBusy(); });
+  }
   function loadList(selectId) {
     return API.call('api_bootstrap').then(function (r) {
+      saveSnapshot(r);
       S.list = r.list || [];
       Object.keys(r.details || {}).forEach(function (k) { S.cache[k] = r.details[k]; });
       if (r.status && !r.status.hasApiKey) $('setup-band').hidden = false;
@@ -3024,6 +3064,6 @@ function buildWellmoData_(prop, out, stRows) {
       $('setup-band').hidden = true; toast('APIキーを登録しました');
     }).catch(function (e) { $('key-msg').textContent = errorText(e); });
   });
-  loadList();
+  firstLoad();
 })();
 </script>

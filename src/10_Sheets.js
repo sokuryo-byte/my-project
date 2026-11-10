@@ -6,12 +6,15 @@
 var SCRIPT_PROP_SHEET_ID = 'SPREADSHEET_ID';
 
 /** 対象のスプレッドシート（ウェブアプリから呼ばれた場合は初期セットアップ時に記録したIDで開く） */
+// openById は1回あたり数百ミリ秒かかるため、1回の実行の中では使い回す
+var ss_cached_ = null;
 function ss_() {
+  if (ss_cached_) return ss_cached_;
   var active = SpreadsheetApp.getActiveSpreadsheet();
-  if (active) return active;
+  if (active) return (ss_cached_ = active);
   var id = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROP_SHEET_ID) || BOOTSTRAP.spreadsheetId;
   if (!id) throw new Error('スプレッドシートが特定できません。スプレッドシートのメニューから「初期セットアップ」を実行してください。');
-  return SpreadsheetApp.openById(id);
+  return (ss_cached_ = SpreadsheetApp.openById(id));
 }
 
 function ensureSheet_(name) {
