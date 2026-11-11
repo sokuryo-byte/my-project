@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#E53935"/>
+  <!-- 鍵（頭がおうち） -->
+  <path d="M60 104 L112 58 L164 104 V150 Q164 162 152 162 H72 Q60 162 60 150 Z" fill="#FFD54F" stroke="#fff" stroke-width="7" stroke-linejoin="round"/>
+  <circle cx="96" cy="118" r="5" fill="#5D4037"/><circle cx="128" cy="118" r="5" fill="#5D4037"/>
+  <path d="M102 132 Q112 141 122 132" fill="none" stroke="#5D4037" stroke-width="4.5" stroke-linecap="round"/>
+  <ellipse cx="84" cy="134" rx="7" ry="4.5" fill="#FF8A80"/><ellipse cx="140" cy="134" rx="7" ry="4.5" fill="#FF8A80"/>
+  <rect x="100" y="160" width="24" height="56" rx="6" fill="#FFD54F" stroke="#fff" stroke-width="6"/>
+  <rect x="122" y="186" width="18" height="10" rx="3" fill="#fff"/><rect x="122" y="202" width="12" height="10" rx="3" fill="#fff"/>
+  <!-- タグ -->
+  <path d="M150 150 L230 150 L230 196 L150 196 L136 173 Z" fill="#fff"/>
+  <circle cx="152" cy="173" r="5" fill="#E53935"/>
+  <text x="192" y="169" text-anchor="middle" fill="#B71C1C" style="font-family:'IPAPGothic','IPAGothic',sans-serif;font-weight:bold;font-size:17px">マンスリー</text>
+  <text x="192" y="190" text-anchor="middle" fill="#B71C1C" style="font-family:'IPAPGothic','IPAGothic',sans-serif;font-weight:bold;font-size:17px">登録</text>
+  <text x="30" y="60" fill="#fff" style="font-family:'IPAPGothic','IPAGothic',sans-serif;font-weight:bold;font-size:20px">Familia</text>
+</svg>
