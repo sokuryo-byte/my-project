@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#E53935"/>
+  <path d="M28 104 L84 54 L140 104 V156 Q140 168 128 168 H40 Q28 168 28 156 Z" fill="#FFD54F" stroke="#fff" stroke-width="8" stroke-linejoin="round"/>
+  <circle cx="66" cy="120" r="6" fill="#5D4037"/><circle cx="102" cy="120" r="6" fill="#5D4037"/>
+  <path d="M72 136 Q84 146 96 136" fill="none" stroke="#5D4037" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="52" cy="138" rx="8" ry="5" fill="#FF8A80"/><ellipse cx="116" cy="138" rx="8" ry="5" fill="#FF8A80"/>
+  <rect x="70" y="166" width="28" height="60" rx="7" fill="#FFD54F" stroke="#fff" stroke-width="7"/>
+  <rect x="96" y="192" width="20" height="11" rx="3" fill="#fff"/><rect x="96" y="208" width="13" height="11" rx="3" fill="#fff"/>
+  <path d="M138 96 L226 96 L226 196 L138 196 L120 146 Z" fill="#fff"/>
+  <circle cx="140" cy="146" r="7" fill="#E53935"/>
+  <text x="188" y="178" text-anchor="middle" fill="#C62828" style="font-family:'IPAPGothic','IPAGothic',sans-serif;font-weight:bold;font-size:82px">月</text>
+</svg>
