@@ -17,7 +17,7 @@ function menuOpenApp() {
  * ?api=… のときはウェルモ自動入力（Tampermonkey）向けのJSONを返す。
  */
 // タブとデスクトップのショートカットに出るアイコン（リポジトリの assets/icon-256.png を固定版で配信）
-var APP_ICON_URL = '';  // アイコン決定後に設定（候補は assets/candidates）
+var APP_ICON_URL = 'https://cdn.jsdelivr.net/gh/sokuryo-byte/my-project@1fbe64a16947958362597c0fbdc410c35690da18/assets/icon-256.png';
 
 function doGet(e) {
   var api = e && e.parameter ? e.parameter.api : '';
