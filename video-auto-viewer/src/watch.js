@@ -25,6 +25,7 @@ const { values: opts } = parseArgs({
     video: { type: 'string' },
     'max-minutes': { type: 'string', default: '40' },
     'dry-run': { type: 'boolean', default: false },
+    'continue-on-error': { type: 'boolean', default: false },
     headed: { type: 'boolean', default: false },
     help: { type: 'boolean', default: false },
   },
@@ -41,6 +42,7 @@ if (opts.help) {
   --video 文字列      タイトルにこの文字列を含む動画だけを対象にする
   --max-minutes N    これより長い動画はスキップ（既定 40 分）
   --dry-run          80%到達まで確認し、「視聴登録する」は押さない
+  --continue-on-error 失敗しても止めずに次の動画へ進む（既定は失敗した時点で停止）
   --headed           ブラウザ画面を表示して実行`);
   process.exit(0);
 }
@@ -232,6 +234,15 @@ try {
       await page.screenshot({ path: path.join(runDir, `${results.length + 1}-error.png`), fullPage: true }).catch(() => {});
       results.push({ title: target.title, error: e.message });
       exitCode = 1;
+      saveReport();
+      if (!opts['continue-on-error']) {
+        log('失敗したため停止します。（続けて次の動画へ進むには --continue-on-error）');
+        if (opts.headed) {
+          log('ブラウザは確認用に開いたままです。終了するには Ctrl+C を押してください。');
+          await new Promise(() => {});
+        }
+        break;
+      }
       // 一覧へ戻って次の動画へ
       await page.goto(APP_URL);
       await page.locator('.monthly-card').waitFor({ timeout: 30_000 });
